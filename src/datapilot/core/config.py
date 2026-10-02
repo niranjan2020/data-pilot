@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     )
     database_pool_size: int = Field(default=5, description="Connection pool size for database connections")
     database_query_timeout_seconds: float = Field(default=30.0, description="Default timeout for query execution")
+    metadata_database_url: Optional[str] = Field(
+        default=None,
+        description="Optional PostgreSQL URL for the Data Pilot metadata catalog; defaults to the primary database when omitted",
+    )
+    metadata_database_pool_size: int = Field(default=3, description="Metadata catalog connection pool size")
 
     # LLM Provider Configuration (Pluggable)
     default_llm_provider: str = Field(
