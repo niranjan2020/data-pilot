@@ -51,6 +51,7 @@ class SchemaMetadata(BaseModel):
     """Aggregated schema catalog containing tables, relationships, and engine dialect."""
 
     tables: List[TableMetadata] = Field(default_factory=list, description="List of tables in this schema")
+    schema_name: Optional[str] = Field(default=None, description="Database schema/namespace represented by this catalog")
     dialect: str = Field(default="postgresql", description="Target SQL dialect, e.g. postgresql, mysql, snowflake")
     version: Optional[str] = Field(default=None, description="Optional schema snapshot or catalog version")
 
