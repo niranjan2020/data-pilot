@@ -25,7 +25,7 @@ Data Pilot is structured as a **Modular Monolith** adhering to Clean Architectur
 ┌─────────────┴─────────────┐             ┌─────────────┴─────────────┐
 │    Database Adapters      │             │       LLM Adapters        │
 │ (PostgreSQL, Snowflake)   │             │ (Gemini, OpenAI, Local)   │
-│       [PLANNED]           │             │        [PLANNED]          │
+│    PostgreSQL [DONE]      │             │        [PLANNED]          │
 └───────────────────────────┘             └───────────────────────────┘
 ```
 
@@ -50,7 +50,7 @@ Data Pilot is structured as a **Modular Monolith** adhering to Clean Architectur
 - **Test Suite:** Initial pytest unit and integration tests.
 
 ### Planned for Future Phases (Not Yet Implemented):
-- Concrete database adapters (PostgreSQL, MySQL, Snowflake, etc.)
+- Additional database adapters (MySQL, Snowflake, etc.)
 - Automatic schema discovery, introspection, and catalog persistence
 - Concrete LLM adapters (Google Gemini, OpenAI, Anthropic, Ollama/vLLM)
 - Natural language intent detection and semantic entity resolution
