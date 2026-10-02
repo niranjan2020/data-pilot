@@ -49,6 +49,7 @@ Data Pilot is structured as a **Modular Monolith** adhering to Clean Architectur
 - **Health Endpoints:** `/health` (liveness), `/health/ready` (readiness checking configuration presence), and `/info` (system metadata).
 - **Test Suite:** Initial pytest unit and integration tests.
 - **Schema Discovery:** Deterministic discovery service normalizes provider metadata, applies exclusions, and produces stable structural catalog versions.
+- **Metadata Catalog:** PostgreSQL-backed versioned catalog stores discovered schemas, tables, columns, relationships, and descriptions behind the `MetadataProvider` protocol.
 
 ### Planned for Future Phases (Not Yet Implemented):
 - Additional database adapters (MySQL, Snowflake, etc.)
