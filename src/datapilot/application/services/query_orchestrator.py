@@ -9,12 +9,15 @@ from datapilot.application.services.semantic_matcher import SemanticMatcher
 from datapilot.core.exceptions import SQLValidationError
 from datapilot.domain.interfaces.database import DatabaseProvider
 from datapilot.domain.interfaces.entity_resolver import EntityResolver
+from datapilot.domain.interfaces.query_policy import QueryPolicyEnforcer
 from datapilot.domain.interfaces.semantic import SemanticCatalogProvider
 from datapilot.domain.interfaces.sql_generator import SQLGenerator
 from datapilot.domain.interfaces.sql_validator import SQLValidator
 from datapilot.domain.models import SchemaMetadata
+from datapilot.domain.policies import QueryExecutionPolicy
 from datapilot.domain.query import AmbiguityCandidate, QueryRequest, QueryResponse
 from datapilot.domain.semantic import QueryIntent, SemanticCatalog
+from datapilot.infrastructure.sql.query_policy import SQLQueryPolicyEnforcer
 
 
 class QueryOrchestrator:
@@ -29,6 +32,8 @@ class QueryOrchestrator:
         *,
         semantic_matcher: Optional[SemanticMatcher] = None,
         entity_resolver: Optional[EntityResolver] = None,
+        query_policy_enforcer: Optional[QueryPolicyEnforcer] = None,
+        query_policy: Optional[QueryExecutionPolicy] = None,
         query_timeout_seconds: Optional[float] = None,
     ) -> None:
         self._database = database_provider
@@ -37,7 +42,12 @@ class QueryOrchestrator:
         self._semantic_catalog_provider = semantic_catalog_provider
         self._matcher = semantic_matcher or SemanticMatcher()
         self._entity_resolver = entity_resolver or DeterministicEntityResolver()
-        self._query_timeout_seconds = query_timeout_seconds
+        self._query_policy = query_policy or QueryExecutionPolicy()
+        if query_timeout_seconds is not None:
+            self._query_policy = self._query_policy.model_copy(
+                update={"timeout_seconds": query_timeout_seconds}
+            )
+        self._query_policy_enforcer = query_policy_enforcer or SQLQueryPolicyEnforcer()
 
     async def query(
         self,
@@ -62,7 +72,6 @@ class QueryOrchestrator:
             )
 
         parameters = self._merge_resolved_parameters(request.parameters, intent)
-
         match_result = self._matcher.match_templates(request.question, catalog)
 
         if match_result.is_ambiguous:
@@ -139,21 +148,32 @@ class QueryOrchestrator:
             )
 
         executable_sql = validation.sanitized_sql or sql
-        result = await self._database.execute_query(
+        policy_result = self._query_policy_enforcer.enforce(
             executable_sql,
-            timeout_seconds=self._query_timeout_seconds,
+            self._database.dialect,
+            self._query_policy,
+        )
+        if not policy_result.is_allowed:
+            raise SQLValidationError(
+                "SQL query failed execution policy",
+                details={"errors": policy_result.errors},
+            )
+
+        result = await self._database.execute_query(
+            policy_result.sql,
+            timeout_seconds=self._query_policy.timeout_seconds,
         )
 
         return QueryResponse(
             question=question,
             status="completed",
             source=source,
-            sql=executable_sql,
+            sql=policy_result.sql,
             result=result,
             confidence=confidence,
             matched_template=matched_template,
             resolved_intent=resolved_intent,
-            validation_warnings=validation.warnings,
+            validation_warnings=[*validation.warnings, *policy_result.warnings],
         )
 
     @staticmethod
@@ -161,10 +181,7 @@ class QueryOrchestrator:
         parameters: Dict[str, Any],
         intent: QueryIntent,
     ) -> Dict[str, Any]:
-        """Fill missing template parameters from deterministic semantic filters.
-
-        Explicit API parameters always win over inferred values.
-        """
+        """Fill missing template parameters from deterministic semantic filters."""
         merged = dict(parameters)
         for item in intent.filters:
             for key in (item.attribute, item.column_name):
@@ -173,10 +190,7 @@ class QueryOrchestrator:
         return merged
 
     @staticmethod
-    def _has_all_required_parameters(
-        required_parameters: list[str],
-        parameters: Dict[str, Any],
-    ) -> bool:
+    def _has_all_required_parameters(required_parameters: list[str], parameters: Dict[str, Any]) -> bool:
         return all(
             parameter in parameters
             and parameters[parameter] is not None
