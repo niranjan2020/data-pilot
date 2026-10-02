@@ -125,7 +125,7 @@ class PostgreSQLDatabaseProvider(DatabaseProvider):
             SELECT table_schema, table_name
             FROM information_schema.tables
             WHERE table_schema = %s
-              AND table_type = 'BASE TABLE'
+              AND table_type IN ('BASE TABLE', 'VIEW')
             ORDER BY table_name
         """
         column_sql = """
@@ -155,21 +155,32 @@ class PostgreSQLDatabaseProvider(DatabaseProvider):
         """
         fk_sql = """
             SELECT
-                tc.table_name AS table_name,
-                kcu.column_name AS constrained_column,
-                ccu.table_name AS referenced_table,
-                ccu.column_name AS referenced_column
-            FROM information_schema.table_constraints tc
-            JOIN information_schema.key_column_usage kcu
-              ON tc.constraint_name = kcu.constraint_name
-             AND tc.table_schema = kcu.table_schema
-             AND tc.table_name = kcu.table_name
-            JOIN information_schema.constraint_column_usage ccu
-              ON ccu.constraint_name = tc.constraint_name
-             AND ccu.constraint_schema = tc.constraint_schema
-            WHERE tc.constraint_type = 'FOREIGN KEY'
-              AND tc.table_schema = %s
-            ORDER BY tc.table_name, kcu.column_name
+                source_cls.relname AS table_name,
+                source_att.attname AS constrained_column,
+                target_cls.relname AS referenced_table,
+                target_att.attname AS referenced_column
+            FROM pg_constraint con
+            JOIN pg_class source_cls
+              ON source_cls.oid = con.conrelid
+            JOIN pg_namespace source_ns
+              ON source_ns.oid = source_cls.relnamespace
+            JOIN pg_class target_cls
+              ON target_cls.oid = con.confrelid
+            JOIN pg_namespace target_ns
+              ON target_ns.oid = target_cls.relnamespace
+            JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS source_cols(attnum, position)
+              ON TRUE
+            JOIN LATERAL unnest(con.confkey) WITH ORDINALITY AS target_cols(attnum, position)
+              ON target_cols.position = source_cols.position
+            JOIN pg_attribute source_att
+              ON source_att.attrelid = source_cls.oid
+             AND source_att.attnum = source_cols.attnum
+            JOIN pg_attribute target_att
+              ON target_att.attrelid = target_cls.oid
+             AND target_att.attnum = target_cols.attnum
+            WHERE con.contype = 'f'
+              AND source_ns.nspname = %s
+            ORDER BY source_cls.relname, source_cols.position
         """
 
         try:
