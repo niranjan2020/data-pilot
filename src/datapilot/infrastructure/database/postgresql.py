@@ -118,6 +118,31 @@ class PostgreSQLDatabaseProvider(DatabaseProvider):
         except Exception:
             return False
 
+    async def list_schemas(self) -> list[str]:
+        """List user schemas while excluding PostgreSQL system namespaces."""
+        sql = """
+            SELECT schema_name
+            FROM information_schema.schemata
+            WHERE schema_name NOT IN ('pg_catalog', 'information_schema')
+              AND schema_name NOT LIKE 'pg_toast%'
+              AND schema_name NOT LIKE 'pg_temp_%'
+            ORDER BY schema_name
+        """
+        try:
+            pool = await self._get_pool()
+            async with pool.connection() as connection:
+                async with connection.cursor() as cursor:
+                    await cursor.execute(sql)
+                    rows = await cursor.fetchall()
+                    return [row[0] for row in rows]
+        except DatabaseConnectionError:
+            raise
+        except Exception as exc:
+            raise DatabaseExecutionError(
+                "Failed to list PostgreSQL schemas",
+                details={"error_type": type(exc).__name__},
+            ) from exc
+
     async def introspect_schema(self, schema_name: Optional[str] = None) -> SchemaMetadata:
         schema = schema_name or "public"
 
