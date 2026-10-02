@@ -17,6 +17,16 @@ class AttributeRequest(BaseModel):
     synonyms:list[str]=Field(default_factory=list)
     operators:list[str]=Field(default_factory=lambda:["="])
 
+class RelationshipRequest(BaseModel):
+    source_name:str=Field(min_length=1)
+    name:str=Field(min_length=1)
+    from_entity_id:int
+    from_column:str=Field(min_length=1)
+    to_entity_id:int
+    to_column:str=Field(min_length=1)
+    cardinality:str=Field(pattern="^(one-to-one|one-to-many|many-to-one|many-to-many)$")
+    description:Optional[str]=None
+
 class EntityRequest(BaseModel):
     source_name:str=Field(min_length=1)
     name:str=Field(min_length=1)
@@ -41,7 +51,8 @@ async def semantic_catalog(source_name:str):
         source_id=await p.get_data_source_id(source_name)
         if source_id is None: raise HTTPException(404,"Data source not found. Discover it first.")
         return {"source_name":source_name,"tables":await p.list_catalog_tables(source_id),
-                "entities":await p.list_semantic_entities(source_id)}
+                "entities":await p.list_semantic_entities(source_id),
+                "relationships":await p.list_semantic_relationships(source_id)}
     finally: await p.close()
 
 @router.post("/entities")
@@ -56,4 +67,18 @@ async def save_entity(payload:EntityRequest):
             key_column=payload.key_column,display_column=payload.display_column,
             synonyms=payload.synonyms,attributes=[a.model_dump() for a in payload.attributes])
         return {"id":entity_id,"message":"Semantic entity saved"}
+    finally: await p.close()
+
+@router.post("/relationships")
+async def save_relationship(payload:RelationshipRequest):
+    p=provider()
+    try:
+        source_id=await p.get_data_source_id(payload.source_name)
+        if source_id is None: raise HTTPException(404,"Data source not found. Discover it first.")
+        relationship_id=await p.save_semantic_relationship(
+            data_source_id=source_id,name=payload.name,
+            from_entity_id=payload.from_entity_id,from_column=payload.from_column,
+            to_entity_id=payload.to_entity_id,to_column=payload.to_column,
+            cardinality=payload.cardinality,description=payload.description)
+        return {"id":relationship_id,"message":"Semantic relationship saved"}
     finally: await p.close()
