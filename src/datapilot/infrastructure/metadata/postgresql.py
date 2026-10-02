@@ -154,6 +154,28 @@ CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_metric_synonyms (
     synonym TEXT NOT NULL,
     PRIMARY KEY (metric_id, synonym)
 );
+
+CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_business_rules (
+    id BIGSERIAL PRIMARY KEY,
+    data_source_id BIGINT NOT NULL REFERENCES datapilot_catalog.data_sources(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    rule_type TEXT NOT NULL,
+    entity_id BIGINT REFERENCES datapilot_catalog.semantic_entities(id) ON DELETE CASCADE,
+    metric_id BIGINT REFERENCES datapilot_catalog.semantic_metrics(id) ON DELETE CASCADE,
+    priority INTEGER NOT NULL DEFAULT 100,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (data_source_id, name),
+    CHECK (entity_id IS NOT NULL OR metric_id IS NOT NULL)
+);
+
+CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_business_rule_keywords (
+    rule_id BIGINT NOT NULL REFERENCES datapilot_catalog.semantic_business_rules(id) ON DELETE CASCADE,
+    keyword TEXT NOT NULL,
+    PRIMARY KEY (rule_id, keyword)
+);
 """
 
 
@@ -584,6 +606,87 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                     "attribute_name": row[5], "aggregation": row[6],
                     "format": row[7], "synonyms": row[8] or [],
                 } for row in await cursor.fetchall()]
+
+    async def save_business_rule(
+        self, *, data_source_id: int, name: str, description: str,
+        rule_type: str, entity_id: Optional[int], metric_id: Optional[int],
+        priority: int, enabled: bool, keywords: list[str],
+    ) -> int:
+        await self.initialize()
+        allowed = {"definition", "filter", "calculation", "interpretation"}
+        if rule_type not in allowed:
+            raise MetadataError("Unsupported business rule type")
+        if entity_id is None and metric_id is None:
+            raise MetadataError("Business rule must target an entity or metric")
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.transaction():
+                async with connection.cursor() as cursor:
+                    if entity_id is not None:
+                        await cursor.execute(
+                            "SELECT 1 FROM datapilot_catalog.semantic_entities WHERE id=%s AND data_source_id=%s",
+                            (entity_id, data_source_id),
+                        )
+                        if await cursor.fetchone() is None:
+                            raise MetadataError("Business rule entity does not belong to the selected data source")
+                    if metric_id is not None:
+                        await cursor.execute(
+                            "SELECT 1 FROM datapilot_catalog.semantic_metrics WHERE id=%s AND data_source_id=%s",
+                            (metric_id, data_source_id),
+                        )
+                        if await cursor.fetchone() is None:
+                            raise MetadataError("Business rule metric does not belong to the selected data source")
+                    await cursor.execute(
+                        """
+                        INSERT INTO datapilot_catalog.semantic_business_rules
+                            (data_source_id, name, description, rule_type, entity_id,
+                             metric_id, priority, enabled)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT (data_source_id, name) DO UPDATE SET
+                            description=EXCLUDED.description, rule_type=EXCLUDED.rule_type,
+                            entity_id=EXCLUDED.entity_id, metric_id=EXCLUDED.metric_id,
+                            priority=EXCLUDED.priority, enabled=EXCLUDED.enabled,
+                            updated_at=NOW()
+                        RETURNING id
+                        """,
+                        (data_source_id,name,description,rule_type,entity_id,metric_id,priority,enabled),
+                    )
+                    rule_id=(await cursor.fetchone())[0]
+                    await cursor.execute(
+                        "DELETE FROM datapilot_catalog.semantic_business_rule_keywords WHERE rule_id=%s",
+                        (rule_id,),
+                    )
+                    for keyword in sorted({k.strip() for k in keywords if k.strip()}):
+                        await cursor.execute(
+                            "INSERT INTO datapilot_catalog.semantic_business_rule_keywords (rule_id,keyword) VALUES (%s,%s)",
+                            (rule_id,keyword),
+                        )
+                    return rule_id
+
+    async def list_business_rules(self, data_source_id: int) -> list[dict]:
+        await self.initialize()
+        pool=await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    SELECT r.id,r.name,r.description,r.rule_type,r.entity_id,e.name,
+                           r.metric_id,m.name,r.priority,r.enabled,
+                           COALESCE((SELECT jsonb_agg(k.keyword ORDER BY k.keyword)
+                             FROM datapilot_catalog.semantic_business_rule_keywords k
+                             WHERE k.rule_id=r.id),'[]'::jsonb)
+                    FROM datapilot_catalog.semantic_business_rules r
+                    LEFT JOIN datapilot_catalog.semantic_entities e ON e.id=r.entity_id
+                    LEFT JOIN datapilot_catalog.semantic_metrics m ON m.id=r.metric_id
+                    WHERE r.data_source_id=%s ORDER BY r.priority,r.name
+                    """,
+                    (data_source_id,),
+                )
+                return [{
+                    "id":x[0],"name":x[1],"description":x[2],"rule_type":x[3],
+                    "entity_id":x[4],"entity_name":x[5],"metric_id":x[6],"metric_name":x[7],
+                    "priority":x[8],"enabled":x[9],"keywords":x[10] or [],
+                } for x in await cursor.fetchall()]
 
     @staticmethod
     def _schema_name(schema: SchemaMetadata) -> str:
