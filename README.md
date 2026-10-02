@@ -118,9 +118,7 @@ data-pilot/
 - PostgreSQL database provider with pooled connections, schema introspection, and preliminary read-only execution boundary
 
 ### Next / Planned:
-- Metadata and catalog persistence
-- Schema discovery and reflection
-- Metadata and catalog persistence
+- Provider-level schema discovery service and catalog persistence
 - SQL safety and AST validation implementation
 - LLM provider integration (Google Gemini adapter)
 - Semantic layer (templates, business rules, entity resolution)
