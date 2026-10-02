@@ -235,6 +235,7 @@ class PostgreSQLDatabaseProvider(DatabaseProvider):
             )
 
         return SchemaMetadata(
+            schema_name=schema,
             tables=list(tables.values()),
             dialect=self.dialect,
         )
