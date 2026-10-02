@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS datapilot_catalog.data_sources (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS datapilot_catalog.schema_snapshots (
+ALTER TABLE IF EXISTS datapilot_catalog.schema_snapshots ADD COLUMN IF NOT EXISTS data_source_id BIGINT REFERENCES datapilot_catalog.data_sources(id) ON DELETE CASCADE;\n\nCREATE TABLE IF NOT EXISTS datapilot_catalog.schema_snapshots (
     id BIGSERIAL PRIMARY KEY,
     data_source_id BIGINT REFERENCES datapilot_catalog.data_sources(id) ON DELETE CASCADE,
     schema_name TEXT NOT NULL,
