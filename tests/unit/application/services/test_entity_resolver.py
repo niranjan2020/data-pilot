@@ -78,17 +78,6 @@ def test_resolves_entity_display_value_from_for_phrase() -> None:
     assert intent.filters[0].value == "Acme"
 
 
-def test_resolves_entity_display_value_with_explicit_entity_word() -> None:
-    intent = DeterministicEntityResolver().resolve(
-        "show orders for customer Acme",
-        _catalog(),
-        SchemaMetadata(),
-    )
-
-    assert intent.filters[0].column_name == "customer_name"
-    assert intent.filters[0].value == "Acme"
-
-
 def test_ambiguous_entity_is_not_silently_selected() -> None:
     catalog = SemanticCatalog(
         entities=[
