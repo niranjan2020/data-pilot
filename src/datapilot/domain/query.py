@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from datapilot.domain.semantic import QueryIntent
+
 
 class QueryRequest(BaseModel):
     """A user question plus optional explicit parameters."""
@@ -41,5 +43,7 @@ class QueryResponse(BaseModel):
     confidence: float = 0.0
     matched_template: Optional[str] = None
     ambiguity_candidates: List[AmbiguityCandidate] = Field(default_factory=list)
+    semantic_ambiguities: List[str] = Field(default_factory=list)
+    resolved_intent: Optional[QueryIntent] = None
     validation_warnings: List[str] = Field(default_factory=list)
     message: Optional[str] = None
