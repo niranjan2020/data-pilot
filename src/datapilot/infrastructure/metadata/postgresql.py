@@ -119,6 +119,21 @@ CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_attribute_synonyms (
     synonym TEXT NOT NULL,
     PRIMARY KEY (attribute_id, synonym)
 );
+
+CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_relationships (
+    id BIGSERIAL PRIMARY KEY,
+    data_source_id BIGINT NOT NULL REFERENCES datapilot_catalog.data_sources(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    from_entity_id BIGINT NOT NULL REFERENCES datapilot_catalog.semantic_entities(id) ON DELETE CASCADE,
+    from_column TEXT NOT NULL,
+    to_entity_id BIGINT NOT NULL REFERENCES datapilot_catalog.semantic_entities(id) ON DELETE CASCADE,
+    to_column TEXT NOT NULL,
+    cardinality TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (data_source_id, name)
+);
 """
 
 
@@ -398,6 +413,75 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                         "attributes": attributes,
                     })
                 return entities
+
+    async def save_semantic_relationship(
+        self, *, data_source_id: int, name: str, from_entity_id: int,
+        from_column: str, to_entity_id: int, to_column: str,
+        cardinality: str, description: Optional[str],
+    ) -> int:
+        await self.initialize()
+        if from_entity_id == to_entity_id:
+            raise MetadataError("A semantic relationship must connect two different entities")
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.transaction():
+                async with connection.cursor() as cursor:
+                    await cursor.execute(
+                        """
+                        SELECT COUNT(*) FROM datapilot_catalog.semantic_entities
+                        WHERE data_source_id = %s AND id = ANY(%s)
+                        """,
+                        (data_source_id, [from_entity_id, to_entity_id]),
+                    )
+                    if (await cursor.fetchone())[0] != 2:
+                        raise MetadataError("Relationship entities must belong to the selected data source")
+                    await cursor.execute(
+                        """
+                        INSERT INTO datapilot_catalog.semantic_relationships
+                            (data_source_id, name, from_entity_id, from_column,
+                             to_entity_id, to_column, cardinality, description)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (data_source_id, name) DO UPDATE SET
+                            from_entity_id = EXCLUDED.from_entity_id,
+                            from_column = EXCLUDED.from_column,
+                            to_entity_id = EXCLUDED.to_entity_id,
+                            to_column = EXCLUDED.to_column,
+                            cardinality = EXCLUDED.cardinality,
+                            description = EXCLUDED.description,
+                            updated_at = NOW()
+                        RETURNING id
+                        """,
+                        (data_source_id, name, from_entity_id, from_column,
+                         to_entity_id, to_column, cardinality, description),
+                    )
+                    return (await cursor.fetchone())[0]
+
+    async def list_semantic_relationships(self, data_source_id: int) -> list[dict]:
+        await self.initialize()
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    SELECT r.id, r.name, r.from_entity_id, fe.name, r.from_column,
+                           r.to_entity_id, te.name, r.to_column, r.cardinality,
+                           r.description
+                    FROM datapilot_catalog.semantic_relationships r
+                    JOIN datapilot_catalog.semantic_entities fe ON fe.id = r.from_entity_id
+                    JOIN datapilot_catalog.semantic_entities te ON te.id = r.to_entity_id
+                    WHERE r.data_source_id = %s
+                    ORDER BY r.name
+                    """,
+                    (data_source_id,),
+                )
+                return [{
+                    "id": row[0], "name": row[1],
+                    "from_entity_id": row[2], "from_entity_name": row[3],
+                    "from_column": row[4],
+                    "to_entity_id": row[5], "to_entity_name": row[6],
+                    "to_column": row[7], "cardinality": row[8],
+                    "description": row[9],
+                } for row in await cursor.fetchall()]
 
     @staticmethod
     def _schema_name(schema: SchemaMetadata) -> str:
