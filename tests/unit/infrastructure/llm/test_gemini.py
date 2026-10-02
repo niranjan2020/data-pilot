@@ -29,7 +29,7 @@ class Answer(BaseModel):
 
 
 @pytest.mark.asyncio
-async def test_message_conversion_preserves_roles() -> None:
+async def test_message_conversion_uses_native_system_instruction() -> None:
     try:
         provider = GeminiLLMProvider("test-key")
     except LLMError as exc:
@@ -37,13 +37,13 @@ async def test_message_conversion_preserves_roles() -> None:
             pytest.skip("google-genai is not installed")
         raise
 
-    contents = provider._to_contents([
+    system_instruction, contents = provider._split_messages([
         LLMMessage(role="system", content="You are Data Pilot."),
         LLMMessage(role="user", content="How many vessels?"),
         LLMMessage(role="assistant", content="I need schema."),
     ])
 
-    assert len(contents) == 3
+    assert system_instruction == "You are Data Pilot."
+    assert len(contents) == 2
     assert contents[0].role == "user"
-    assert contents[1].role == "user"
-    assert contents[2].role == "model"
+    assert contents[1].role == "model"
