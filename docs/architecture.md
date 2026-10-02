@@ -50,6 +50,7 @@ Data Pilot is structured as a **Modular Monolith** adhering to Clean Architectur
 - **Test Suite:** Initial pytest unit and integration tests.
 - **Schema Discovery:** Deterministic discovery service normalizes provider metadata, applies exclusions, and produces stable structural catalog versions.
 - **Metadata Catalog:** PostgreSQL-backed versioned catalog stores discovered schemas, tables, columns, relationships, and descriptions behind the `MetadataProvider` protocol.
+- **SQL Safety:** SQLGlot-based AST validation rejects multi-statement and mutating SQL before execution, while exposing affected tables and safety warnings.
 
 ### Planned for Future Phases (Not Yet Implemented):
 - Additional database adapters (MySQL, Snowflake, etc.)
@@ -58,7 +59,7 @@ Data Pilot is structured as a **Modular Monolith** adhering to Clean Architectur
 - Natural language intent detection and semantic entity resolution
 - Business template matching and rule evaluation
 - Dialect-specific SQL generation
-- AST parsing and SQL safety validation implementation
+- Additional SQL safety policies, resource controls, and database/provider-specific validation
 - Query execution and natural language result explanation
 - Frontend web interface
 - Containerization & Docker compose setup
