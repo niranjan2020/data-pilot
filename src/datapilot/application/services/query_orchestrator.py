@@ -5,43 +5,35 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from datapilot.application.services.semantic_matcher import SemanticMatcher
-from datapilot.core.exceptions import SQLGenerationError, SQLValidationError
+from datapilot.core.exceptions import SQLValidationError
 from datapilot.domain.interfaces.database import DatabaseProvider
-from datapilot.domain.interfaces.llm import LLMProvider
 from datapilot.domain.interfaces.semantic import SemanticCatalogProvider
+from datapilot.domain.interfaces.sql_generator import SQLGenerator
 from datapilot.domain.interfaces.sql_validator import SQLValidator
-from datapilot.domain.models import LLMMessage, QueryResult, SchemaMetadata
-from datapilot.domain.query import (
-    AmbiguityCandidate,
-    QueryRequest,
-    QueryResponse,
-    SQLGeneration,
-)
+from datapilot.domain.models import SchemaMetadata
+from datapilot.domain.query import AmbiguityCandidate, QueryRequest, QueryResponse
 from datapilot.domain.semantic import SemanticCatalog
 
 
 class QueryOrchestrator:
-    """Execute the complete core query workflow without exposing provider details.
-
-    Template execution is deliberately parameter-explicit. A template that declares
-    required parameters will not silently receive values guessed from free-form text.
-    Questions that need inference fall through to structured LLM SQL generation.
-    """
+    """Execute the core query workflow independently of any LLM vendor."""
 
     def __init__(
         self,
         database_provider: DatabaseProvider,
         sql_validator: SQLValidator,
-        llm_provider: LLMProvider,
+        sql_generator: SQLGenerator,
         semantic_catalog_provider: SemanticCatalogProvider,
         *,
         semantic_matcher: Optional[SemanticMatcher] = None,
+        query_timeout_seconds: Optional[float] = None,
     ) -> None:
         self._database = database_provider
         self._validator = sql_validator
-        self._llm = llm_provider
+        self._sql_generator = sql_generator
         self._semantic_catalog_provider = semantic_catalog_provider
         self._matcher = semantic_matcher or SemanticMatcher()
+        self._query_timeout_seconds = query_timeout_seconds
 
     async def query(
         self,
@@ -87,67 +79,21 @@ class QueryOrchestrator:
                     matched_template=template.name,
                 )
 
-        generated = await self._generate_sql(request.question, schema, catalog)
+        generated = await self._sql_generator.generate(
+            question=request.question,
+            schema=schema,
+            context={
+                "semantic_catalog": catalog.model_dump(mode="json"),
+                "parameters": request.parameters,
+            },
+            dialect=self._database.dialect,
+        )
         return await self._validate_and_execute(
             question=request.question,
-            sql=generated.sql,
+            sql=generated,
             source="llm",
             confidence=0.0,
             matched_template=None,
-            message=generated.explanation,
-        )
-
-    async def _generate_sql(
-        self,
-        question: str,
-        schema: SchemaMetadata,
-        catalog: SemanticCatalog,
-    ) -> SQLGeneration:
-        """Ask the LLM for structured SQL rather than free-form text."""
-        messages = [
-            LLMMessage(
-                role="system",
-                content=(
-                    "You are Data Pilot's SQL generation engine. "
-                    "Generate exactly one read-only SQL SELECT query for the supplied schema. "
-                    "Never generate INSERT, UPDATE, DELETE, DDL, transaction control, or multiple statements. "
-                    "Use only tables and columns present in the schema. "
-                    "Return only the requested structured response."
-                ),
-            ),
-            LLMMessage(
-                role="user",
-                content=self._build_generation_prompt(question, schema, catalog),
-            ),
-        ]
-        try:
-            return await self._llm.generate_structured(
-                messages,
-                SQLGeneration,
-                temperature=0.0,
-            )
-        except Exception as exc:
-            if isinstance(exc, SQLGenerationError):
-                raise
-            raise SQLGenerationError(
-                "Unable to generate SQL from the natural-language question",
-                details={"provider": self._llm.provider_name},
-            ) from exc
-
-    @staticmethod
-    def _build_generation_prompt(
-        question: str,
-        schema: SchemaMetadata,
-        catalog: SemanticCatalog,
-    ) -> str:
-        schema_payload = schema.model_dump_json(exclude_none=True)
-        semantic_payload = catalog.model_dump_json(exclude_none=True)
-        return (
-            f"User question:\n{question}\n\n"
-            f"Database dialect: {schema.dialect}\n"
-            f"Schema metadata:\n{schema_payload}\n\n"
-            f"Semantic catalog:\n{semantic_payload}\n\n"
-            "Generate the safest, simplest SQL that answers the question."
         )
 
     async def _validate_and_execute(
@@ -158,7 +104,6 @@ class QueryOrchestrator:
         source: str,
         confidence: float,
         matched_template: Optional[str],
-        message: Optional[str] = None,
     ) -> QueryResponse:
         validation = await self._validator.validate(
             sql,
@@ -172,7 +117,10 @@ class QueryOrchestrator:
             )
 
         executable_sql = validation.sanitized_sql or sql
-        result = await self._database.execute_query(executable_sql)
+        result = await self._database.execute_query(
+            executable_sql,
+            timeout_seconds=self._query_timeout_seconds,
+        )
 
         return QueryResponse(
             question=question,
@@ -183,7 +131,6 @@ class QueryOrchestrator:
             confidence=confidence,
             matched_template=matched_template,
             validation_warnings=validation.warnings,
-            message=message,
         )
 
     @staticmethod
@@ -200,17 +147,12 @@ class QueryOrchestrator:
 
     @staticmethod
     def _render_template(sql_template: str, parameters: Dict[str, Any]) -> str:
-        """Render named template placeholders with SQL-literal-safe values.
-
-        This is intentionally conservative. Values are never interpolated as raw
-        SQL identifiers or expressions; callers provide scalar parameter values only.
-        """
+        """Render named scalar placeholders with SQL-literal-safe values."""
         rendered = sql_template
         for name, value in parameters.items():
             placeholder = f"{{{{{name}}}}}"
-            if placeholder not in rendered:
-                continue
-            rendered = rendered.replace(placeholder, QueryOrchestrator._sql_literal(value))
+            if placeholder in rendered:
+                rendered = rendered.replace(placeholder, QueryOrchestrator._sql_literal(value))
         return rendered
 
     @staticmethod
@@ -221,5 +163,4 @@ class QueryOrchestrator:
             return str(value)
         if value is None:
             return "NULL"
-        text = str(value).replace("'", "''")
-        return f"'{text}'"
+        return f"'{str(value).replace(chr(39), chr(39) + chr(39))}'"
