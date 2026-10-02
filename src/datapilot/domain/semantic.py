@@ -2,10 +2,11 @@
 
 These models capture business meaning independently of any LLM vendor or
 database engine. They are the foundation for deterministic template matching,
-entity resolution, metric definitions, and ambiguity handling.
+entity/value resolution, metric definitions, and ambiguity handling.
 """
 
-from typing import Dict, List, Optional
+from typing import List, Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -19,6 +20,19 @@ class SemanticConcept(BaseModel):
     column_names: List[str] = Field(default_factory=list, description="Relevant catalog columns")
 
 
+class EntityAttributeDefinition(BaseModel):
+    """A semantic attribute that can be used to filter or resolve an entity."""
+
+    name: str = Field(description="Stable semantic attribute name")
+    description: Optional[str] = Field(default=None, description="Attribute meaning")
+    synonyms: List[str] = Field(default_factory=list)
+    column_name: str = Field(description="Canonical database column")
+    operators: List[str] = Field(
+        default_factory=lambda: ["="],
+        description="Allowed semantic operators for this attribute",
+    )
+
+
 class EntityDefinition(BaseModel):
     """Business entity and its canonical database representation."""
 
@@ -28,6 +42,10 @@ class EntityDefinition(BaseModel):
     table_name: str = Field(description="Canonical table containing the entity")
     key_column: str = Field(description="Canonical identifier column")
     display_column: Optional[str] = Field(default=None, description="Human-readable display column")
+    attributes: List[EntityAttributeDefinition] = Field(
+        default_factory=list,
+        description="Semantic attributes available for entity resolution and filtering",
+    )
 
 
 class MetricDefinition(BaseModel):
@@ -64,6 +82,37 @@ class QueryTemplate(BaseModel):
     optional_parameters: List[str] = Field(default_factory=list)
     priority: int = Field(default=100, ge=0)
     enabled: bool = True
+
+
+class ResolvedEntity(BaseModel):
+    """Entity selected from the semantic catalog for a user question."""
+
+    name: str
+    table_name: str
+    key_column: str
+    display_column: Optional[str] = None
+    confidence: float = 0.0
+    matched_terms: List[str] = Field(default_factory=list)
+
+
+class ResolvedFilter(BaseModel):
+    """A semantic filter resolved to a canonical database column and value."""
+
+    attribute: str
+    column_name: str
+    operator: str = "="
+    value: str
+    confidence: float = 0.0
+    source_text: Optional[str] = None
+
+
+class QueryIntent(BaseModel):
+    """Provider-independent semantic interpretation of a natural-language question."""
+
+    entity: Optional[ResolvedEntity] = None
+    filters: List[ResolvedFilter] = Field(default_factory=list)
+    confidence: float = 0.0
+    ambiguities: List[str] = Field(default_factory=list)
 
 
 class SemanticCatalog(BaseModel):
