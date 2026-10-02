@@ -1,0 +1,7 @@
+[
+  {"id":"customers-india","question":"Show customers from India","expected":{"tables":["customers"],"row_count":2}},
+  {"id":"enterprise-count","question":"How many enterprise customers do we have?","expected":{"tables":["customers"],"scalar":3}},
+  {"id":"acme-revenue","question":"What is the total order value for Acme Corp?","expected":{"tables":["customers","orders"],"scalar":6000.0}},
+  {"id":"revenue-country","question":"Show revenue by country","expected":{"tables":["customers","orders"],"rows":[["Germany",1000.0],["India",7000.0],["Singapore",5000.0],["United States",5000.0]]}},
+  {"id":"top-products","question":"Which products generated the most revenue?","expected":{"tables":["orders","products"],"rows":[["Analytics Pro",10000.0],["Edge Gateway",4000.0],["Data Connect",3000.0],["Support Plus",1000.0]]}}
+]
