@@ -118,9 +118,12 @@ data-pilot/
 - PostgreSQL database provider with pooled connections, schema introspection, and preliminary read-only execution boundary
 - Deterministic schema discovery service with filtering, normalization, stable catalog versioning, and optional metadata persistence
 - Versioned PostgreSQL metadata/catalog persistence adapter for schema, table, column, and foreign-key metadata
+- Semantic catalog models and deterministic template matching with explicit ambiguity detection
+- Google Gemini LLM provider adapter with structured Pydantic responses
 
 ### Next / Planned:
-- SQL safety and AST validation implementation
+- Semantic-aware NL-to-SQL orchestration
+- End-to-end API workflow and PostgreSQL test fixture
 - LLM provider integration (Google Gemini adapter)
 - Semantic layer (templates, business rules, entity resolution)
 - Natural-language-to-SQL orchestration engine
