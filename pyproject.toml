@@ -39,6 +39,7 @@ dependencies = [
     "pydantic-settings>=2.2.0",
     "sqlalchemy>=2.0.28",
     "sqlglot>=27.0.0",
+    "google-genai>=1.30.0",
     "psycopg[binary]>=3.2",
     "psycopg-pool>=3.2",
 ]
