@@ -22,7 +22,7 @@ Questions can then resolve into a provider-independent QueryIntent:
         -> entity = customer
         -> filter = segment = "enterprise"
 
-    show orders for customer Acme
+    show orders for Acme
         -> entity = order
         -> filter = customer_name = "Acme"
 
