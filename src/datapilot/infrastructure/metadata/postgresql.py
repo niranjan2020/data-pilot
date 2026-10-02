@@ -75,6 +75,45 @@ CREATE INDEX IF NOT EXISTS ix_datapilot_tables_snapshot
 
 CREATE INDEX IF NOT EXISTS ix_datapilot_columns_table
     ON datapilot_catalog.columns (table_id, column_name);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_datapilot_schema_source_version
+    ON datapilot_catalog.schema_snapshots (data_source_id, schema_name, version);
+
+CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_entities (
+    id BIGSERIAL PRIMARY KEY,
+    data_source_id BIGINT NOT NULL REFERENCES datapilot_catalog.data_sources(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT,
+    schema_name TEXT NOT NULL,
+    table_name TEXT NOT NULL,
+    key_column TEXT NOT NULL,
+    display_column TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (data_source_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_entity_synonyms (
+    entity_id BIGINT NOT NULL REFERENCES datapilot_catalog.semantic_entities(id) ON DELETE CASCADE,
+    synonym TEXT NOT NULL,
+    PRIMARY KEY (entity_id, synonym)
+);
+
+CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_attributes (
+    id BIGSERIAL PRIMARY KEY,
+    entity_id BIGINT NOT NULL REFERENCES datapilot_catalog.semantic_entities(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT,
+    column_name TEXT NOT NULL,
+    operators JSONB NOT NULL DEFAULT '["="]'::jsonb,
+    UNIQUE (entity_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_attribute_synonyms (
+    attribute_id BIGINT NOT NULL REFERENCES datapilot_catalog.semantic_attributes(id) ON DELETE CASCADE,
+    synonym TEXT NOT NULL,
+    PRIMARY KEY (attribute_id, synonym)
+);
 """
 
 
@@ -190,23 +229,23 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                                 await cursor.execute(statement)
                         await cursor.execute(
                             """
-                            INSERT INTO datapilot_catalog.schema_snapshots
-                                (data_source_id, schema_name, dialect, version)
-                            VALUES (%s, %s, %s, %s)
-                            ON CONFLICT (data_source_id, schema_name, version) DO NOTHING
-                            RETURNING id
+                            SELECT id FROM datapilot_catalog.schema_snapshots
+                            WHERE data_source_id IS NOT DISTINCT FROM %s
+                              AND schema_name = %s AND version = %s
+                            ORDER BY id DESC LIMIT 1
                             """,
-                            (data_source_id, schema_name, schema.dialect, schema.version),
+                            (data_source_id, schema_name, schema.version),
                         )
                         row = await cursor.fetchone()
                         if row is None:
                             await cursor.execute(
                                 """
-                                SELECT id FROM datapilot_catalog.schema_snapshots
-                                WHERE data_source_id IS NOT DISTINCT FROM %s
-                                  AND schema_name = %s AND version = %s
+                                INSERT INTO datapilot_catalog.schema_snapshots
+                                    (data_source_id, schema_name, dialect, version)
+                                VALUES (%s, %s, %s, %s)
+                                RETURNING id
                                 """,
-                                (data_source_id, schema_name, schema.version),
+                                (data_source_id, schema_name, schema.dialect, schema.version),
                             )
                             row = await cursor.fetchone()
                         snapshot_id = row[0]
