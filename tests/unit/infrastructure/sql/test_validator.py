@@ -64,7 +64,7 @@ async def test_multiple_statements_are_rejected(validator: SQLGlotValidator) -> 
 
 @pytest.mark.asyncio
 async def test_invalid_sql_is_rejected(validator: SQLGlotValidator) -> None:
-    result = await validator.validate("SELECT FROM")
+    result = await validator.validate("SELEC * FROM vessels")
 
     assert result.is_valid is False
     assert result.is_read_only is False
