@@ -190,9 +190,10 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                                 await cursor.execute(statement)
                         await cursor.execute(
                             """
-                            INSERT INTO datapilot_catalog.schema_snapshots (schema_name, dialect, version)
-                            VALUES (%s, %s, %s)
-                            ON CONFLICT (schema_name, version) DO NOTHING
+                            INSERT INTO datapilot_catalog.schema_snapshots
+                                (data_source_id, schema_name, dialect, version)
+                            VALUES (%s, %s, %s, %s)
+                            ON CONFLICT (data_source_id, schema_name, version) DO NOTHING
                             RETURNING id
                             """,
                             (data_source_id, schema_name, schema.dialect, schema.version),
@@ -202,9 +203,10 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                             await cursor.execute(
                                 """
                                 SELECT id FROM datapilot_catalog.schema_snapshots
-                                WHERE schema_name = %s AND version = %s
+                                WHERE data_source_id IS NOT DISTINCT FROM %s
+                                  AND schema_name = %s AND version = %s
                                 """,
-                                (schema_name, schema.version),
+                                (data_source_id, schema_name, schema.version),
                             )
                             row = await cursor.fetchone()
                         snapshot_id = row[0]
