@@ -51,6 +51,8 @@ Data Pilot is structured as a **Modular Monolith** adhering to Clean Architectur
 - **Schema Discovery:** Deterministic discovery service normalizes provider metadata, applies exclusions, and produces stable structural catalog versions.
 - **Metadata Catalog:** PostgreSQL-backed versioned catalog stores discovered schemas, tables, columns, relationships, and descriptions behind the `MetadataProvider` protocol.
 - **SQL Safety:** SQLGlot-based AST validation rejects multi-statement and mutating SQL before execution, while exposing affected tables and safety warnings.
+- **LLM Adapter:** Gemini is integrated only through the `LLMProvider` protocol and supports structured Pydantic responses.
+- **Semantic Layer:** Typed concepts, entities, metrics, business rules, and query templates are persisted separately from the database schema and matched deterministically before free-form generation.
 
 ### Planned for Future Phases (Not Yet Implemented):
 - Additional database adapters (MySQL, Snowflake, etc.)
@@ -59,6 +61,7 @@ Data Pilot is structured as a **Modular Monolith** adhering to Clean Architectur
 - Natural language intent detection and semantic entity resolution
 - Business template matching and rule evaluation
 - Dialect-specific SQL generation
+- Semantic-aware NL-to-SQL orchestration and end-to-end query execution
 - Additional SQL safety policies, resource controls, and database/provider-specific validation
 - Query execution and natural language result explanation
 - Frontend web interface
