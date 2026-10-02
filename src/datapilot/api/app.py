@@ -2,11 +2,13 @@
 
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator, Optional
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from datapilot import __version__
+
 from datapilot.api.routes.health import router as health_router
+from datapilot.api.routes.query import router as query_router
 from datapilot.core.config import Settings, get_settings
 from datapilot.core.exceptions import DataPilotError
 from datapilot.core.logging import get_logger, setup_logging
@@ -19,8 +21,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan context manager for startup and shutdown events."""
     settings = getattr(app.state, "settings", get_settings())
     setup_logging(settings)
-    logger.info("Initializing %s v%s in %s environment", settings.app_name, settings.app_version, settings.environment)
+    logger.info(
+        "Initializing %s v%s in %s environment",
+        settings.app_name,
+        settings.app_version,
+        settings.environment,
+    )
     yield
+
+    for state_name in ("query_database", "query_semantic_catalog", "query_llm"):
+        provider = getattr(app.state, state_name, None)
+        if provider is not None:
+            close = getattr(provider, "close", None)
+            if close is not None:
+                await close()
+
     logger.info("Shutting down %s", settings.app_name)
 
 
@@ -41,11 +56,9 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Store settings in app state for access across handlers
     app.state.settings = app_settings
     app.dependency_overrides[get_settings] = lambda: app_settings
 
-    # CORS Middleware
     if app_settings.cors_origins:
         app.add_middleware(
             CORSMiddleware,
@@ -55,7 +68,6 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             allow_headers=["*"],
         )
 
-    # Global Exception Handler for Data Pilot errors
     @app.exception_handler(DataPilotError)
     async def datapilot_exception_handler(request: Request, exc: DataPilotError) -> JSONResponse:
         logger.error("DataPilot error occurred: %s", exc, exc_info=app_settings.debug)
@@ -68,7 +80,6 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             },
         )
 
-    # Root endpoint
     @app.get("/", include_in_schema=False)
     async def root() -> JSONResponse:
         return JSONResponse(
@@ -79,11 +90,12 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
                 "documentation": "/docs",
                 "health": "/health",
                 "info": "/info",
+                "query": "/api/query",
                 "status": "operational",
             }
         )
 
-    # Include routers
     app.include_router(health_router)
+    app.include_router(query_router)
 
     return app
