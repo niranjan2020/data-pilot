@@ -80,7 +80,7 @@ async def get_query_orchestrator(
     response_model=QueryResponse,
     summary="Ask a natural-language database question",
     description=(
-        "Runs the Data Pilot semantic/template/SQL-generation workflow. "
+        "Runs the Data Pilot semantic-resolution and SQL-generation workflow. "
         "Generated SQL is validated before execution and only read-only queries are allowed."
     ),
 )
