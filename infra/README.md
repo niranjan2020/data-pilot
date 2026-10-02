@@ -12,7 +12,7 @@ docker compose ps
 
 PostgreSQL:
 - host: localhost
-- port: 5432
+- host port: 5433\n- container port: 5432
 - database: datapilot
 - user: datapilot
 - password: datapilot_local
@@ -29,3 +29,18 @@ Get-Content ..\tests\fixtures\postgresql\seed.sql | docker exec -i datapilot-pos
 ```
 
 These credentials are development-only. Production credentials must come from secrets/configuration.
+
+
+## Local roles
+
+- `datapilot-adventureworks` (separate container): customer/source database on `localhost:5432`.
+- `datapilot-postgres`: Data Pilot platform/catalog database on `localhost:5433`.
+- `datapilot-qdrant`: semantic vector store on `localhost:6333` (REST) and `6334` (gRPC).
+
+For the backend to persist discovered metadata, set:
+
+```env
+METADATA_DATABASE_URL=postgresql://datapilot:datapilot_local@localhost:5433/datapilot
+```
+
+Qdrant is intentionally started now but is not yet populated. PostgreSQL remains the source of truth for semantic configuration.
