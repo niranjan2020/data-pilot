@@ -19,7 +19,7 @@ from datapilot.domain.semantic import (
 
 _TOKEN_RE = re.compile(r"[a-z0-9_]+")
 _QUOTED_VALUE_RE = r"""["']([^"']+)["']"""
-_VALUE_RE = r"""([A-Za-z0-9][A-Za-z0-9 _.&'/-]*?)"""
+_VALUE_RE = r"""([A-Za-z0-9][A-Za-z0-9 _.&'/-]*)"""
 
 
 @dataclass(frozen=True)
@@ -126,7 +126,7 @@ class DeterministicEntityResolver:
 
         if entity.display_column and not filters:
             match = re.search(
-                rf"(?:for|from)s+(?P<value>{_QUOTED_VALUE_RE}|{_VALUE_RE})",
+                rf"\b(?:for|from)\s+(?P<value>{_QUOTED_VALUE_RE}|{_VALUE_RE})",
                 question,
                 flags=re.IGNORECASE,
             )
@@ -154,7 +154,7 @@ class DeterministicEntityResolver:
         for term in sorted([attribute.name, *attribute.synonyms], key=len, reverse=True):
             escaped = re.escape(term.replace("_", " "))
             operator_pattern = r"(?:is|equals|equal to|=|:)"
-            pattern = rf"{escaped}s*(?:{operator_pattern}s*)?(?P<value>{_QUOTED_VALUE_RE}|{_VALUE_RE})"
+            pattern = rf"\b{escaped}\b\s*(?:{operator_pattern}\s*)?(?P<value>{_QUOTED_VALUE_RE}|{_VALUE_RE})"
             match = re.search(pattern, question, flags=re.IGNORECASE)
             if match:
                 value = self._clean_value(match.group("value"))
@@ -173,7 +173,7 @@ class DeterministicEntityResolver:
                 for token in self._tokens(term)
             ):
                 in_match = re.search(
-                    rf"(?:in|within)s+(?P<value>{_QUOTED_VALUE_RE}|{_VALUE_RE})",
+                    rf"\b(?:in|within)\s+(?P<value>{_QUOTED_VALUE_RE}|{_VALUE_RE})",
                     question,
                     flags=re.IGNORECASE,
                 )
