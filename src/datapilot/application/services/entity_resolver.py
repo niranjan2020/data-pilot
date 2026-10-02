@@ -30,18 +30,7 @@ class EntityMatch:
 
 
 class DeterministicEntityResolver:
-    """Resolve entities and explicit filter values using catalog semantics.
-
-    This resolver deliberately avoids database value lookups and LLM calls.
-    It handles explicit natural-language forms such as:
-      - "customers in India"
-      - "customers where country is India"
-      - "orders for Acme"
-      - "orders for customer Acme"
-
-    Ambiguous entity matches are returned as intent ambiguities instead of
-    silently choosing one.
-    """
+    """Resolve entities and explicit filter values using catalog semantics."""
 
     def __init__(self, *, minimum_entity_score: float = 0.25, ambiguity_margin: float = 0.10) -> None:
         self._minimum_entity_score = minimum_entity_score
@@ -125,8 +114,12 @@ class DeterministicEntityResolver:
                 filters.append(match)
 
         if entity.display_column and not filters:
+            entity_terms = [entity.name, *entity.synonyms]
+            entity_pattern = "|".join(
+                re.escape(term.replace("_", " ")) for term in sorted(entity_terms, key=len, reverse=True)
+            )
             match = re.search(
-                rf"\b(?:for|from)\s+(?P<value>{_QUOTED_VALUE_RE}|{_VALUE_RE})",
+                rf"\b(?:for|from)\s+(?:(?:{entity_pattern})\s+)?(?P<value>{_QUOTED_VALUE_RE}|{_VALUE_RE})",
                 question,
                 flags=re.IGNORECASE,
             )
