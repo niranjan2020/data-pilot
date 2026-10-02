@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 from typing import Any, Dict, Optional
 
-from psycopg import AsyncConnection
 from psycopg.rows import tuple_row
 from psycopg_pool import AsyncConnectionPool
 
@@ -47,6 +47,7 @@ class PostgreSQLDatabaseProvider(DatabaseProvider):
         self._pool_size = pool_size
         self._default_timeout_seconds = default_timeout_seconds
         self._pool: Optional[AsyncConnectionPool] = None
+        self._pool_lock = asyncio.Lock()
         self._closed = False
 
     @property
@@ -56,7 +57,15 @@ class PostgreSQLDatabaseProvider(DatabaseProvider):
     async def _get_pool(self) -> AsyncConnectionPool:
         if self._closed:
             raise DatabaseConnectionError("PostgreSQL provider is closed")
-        if self._pool is None:
+        if self._pool is not None:
+            return self._pool
+
+        async with self._pool_lock:
+            if self._closed:
+                raise DatabaseConnectionError("PostgreSQL provider is closed")
+            if self._pool is not None:
+                return self._pool
+
             pool = AsyncConnectionPool(
                 conninfo=self._database_url,
                 min_size=1,
@@ -65,7 +74,7 @@ class PostgreSQLDatabaseProvider(DatabaseProvider):
                 kwargs={"row_factory": tuple_row},
             )
             try:
-                await pool.open(wait=True)
+                await pool.open(wait=True, timeout=self._default_timeout_seconds)
             except Exception as exc:  # pragma: no cover - exact psycopg exception varies
                 await pool.close()
                 raise DatabaseConnectionError(
@@ -73,7 +82,7 @@ class PostgreSQLDatabaseProvider(DatabaseProvider):
                     details={"error_type": type(exc).__name__},
                 ) from exc
             self._pool = pool
-        return self._pool
+            return pool
 
     @staticmethod
     def _validate_read_only_sql(sql: str) -> None:
@@ -83,7 +92,10 @@ class PostgreSQLDatabaseProvider(DatabaseProvider):
         stripped = sql.strip()
         without_comments_literals = _COMMENT_OR_LITERAL_RE.sub(" ", stripped)
 
-        if ";" in without_comments_literals.rstrip(";"):
+        body = without_comments_literals.strip()
+        if body.endswith(";"):
+            body = body[:-1].rstrip()
+        if ";" in body:
             raise DatabaseExecutionError("Multiple SQL statements are not allowed")
 
         statement = without_comments_literals.lstrip("( ")
@@ -103,7 +115,7 @@ class PostgreSQLDatabaseProvider(DatabaseProvider):
             return True
         except DatabaseConnectionError:
             raise
-        except Exception as exc:
+        except Exception:
             return False
 
     async def introspect_schema(self, schema_name: Optional[str] = None) -> SchemaMetadata:
@@ -231,20 +243,23 @@ class PostgreSQLDatabaseProvider(DatabaseProvider):
         try:
             pool = await self._get_pool()
             async with pool.connection() as connection:
-                async with connection.transaction():
-                    async with connection.cursor() as cursor:
-                        await cursor.execute("SET LOCAL default_transaction_read_only = on")
-                        await cursor.execute("SET LOCAL statement_timeout = %s", (int(timeout * 1000),))
-                        await cursor.execute(sql, params or {})
-                        columns = [desc.name for desc in (cursor.description or [])]
-                        rows = await cursor.fetchall() if cursor.description else []
-                        execution_time_ms = (time.perf_counter() - started) * 1000
-                        return QueryResult(
-                            columns=columns,
-                            rows=[list(row) for row in rows],
-                            row_count=len(rows),
-                            execution_time_ms=execution_time_ms,
-                        )
+                await connection.set_read_only(True)
+                try:
+                    async with connection.transaction():
+                        async with connection.cursor() as cursor:
+                            await cursor.execute("SET LOCAL statement_timeout = %s", (int(timeout * 1000),))
+                            await cursor.execute(sql, params or {})
+                            columns = [desc.name for desc in (cursor.description or [])]
+                            rows = await cursor.fetchall() if cursor.description else []
+                            execution_time_ms = (time.perf_counter() - started) * 1000
+                            return QueryResult(
+                                columns=columns,
+                                rows=[list(row) for row in rows],
+                                row_count=len(rows),
+                                execution_time_ms=execution_time_ms,
+                            )
+                finally:
+                    await connection.set_read_only(None)
         except DatabaseConnectionError:
             raise
         except Exception as exc:
