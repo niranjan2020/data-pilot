@@ -49,6 +49,7 @@ class Settings(BaseSettings):
         description="Default LLM provider: gemini, openai, anthropic, or local",
     )
     gemini_api_key: Optional[SecretStr] = Field(default=None, description="Google Gemini API key")
+    gemini_model: str = Field(default="gemini-2.5-flash", description="Gemini model used by the LLM adapter")
     openai_api_key: Optional[SecretStr] = Field(default=None, description="OpenAI API key")
     anthropic_api_key: Optional[SecretStr] = Field(default=None, description="Anthropic API key")
 
