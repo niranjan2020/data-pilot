@@ -30,15 +30,16 @@ CREATE TABLE IF NOT EXISTS datapilot_catalog.data_sources (
 
 CREATE TABLE IF NOT EXISTS datapilot_catalog.schema_snapshots (
     id BIGSERIAL PRIMARY KEY,
+    data_source_id BIGINT REFERENCES datapilot_catalog.data_sources(id) ON DELETE CASCADE,
     schema_name TEXT NOT NULL,
     dialect TEXT NOT NULL,
     version TEXT NOT NULL,
     discovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (schema_name, version)
+    UNIQUE (data_source_id, schema_name, version)
 );
 
 CREATE INDEX IF NOT EXISTS ix_datapilot_schema_snapshots_latest
-    ON datapilot_catalog.schema_snapshots (schema_name, discovered_at DESC);
+    ON datapilot_catalog.schema_snapshots (data_source_id, schema_name, discovered_at DESC);
 
 CREATE TABLE IF NOT EXISTS datapilot_catalog.tables (
     id BIGSERIAL PRIMARY KEY,
@@ -173,7 +174,7 @@ class PostgreSQLMetadataProvider(MetadataProvider):
             return next(iter(names))
         return "public"
 
-    async def save_schema(self, schema: SchemaMetadata) -> None:
+    async def save_schema(self, schema: SchemaMetadata, data_source_id: Optional[int] = None) -> None:
         if not schema.version:
             raise MetadataError("Schema version is required before persisting metadata")
 
@@ -194,7 +195,7 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                             ON CONFLICT (schema_name, version) DO NOTHING
                             RETURNING id
                             """,
-                            (schema_name, schema.dialect, schema.version),
+                            (data_source_id, schema_name, schema.dialect, schema.version),
                         )
                         row = await cursor.fetchone()
                         if row is None:
