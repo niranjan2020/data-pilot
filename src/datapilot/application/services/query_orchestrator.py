@@ -163,6 +163,14 @@ class QueryOrchestrator:
             policy_result.sql,
             timeout_seconds=self._query_policy.timeout_seconds,
         )
+        if result.row_count > self._query_policy.max_result_rows:
+            raise SQLValidationError(
+                "Query result exceeded the configured maximum row count",
+                details={
+                    "row_count": result.row_count,
+                    "max_result_rows": self._query_policy.max_result_rows,
+                },
+            )
 
         return QueryResponse(
             question=question,
