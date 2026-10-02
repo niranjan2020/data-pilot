@@ -35,15 +35,24 @@ class GeminiLLMProvider:
         return "gemini"
 
     @staticmethod
-    def _to_contents(messages: List[LLMMessage]) -> List[types.Content]:
+    def _split_messages(messages: List[LLMMessage]) -> tuple[Optional[str], List[types.Content]]:
+        """Map Data Pilot roles to Gemini contents and native system instruction."""
+        system_parts = [message.content for message in messages if message.role == "system"]
         contents: List[types.Content] = []
+
         for message in messages:
+            if message.role == "system":
+                continue
             role = "model" if message.role == "assistant" else "user"
-            contents.append(types.Content(
-                role=role,
-                parts=[types.Part.from_text(text=message.content)],
-            ))
-        return contents
+            contents.append(
+                types.Content(
+                    role=role,
+                    parts=[types.Part.from_text(text=message.content)],
+                )
+            )
+
+        system_instruction = "\n\n".join(system_parts) or None
+        return system_instruction, contents
 
     async def generate(
         self,
@@ -54,14 +63,16 @@ class GeminiLLMProvider:
         **kwargs: Any,
     ) -> LLMResponse:
         try:
+            system_instruction, contents = self._split_messages(messages)
             config = types.GenerateContentConfig(
                 temperature=temperature,
                 max_output_tokens=max_tokens,
                 stop_sequences=stop_sequences,
+                system_instruction=system_instruction,
             )
             response = await self._client.aio.models.generate_content(
                 model=self._model,
-                contents=self._to_contents(messages),
+                contents=contents,
                 config=config,
             )
             usage = getattr(response, "usage_metadata", None)
@@ -95,14 +106,16 @@ class GeminiLLMProvider:
         **kwargs: Any,
     ) -> T:
         try:
+            system_instruction, contents = self._split_messages(messages)
             config = types.GenerateContentConfig(
                 temperature=temperature,
                 response_mime_type="application/json",
                 response_schema=response_schema,
+                system_instruction=system_instruction,
             )
             response = await self._client.aio.models.generate_content(
                 model=self._model,
-                contents=self._to_contents(messages),
+                contents=contents,
                 config=config,
             )
             if not response.text:
