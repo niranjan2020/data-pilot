@@ -91,6 +91,7 @@ class SchemaDiscoveryService:
         tables.sort(key=lambda table: ((table.schema_name or "").casefold(), table.name.casefold()))
 
         return SchemaMetadata(
+            schema_name=schema.schema_name,
             tables=tables,
             dialect=schema.dialect,
             version=None,
