@@ -116,9 +116,10 @@ data-pilot/
 - Health and system information endpoints (`/health`, `/health/ready`, `/info`)
 - Initial pytest test suite for configuration, protocol conformance, API endpoints, and PostgreSQL provider
 - PostgreSQL database provider with pooled connections, schema introspection, and preliminary read-only execution boundary
+- Deterministic schema discovery service with filtering, normalization, stable catalog versioning, and optional metadata persistence
 
 ### Next / Planned:
-- Provider-level schema discovery service and catalog persistence
+- Metadata/catalog persistence adapter
 - SQL safety and AST validation implementation
 - LLM provider integration (Google Gemini adapter)
 - Semantic layer (templates, business rules, entity resolution)
