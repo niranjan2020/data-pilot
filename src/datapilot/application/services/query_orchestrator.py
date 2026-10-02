@@ -4,15 +4,17 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+from datapilot.application.services.entity_resolver import DeterministicEntityResolver
 from datapilot.application.services.semantic_matcher import SemanticMatcher
 from datapilot.core.exceptions import SQLValidationError
 from datapilot.domain.interfaces.database import DatabaseProvider
+from datapilot.domain.interfaces.entity_resolver import EntityResolver
 from datapilot.domain.interfaces.semantic import SemanticCatalogProvider
 from datapilot.domain.interfaces.sql_generator import SQLGenerator
 from datapilot.domain.interfaces.sql_validator import SQLValidator
 from datapilot.domain.models import SchemaMetadata
 from datapilot.domain.query import AmbiguityCandidate, QueryRequest, QueryResponse
-from datapilot.domain.semantic import SemanticCatalog
+from datapilot.domain.semantic import QueryIntent, SemanticCatalog
 
 
 class QueryOrchestrator:
@@ -26,6 +28,7 @@ class QueryOrchestrator:
         semantic_catalog_provider: SemanticCatalogProvider,
         *,
         semantic_matcher: Optional[SemanticMatcher] = None,
+        entity_resolver: Optional[EntityResolver] = None,
         query_timeout_seconds: Optional[float] = None,
     ) -> None:
         self._database = database_provider
@@ -33,6 +36,7 @@ class QueryOrchestrator:
         self._sql_generator = sql_generator
         self._semantic_catalog_provider = semantic_catalog_provider
         self._matcher = semantic_matcher or SemanticMatcher()
+        self._entity_resolver = entity_resolver or DeterministicEntityResolver()
         self._query_timeout_seconds = query_timeout_seconds
 
     async def query(
@@ -45,6 +49,19 @@ class QueryOrchestrator:
         """Resolve, generate, validate and execute one natural-language query."""
         schema = schema or await self._database.introspect_schema()
         catalog = catalog or await self._semantic_catalog_provider.get_catalog()
+
+        intent = self._entity_resolver.resolve(request.question, catalog, schema)
+        if intent.ambiguities:
+            return QueryResponse(
+                question=request.question,
+                status="ambiguous",
+                confidence=intent.confidence,
+                semantic_ambiguities=intent.ambiguities,
+                resolved_intent=intent,
+                message="The question matches more than one semantic entity. Refine the entity name or add an explicit attribute.",
+            )
+
+        parameters = self._merge_resolved_parameters(request.parameters, intent)
 
         match_result = self._matcher.match_templates(request.question, catalog)
 
@@ -63,20 +80,22 @@ class QueryOrchestrator:
                 status="ambiguous",
                 confidence=match_result.confidence,
                 ambiguity_candidates=candidates,
+                resolved_intent=intent,
                 message="More than one semantic template matches this question. Refine the question or provide explicit parameters.",
             )
 
         if match_result.matches:
             candidate = match_result.matches[0]
             template = candidate.template
-            if self._has_all_required_parameters(template.required_parameters, request.parameters):
-                sql = self._render_template(template.sql_template, request.parameters)
+            if self._has_all_required_parameters(template.required_parameters, parameters):
+                sql = self._render_template(template.sql_template, parameters)
                 return await self._validate_and_execute(
                     question=request.question,
                     sql=sql,
                     source="template",
                     confidence=candidate.score,
                     matched_template=template.name,
+                    resolved_intent=intent,
                 )
 
         generated = await self._sql_generator.generate(
@@ -84,16 +103,18 @@ class QueryOrchestrator:
             schema=schema,
             context={
                 "semantic_catalog": catalog.model_dump(mode="json"),
-                "parameters": request.parameters,
+                "query_intent": intent.model_dump(mode="json"),
+                "parameters": parameters,
             },
             dialect=self._database.dialect,
         )
         return await self._validate_and_execute(
             question=request.question,
             sql=generated,
-            source="llm",
-            confidence=0.0,
+            source="generator",
+            confidence=intent.confidence,
             matched_template=None,
+            resolved_intent=intent,
         )
 
     async def _validate_and_execute(
@@ -104,6 +125,7 @@ class QueryOrchestrator:
         source: str,
         confidence: float,
         matched_template: Optional[str],
+        resolved_intent: Optional[QueryIntent] = None,
     ) -> QueryResponse:
         validation = await self._validator.validate(
             sql,
@@ -130,8 +152,25 @@ class QueryOrchestrator:
             result=result,
             confidence=confidence,
             matched_template=matched_template,
+            resolved_intent=resolved_intent,
             validation_warnings=validation.warnings,
         )
+
+    @staticmethod
+    def _merge_resolved_parameters(
+        parameters: Dict[str, Any],
+        intent: QueryIntent,
+    ) -> Dict[str, Any]:
+        """Fill missing template parameters from deterministic semantic filters.
+
+        Explicit API parameters always win over inferred values.
+        """
+        merged = dict(parameters)
+        for item in intent.filters:
+            for key in (item.attribute, item.column_name):
+                if key not in merged:
+                    merged[key] = item.value
+        return merged
 
     @staticmethod
     def _has_all_required_parameters(
