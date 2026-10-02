@@ -136,7 +136,7 @@ async def test_question_without_usable_template_uses_generic_sql_generator():
 
     response = await orchestrator.query(QueryRequest(question="How many records exist?"))
 
-    assert response.source == "llm"
+    assert response.source == "generator"
     assert response.sql == "SELECT COUNT(*) AS count FROM records"
     assert generator.calls == 1
     assert database.executed == [response.sql]
