@@ -114,10 +114,11 @@ data-pilot/
 - Minimal domain models (`ColumnMetadata`, `TableMetadata`, `SchemaMetadata`, `QueryResult`, `SQLValidationResult`, `LLMMessage`, `LLMResponse`)
 - Provider protocol interfaces (`DatabaseProvider`, `LLMProvider`, `MetadataProvider`, `SQLGenerator`, `SQLValidator`)
 - Health and system information endpoints (`/health`, `/health/ready`, `/info`)
-- Initial pytest test suite for configuration, protocol conformance, and API endpoints
+- Initial pytest test suite for configuration, protocol conformance, API endpoints, and PostgreSQL provider
+- PostgreSQL database provider with pooled connections, schema introspection, and preliminary read-only execution boundary
 
 ### Next / Planned:
-- Database provider (PostgreSQL adapter)
+- Metadata and catalog persistence
 - Schema discovery and reflection
 - Metadata and catalog persistence
 - SQL safety and AST validation implementation
