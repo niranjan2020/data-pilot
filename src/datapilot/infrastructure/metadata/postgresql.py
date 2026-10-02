@@ -134,6 +134,26 @@ CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_relationships (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (data_source_id, name)
 );
+
+CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_metrics (
+    id BIGSERIAL PRIMARY KEY,
+    data_source_id BIGINT NOT NULL REFERENCES datapilot_catalog.data_sources(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT,
+    entity_id BIGINT NOT NULL REFERENCES datapilot_catalog.semantic_entities(id) ON DELETE CASCADE,
+    attribute_name TEXT NOT NULL,
+    aggregation TEXT NOT NULL,
+    format TEXT NOT NULL DEFAULT 'number',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (data_source_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_metric_synonyms (
+    metric_id BIGINT NOT NULL REFERENCES datapilot_catalog.semantic_metrics(id) ON DELETE CASCADE,
+    synonym TEXT NOT NULL,
+    PRIMARY KEY (metric_id, synonym)
+);
 """
 
 
@@ -481,6 +501,88 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                     "to_entity_id": row[5], "to_entity_name": row[6],
                     "to_column": row[7], "cardinality": row[8],
                     "description": row[9],
+                } for row in await cursor.fetchall()]
+
+    async def save_semantic_metric(
+        self, *, data_source_id: int, name: str, description: Optional[str],
+        entity_id: int, attribute_name: str, aggregation: str,
+        format: str, synonyms: list[str],
+    ) -> int:
+        await self.initialize()
+        allowed = {"sum", "count", "count_distinct", "avg", "min", "max"}
+        if aggregation not in allowed:
+            raise MetadataError("Unsupported metric aggregation")
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.transaction():
+                async with connection.cursor() as cursor:
+                    await cursor.execute(
+                        """
+                        SELECT COUNT(*) FROM datapilot_catalog.semantic_attributes a
+                        JOIN datapilot_catalog.semantic_entities e ON e.id = a.entity_id
+                        WHERE e.data_source_id = %s AND e.id = %s AND a.name = %s
+                        """,
+                        (data_source_id, entity_id, attribute_name),
+                    )
+                    if (await cursor.fetchone())[0] != 1:
+                        raise MetadataError("Metric attribute must belong to the selected entity")
+                    await cursor.execute(
+                        """
+                        INSERT INTO datapilot_catalog.semantic_metrics
+                            (data_source_id, name, description, entity_id,
+                             attribute_name, aggregation, format)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (data_source_id, name) DO UPDATE SET
+                            description = EXCLUDED.description,
+                            entity_id = EXCLUDED.entity_id,
+                            attribute_name = EXCLUDED.attribute_name,
+                            aggregation = EXCLUDED.aggregation,
+                            format = EXCLUDED.format,
+                            updated_at = NOW()
+                        RETURNING id
+                        """,
+                        (data_source_id, name, description, entity_id,
+                         attribute_name, aggregation, format),
+                    )
+                    metric_id = (await cursor.fetchone())[0]
+                    await cursor.execute(
+                        "DELETE FROM datapilot_catalog.semantic_metric_synonyms WHERE metric_id = %s",
+                        (metric_id,),
+                    )
+                    for synonym in sorted({s.strip() for s in synonyms if s.strip()}):
+                        await cursor.execute(
+                            "INSERT INTO datapilot_catalog.semantic_metric_synonyms (metric_id, synonym) VALUES (%s, %s)",
+                            (metric_id, synonym),
+                        )
+                    return metric_id
+
+    async def list_semantic_metrics(self, data_source_id: int) -> list[dict]:
+        await self.initialize()
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    SELECT m.id, m.name, m.description, m.entity_id, e.name,
+                           m.attribute_name, m.aggregation, m.format,
+                           COALESCE(
+                               (SELECT jsonb_agg(s.synonym ORDER BY s.synonym)
+                                FROM datapilot_catalog.semantic_metric_synonyms s
+                                WHERE s.metric_id = m.id),
+                               '[]'::jsonb
+                           )
+                    FROM datapilot_catalog.semantic_metrics m
+                    JOIN datapilot_catalog.semantic_entities e ON e.id = m.entity_id
+                    WHERE m.data_source_id = %s
+                    ORDER BY m.name
+                    """,
+                    (data_source_id,),
+                )
+                return [{
+                    "id": row[0], "name": row[1], "description": row[2],
+                    "entity_id": row[3], "entity_name": row[4],
+                    "attribute_name": row[5], "aggregation": row[6],
+                    "format": row[7], "synonyms": row[8] or [],
                 } for row in await cursor.fetchall()]
 
     @staticmethod
