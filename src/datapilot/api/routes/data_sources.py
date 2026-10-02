@@ -81,7 +81,7 @@ async def discover_postgresql_schema(payload: PostgreSQLConnectionRequest) -> Sc
             pool_size=settings.metadata_database_pool_size,
         )
         try:
-            await metadata.save_data_source(
+            data_source_id = await metadata.save_data_source(
                 name=payload.name,
                 provider="postgresql",
                 host=payload.host,
@@ -95,7 +95,7 @@ async def discover_postgresql_schema(payload: PostgreSQLConnectionRequest) -> Sc
                 schema.version = hashlib.sha256(
                     json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")
                 ).hexdigest()
-                await metadata.save_schema(schema)
+                await metadata.save_schema(schema, data_source_id=data_source_id)
             return SchemaDiscoveryResponse(source_name=payload.name, schemas=schemas, persisted=True)
         finally:
             await metadata.close()
