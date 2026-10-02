@@ -26,7 +26,11 @@ async def health(health_service: HealthService = Depends(get_health_service)) ->
     "/health/ready",
     response_model=HealthReport,
     summary="Readiness Probe",
-    description="Provides deep health status, system runtime info, and provider readiness.",
+    description=(
+        "Provides readiness status based on loaded application configuration and runtime environment. "
+        "Note: In Phase 1 foundation, 'configured' status indicates configuration presence only and "
+        "does not imply that live remote database or LLM network connectivity has been verified."
+    ),
 )
 async def readiness(health_service: HealthService = Depends(get_health_service)) -> HealthReport:
     return await health_service.get_readiness()

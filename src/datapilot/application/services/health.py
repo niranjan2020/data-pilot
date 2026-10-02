@@ -50,30 +50,46 @@ class HealthService:
         """Detailed readiness check assessing configuration, providers, and environment."""
         components: Dict[str, ComponentStatus] = {}
 
-        # Check Database configuration status
+        # Check Database configuration presence
+        # NOTE: In Phase 1 foundation, this checks only whether the database
+        # connection URL is provided in configuration. It does NOT attempt or
+        # verify actual network connectivity to the database.
         if self._settings.default_database_url:
             components["database"] = ComponentStatus(
                 status="configured",
-                details={"configured": True},
+                details={
+                    "configured": True,
+                    "description": "Database URL configuration is present (live connection verification is not implemented in Phase 1)",
+                },
             )
         else:
             components["database"] = ComponentStatus(
                 status="unconfigured",
-                details={"message": "No default database URL configured in environment"},
+                details={
+                    "configured": False,
+                    "description": "No database URL configured in environment",
+                },
             )
 
-        # Check LLM provider configuration status
+        # Check LLM provider configuration presence
+        # NOTE: In Phase 1 foundation, this checks only whether an API key/provider
+        # is specified in configuration. It does NOT attempt live LLM API calls,
+        # nor does it expose secret key values.
+        has_llm_key = bool(
+            self._settings.gemini_api_key
+            or self._settings.openai_api_key
+            or self._settings.anthropic_api_key
+        )
         components["llm"] = ComponentStatus(
-            status="configured" if (
-                self._settings.gemini_api_key
-                or self._settings.openai_api_key
-                or self._settings.anthropic_api_key
-            ) else "unconfigured",
+            status="configured" if has_llm_key else "unconfigured",
             details={
                 "provider": self._settings.default_llm_provider,
-                "has_gemini_key": bool(self._settings.gemini_api_key),
-                "has_openai_key": bool(self._settings.openai_api_key),
-                "has_anthropic_key": bool(self._settings.anthropic_api_key),
+                "configured": has_llm_key,
+                "description": (
+                    "LLM provider configuration is present (live provider integration is not implemented in Phase 1)"
+                    if has_llm_key
+                    else "No LLM provider API key configured in environment"
+                ),
             },
         )
 

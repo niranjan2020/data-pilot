@@ -24,12 +24,23 @@ def test_custom_settings_override():
         debug=True,
         port=9000,
         default_llm_provider="openai",
+        gemini_api_key="super-secret-key",
     )
     assert custom.app_name == "Custom Pilot"
     assert custom.environment == "staging"
     assert custom.debug is True
     assert custom.port == 9000
     assert custom.default_llm_provider == "openai"
+    # Ensure SecretStr masks value on repr/str
+    assert "super-secret-key" not in str(custom.gemini_api_key)
+    assert custom.gemini_api_key.get_secret_value() == "super-secret-key"
+
+
+def test_cors_defaults_secure():
+    """Verify default CORS configuration does not enable open credentials."""
+    settings = Settings()
+    assert settings.cors_allow_credentials is False
+    assert any("localhost" in origin for origin in settings.cors_origins)
 
 
 def test_get_settings_cached():

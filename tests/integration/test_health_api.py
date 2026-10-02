@@ -1,6 +1,7 @@
 """Integration tests verifying application startup, health probes, and API routes."""
 
 from starlette.testclient import TestClient
+from datapilot.api.app import create_app
 
 
 def test_root_endpoint(client: TestClient):
@@ -37,6 +38,30 @@ def test_health_readiness_endpoint(client: TestClient):
     assert "components" in data
     assert data["components"]["database"]["status"] == "configured"
     assert data["components"]["llm"]["status"] == "configured"
+    # Ensure no secret API key values are leaked into health output
+    assert "test-gemini-key" not in response.text
+
+
+def test_health_readiness_unconfigured_components():
+    """Verify GET /health/ready correctly marks missing database/LLM config as unconfigured."""
+    from datapilot.core.config import Settings
+    unconfigured_settings = Settings(
+        app_name="Data Pilot Minimal",
+        environment="test",
+        default_database_url=None,
+        gemini_api_key=None,
+        openai_api_key=None,
+        anthropic_api_key=None,
+    )
+    app = create_app(settings=unconfigured_settings)
+    with TestClient(app) as unconfigured_client:
+        response = unconfigured_client.get("/health/ready")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["components"]["database"]["status"] == "unconfigured"
+        assert data["components"]["database"]["details"]["configured"] is False
+        assert data["components"]["llm"]["status"] == "unconfigured"
+        assert data["components"]["llm"]["details"]["configured"] is False
 
 
 def test_info_endpoint(client: TestClient):

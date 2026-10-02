@@ -1,8 +1,0 @@
-{
-  "name": "Data Pilot",
-  "description": "Open-source, self-hostable AI data intelligence platform converting natural language to SQL with database-agnostic and LLM-agnostic architecture.",
-  "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
-}

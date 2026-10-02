@@ -2,7 +2,7 @@
 
 from functools import lru_cache
 from typing import List, Optional
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -43,14 +43,23 @@ class Settings(BaseSettings):
         default="gemini",
         description="Default LLM provider: gemini, openai, anthropic, or local",
     )
-    gemini_api_key: Optional[str] = Field(default=None, description="Google Gemini API key")
-    openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key")
-    anthropic_api_key: Optional[str] = Field(default=None, description="Anthropic API key")
+    gemini_api_key: Optional[SecretStr] = Field(default=None, description="Google Gemini API key")
+    openai_api_key: Optional[SecretStr] = Field(default=None, description="OpenAI API key")
+    anthropic_api_key: Optional[SecretStr] = Field(default=None, description="Anthropic API key")
 
-    # Security & CORS
+    # Security & CORS (Local development defaults; credentials disabled by default)
     cors_origins: List[str] = Field(
-        default=["*"],
+        default=[
+            "http://localhost:3000",
+            "http://localhost:8000",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:8000",
+        ],
         description="Allowed CORS origins for the HTTP API",
+    )
+    cors_allow_credentials: bool = Field(
+        default=False,
+        description="Enable CORS credentials (disabled by default for security)",
     )
 
 
