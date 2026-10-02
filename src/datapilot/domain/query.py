@@ -2,20 +2,20 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Literal
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
 
 class QueryRequest(BaseModel):
-    """A user query plus optional explicit template parameters."""
+    """A user question plus optional explicit parameters."""
 
     question: str = Field(min_length=1)
     parameters: Dict[str, Any] = Field(default_factory=dict)
 
 
 class SQLGeneration(BaseModel):
-    """Structured SQL proposal returned by an LLM."""
+    """Structured SQL proposal produced by an SQL generation adapter."""
 
     sql: str = Field(min_length=1)
     explanation: Optional[str] = None
@@ -35,7 +35,7 @@ class QueryResponse(BaseModel):
 
     question: str
     status: Literal["completed", "ambiguous", "rejected"]
-    source: Optional[Literal["template", "llm"]] = None
+    source: Optional[Literal["template", "generator"]] = None
     sql: Optional[str] = None
     result: Optional[Any] = None
     confidence: float = 0.0
