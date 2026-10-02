@@ -1,0 +1,89 @@
+"""FastAPI application factory and middleware configuration."""
+
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator, Optional
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from datapilot import __version__
+from datapilot.api.routes.health import router as health_router
+from datapilot.core.config import Settings, get_settings
+from datapilot.core.exceptions import DataPilotError
+from datapilot.core.logging import get_logger, setup_logging
+
+logger = get_logger("datapilot.api")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Application lifespan context manager for startup and shutdown events."""
+    settings = getattr(app.state, "settings", get_settings())
+    setup_logging(settings)
+    logger.info("Initializing %s v%s in %s environment", settings.app_name, settings.app_version, settings.environment)
+    yield
+    logger.info("Shutting down %s", settings.app_name)
+
+
+def create_app(settings: Optional[Settings] = None) -> FastAPI:
+    """Create and configure a new FastAPI application instance."""
+    app_settings = settings or get_settings()
+
+    app = FastAPI(
+        title=app_settings.app_name,
+        version=app_settings.app_version,
+        description=(
+            "Open-source, self-hostable AI data intelligence platform converting natural "
+            "language questions into validated SQL."
+        ),
+        docs_url="/docs",
+        redoc_url="/redoc",
+        openapi_url="/openapi.json",
+        lifespan=lifespan,
+    )
+
+    # Store settings in app state for access across handlers
+    app.state.settings = app_settings
+    app.dependency_overrides[get_settings] = lambda: app_settings
+
+    # CORS Middleware
+    if app_settings.cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=app_settings.cors_origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+    # Global Exception Handler for Data Pilot errors
+    @app.exception_handler(DataPilotError)
+    async def datapilot_exception_handler(request: Request, exc: DataPilotError) -> JSONResponse:
+        logger.error("DataPilot error occurred: %s", exc, exc_info=app_settings.debug)
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": exc.__class__.__name__,
+                "message": exc.message,
+                "details": exc.details,
+            },
+        )
+
+    # Root endpoint
+    @app.get("/", include_in_schema=False)
+    async def root() -> JSONResponse:
+        return JSONResponse(
+            content={
+                "name": app_settings.app_name,
+                "version": app_settings.app_version,
+                "description": "Open-source AI data intelligence & natural-language-to-SQL platform",
+                "documentation": "/docs",
+                "health": "/health",
+                "info": "/info",
+                "status": "operational",
+            }
+        )
+
+    # Include routers
+    app.include_router(health_router)
+
+    return app
