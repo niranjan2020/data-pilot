@@ -1,8 +1,8 @@
 """Semantic-layer domain models for Data Pilot.
 
 These models capture business meaning independently of any LLM vendor or
-database engine. They are the foundation for deterministic template matching,
-entity/value resolution, metric definitions, and ambiguity handling.
+database engine. They are the foundation for entity/value resolution, metric definitions,
+business rules, and ambiguity handling.
 """
 
 from typing import List, Optional
@@ -68,21 +68,6 @@ class BusinessRule(BaseModel):
     priority: int = Field(default=100, ge=0, description="Lower values run first")
 
 
-class QueryTemplate(BaseModel):
-    """Reusable parameterized query intent.
-
-    Templates are preferred over free-form generation when confidence is high.
-    """
-
-    name: str = Field(description="Stable template identifier")
-    description: str = Field(description="Intent represented by the template")
-    synonyms: List[str] = Field(default_factory=list)
-    sql_template: str = Field(description="Parameterized read-only SQL template")
-    required_parameters: List[str] = Field(default_factory=list)
-    optional_parameters: List[str] = Field(default_factory=list)
-    priority: int = Field(default=100, ge=0)
-    enabled: bool = True
-
 
 class ResolvedEntity(BaseModel):
     """Entity selected from the semantic catalog for a user question."""
@@ -122,4 +107,3 @@ class SemanticCatalog(BaseModel):
     entities: List[EntityDefinition] = Field(default_factory=list)
     metrics: List[MetricDefinition] = Field(default_factory=list)
     business_rules: List[BusinessRule] = Field(default_factory=list)
-    templates: List[QueryTemplate] = Field(default_factory=list)
