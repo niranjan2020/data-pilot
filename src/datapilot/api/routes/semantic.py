@@ -17,6 +17,17 @@ class AttributeRequest(BaseModel):
     synonyms:list[str]=Field(default_factory=list)
     operators:list[str]=Field(default_factory=lambda:["="])
 
+class BusinessRuleRequest(BaseModel):
+    source_name:str=Field(min_length=1)
+    name:str=Field(min_length=1)
+    description:str=Field(min_length=1)
+    rule_type:str=Field(pattern="^(definition|filter|calculation|interpretation)$")
+    entity_id:Optional[int]=None
+    metric_id:Optional[int]=None
+    priority:int=Field(default=100,ge=1,le=1000)
+    enabled:bool=True
+    keywords:list[str]=Field(default_factory=list)
+
 class MetricRequest(BaseModel):
     source_name:str=Field(min_length=1)
     name:str=Field(min_length=1)
@@ -114,4 +125,29 @@ async def save_metric(payload:MetricRequest):
             entity_id=payload.entity_id,attribute_name=payload.attribute_name,
             aggregation=payload.aggregation,format=payload.format,synonyms=payload.synonyms)
         return {"id":metric_id,"message":"Semantic metric saved"}
+    finally: await p.close()
+
+@router.get("/{source_name}/business-rules")
+async def business_rules(source_name:str):
+    p=provider()
+    try:
+        source_id=await p.get_data_source_id(source_name)
+        if source_id is None: raise HTTPException(404,"Data source not found. Discover it first.")
+        return {"source_name":source_name,
+                "entities":await p.list_semantic_entities(source_id),
+                "metrics":await p.list_semantic_metrics(source_id),
+                "rules":await p.list_business_rules(source_id)}
+    finally: await p.close()
+
+@router.post("/business-rules")
+async def save_business_rule(payload:BusinessRuleRequest):
+    p=provider()
+    try:
+        source_id=await p.get_data_source_id(payload.source_name)
+        if source_id is None: raise HTTPException(404,"Data source not found. Discover it first.")
+        rule_id=await p.save_business_rule(
+            data_source_id=source_id,name=payload.name,description=payload.description,
+            rule_type=payload.rule_type,entity_id=payload.entity_id,metric_id=payload.metric_id,
+            priority=payload.priority,enabled=payload.enabled,keywords=payload.keywords)
+        return {"id":rule_id,"message":"Business rule saved"}
     finally: await p.close()
