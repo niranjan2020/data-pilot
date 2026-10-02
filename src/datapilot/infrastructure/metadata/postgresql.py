@@ -15,6 +15,19 @@ from datapilot.domain.models import ColumnMetadata, ForeignKeyMetadata, SchemaMe
 _CATALOG_DDL = """
 CREATE SCHEMA IF NOT EXISTS datapilot_catalog;
 
+CREATE TABLE IF NOT EXISTS datapilot_catalog.data_sources (
+    id BIGSERIAL PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    provider TEXT NOT NULL,
+    host TEXT NOT NULL,
+    port INTEGER NOT NULL,
+    database_name TEXT NOT NULL,
+    username TEXT NOT NULL,
+    sslmode TEXT NOT NULL DEFAULT 'prefer',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS datapilot_catalog.schema_snapshots (
     id BIGSERIAL PRIMARY KEY,
     schema_name TEXT NOT NULL,
@@ -121,6 +134,35 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                 "Failed to initialize the Data Pilot metadata catalog",
                 details={"error_type": type(exc).__name__},
             ) from exc
+
+    async def save_data_source(
+        self, *, name: str, provider: str, host: str, port: int,
+        database_name: str, username: str, sslmode: str,
+    ) -> int:
+        """Persist non-secret data-source configuration. Passwords are never stored here."""
+        await self.initialize()
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.transaction():
+                async with connection.cursor() as cursor:
+                    await cursor.execute(
+                        """
+                        INSERT INTO datapilot_catalog.data_sources
+                            (name, provider, host, port, database_name, username, sslmode)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (name) DO UPDATE SET
+                            provider = EXCLUDED.provider,
+                            host = EXCLUDED.host,
+                            port = EXCLUDED.port,
+                            database_name = EXCLUDED.database_name,
+                            username = EXCLUDED.username,
+                            sslmode = EXCLUDED.sslmode,
+                            updated_at = NOW()
+                        RETURNING id
+                        """,
+                        (name, provider, host, port, database_name, username, sslmode),
+                    )
+                    return (await cursor.fetchone())[0]
 
     @staticmethod
     def _schema_name(schema: SchemaMetadata) -> str:
