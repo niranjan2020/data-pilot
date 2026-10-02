@@ -17,6 +17,16 @@ class AttributeRequest(BaseModel):
     synonyms:list[str]=Field(default_factory=list)
     operators:list[str]=Field(default_factory=lambda:["="])
 
+class MetricRequest(BaseModel):
+    source_name:str=Field(min_length=1)
+    name:str=Field(min_length=1)
+    description:Optional[str]=None
+    entity_id:int
+    attribute_name:str=Field(min_length=1)
+    aggregation:str=Field(pattern="^(sum|count|count_distinct|avg|min|max)$")
+    format:str=Field(default="number",pattern="^(number|currency|percent|integer)$")
+    synonyms:list[str]=Field(default_factory=list)
+
 class RelationshipRequest(BaseModel):
     source_name:str=Field(min_length=1)
     name:str=Field(min_length=1)
@@ -81,4 +91,27 @@ async def save_relationship(payload:RelationshipRequest):
             to_entity_id=payload.to_entity_id,to_column=payload.to_column,
             cardinality=payload.cardinality,description=payload.description)
         return {"id":relationship_id,"message":"Semantic relationship saved"}
+    finally: await p.close()
+
+@router.get("/{source_name}/metrics")
+async def semantic_metrics(source_name:str):
+    p=provider()
+    try:
+        source_id=await p.get_data_source_id(source_name)
+        if source_id is None: raise HTTPException(404,"Data source not found. Discover it first.")
+        return {"source_name":source_name,"entities":await p.list_semantic_entities(source_id),
+                "metrics":await p.list_semantic_metrics(source_id)}
+    finally: await p.close()
+
+@router.post("/metrics")
+async def save_metric(payload:MetricRequest):
+    p=provider()
+    try:
+        source_id=await p.get_data_source_id(payload.source_name)
+        if source_id is None: raise HTTPException(404,"Data source not found. Discover it first.")
+        metric_id=await p.save_semantic_metric(
+            data_source_id=source_id,name=payload.name,description=payload.description,
+            entity_id=payload.entity_id,attribute_name=payload.attribute_name,
+            aggregation=payload.aggregation,format=payload.format,synonyms=payload.synonyms)
+        return {"id":metric_id,"message":"Semantic metric saved"}
     finally: await p.close()
