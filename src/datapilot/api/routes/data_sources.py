@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 from typing import List, Literal
+import hashlib
+import json
+
+from datapilot.core.config import get_settings
+from datapilot.infrastructure.metadata.postgresql import PostgreSQLMetadataProvider
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field, SecretStr
@@ -39,6 +44,7 @@ class ConnectionTestResponse(BaseModel):
 class SchemaDiscoveryResponse(BaseModel):
     source_name: str
     schemas: List[SchemaMetadata]
+    persisted: bool = False
 
 
 async def _provider(payload: PostgreSQLConnectionRequest) -> PostgreSQLDatabaseProvider:
@@ -64,6 +70,34 @@ async def discover_postgresql_schema(payload: PostgreSQLConnectionRequest) -> Sc
     try:
         schema_names = await provider.list_schemas()
         schemas = [await provider.introspect_schema(name) for name in schema_names]
-        return SchemaDiscoveryResponse(source_name=payload.name, schemas=schemas)
+
+        settings = get_settings()
+        metadata_url = settings.metadata_database_url
+        if not metadata_url:
+            return SchemaDiscoveryResponse(source_name=payload.name, schemas=schemas, persisted=False)
+
+        metadata = PostgreSQLMetadataProvider(
+            metadata_url,
+            pool_size=settings.metadata_database_pool_size,
+        )
+        try:
+            await metadata.save_data_source(
+                name=payload.name,
+                provider="postgresql",
+                host=payload.host,
+                port=payload.port,
+                database_name=payload.database,
+                username=payload.username,
+                sslmode=payload.sslmode,
+            )
+            for schema in schemas:
+                canonical = schema.model_dump(mode="json", exclude={"version"})
+                schema.version = hashlib.sha256(
+                    json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                ).hexdigest()
+                await metadata.save_schema(schema)
+            return SchemaDiscoveryResponse(source_name=payload.name, schemas=schemas, persisted=True)
+        finally:
+            await metadata.close()
     finally:
         await provider.close()
