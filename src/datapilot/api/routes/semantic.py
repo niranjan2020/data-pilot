@@ -7,8 +7,14 @@ from pydantic import BaseModel, Field
 
 from datapilot.core.config import get_settings
 from datapilot.infrastructure.metadata.postgresql import PostgreSQLMetadataProvider
+from datapilot.infrastructure.semantic.qdrant import QdrantSemanticIndex
 
 router=APIRouter(prefix="/api/admin/semantic",tags=["Admin - Semantic Model"])
+
+class SemanticSearchRequest(BaseModel):
+    source_name:str=Field(min_length=1)
+    question:str=Field(min_length=1)
+    limit:int=Field(default=8,ge=1,le=25)
 
 class AttributeRequest(BaseModel):
     name:str=Field(min_length=1)
@@ -151,3 +157,32 @@ async def save_business_rule(payload:BusinessRuleRequest):
             priority=payload.priority,enabled=payload.enabled,keywords=payload.keywords)
         return {"id":rule_id,"message":"Business rule saved"}
     finally: await p.close()
+
+def semantic_index()->QdrantSemanticIndex:
+    settings=get_settings()
+    return QdrantSemanticIndex(settings.qdrant_url,settings.qdrant_collection,settings.embedding_model)
+
+@router.post("/{source_name}/index/rebuild")
+async def rebuild_semantic_index(source_name:str):
+    p=provider()
+    try:
+        source_id=await p.get_data_source_id(source_name)
+        if source_id is None: raise HTTPException(404,"Data source not found. Discover it first.")
+        entities=await p.list_semantic_entities(source_id)
+        relationships=await p.list_semantic_relationships(source_id)
+        metrics=await p.list_semantic_metrics(source_id)
+        rules=await p.list_business_rules(source_id)
+        index=semantic_index()
+        docs=index.build_documents(source_name,entities,relationships,metrics,rules)
+        count=index.rebuild(source_name,docs)
+        return {"source_name":source_name,"indexed":count,"message":"Semantic index rebuilt from PostgreSQL catalog"}
+    finally: await p.close()
+
+@router.post("/search")
+async def semantic_search(payload:SemanticSearchRequest):
+    index=semantic_index()
+    try:
+        results=index.search(payload.source_name,payload.question,payload.limit)
+    except Exception as exc:
+        raise HTTPException(503,f"Semantic index unavailable: {type(exc).__name__}") from exc
+    return {"source_name":payload.source_name,"question":payload.question,"results":results}
