@@ -28,7 +28,28 @@ CREATE TABLE IF NOT EXISTS datapilot_catalog.data_sources (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-ALTER TABLE IF EXISTS datapilot_catalog.schema_snapshots ADD COLUMN IF NOT EXISTS data_source_id BIGINT REFERENCES datapilot_catalog.data_sources(id) ON DELETE CASCADE;\n\nCREATE TABLE IF NOT EXISTS datapilot_catalog.schema_snapshots (
+ALTER TABLE IF EXISTS datapilot_catalog.schema_snapshots ADD COLUMN IF NOT EXISTS data_source_id BIGINT REFERENCES datapilot_catalog.data_sources(id) ON DELETE CASCADE;
+
+DO $
+DECLARE
+    constraint_name text;
+BEGIN
+    FOR constraint_name IN
+        SELECT con.conname
+        FROM pg_constraint con
+        JOIN pg_class rel ON rel.oid = con.conrelid
+        JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+        WHERE nsp.nspname = 'datapilot_catalog'
+          AND rel.relname = 'schema_snapshots'
+          AND con.contype = 'u'
+          AND pg_get_constraintdef(con.oid) = 'UNIQUE (schema_name, version)'
+    LOOP
+        EXECUTE format('ALTER TABLE datapilot_catalog.schema_snapshots DROP CONSTRAINT %I', constraint_name);
+    END LOOP;
+END
+$;
+
+CREATE TABLE IF NOT EXISTS datapilot_catalog.schema_snapshots (
     id BIGSERIAL PRIMARY KEY,
     data_source_id BIGINT REFERENCES datapilot_catalog.data_sources(id) ON DELETE CASCADE,
     schema_name TEXT NOT NULL,
