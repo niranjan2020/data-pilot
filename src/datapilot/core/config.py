@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     )
     metadata_database_pool_size: int = Field(default=3, description="Metadata catalog connection pool size")
 
+    # Semantic Retrieval (Qdrant is a rebuildable index; PostgreSQL remains source of truth)
+    qdrant_url: str = Field(default="http://localhost:6333", description="Qdrant REST URL")
+    qdrant_collection: str = Field(default="datapilot_semantic", description="Semantic search collection")
+    embedding_model: str = Field(default="BAAI/bge-small-en-v1.5", description="Local FastEmbed model")
+
     # LLM Provider Configuration (Pluggable)
     default_llm_provider: str = Field(
         default="gemini",
