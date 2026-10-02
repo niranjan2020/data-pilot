@@ -110,7 +110,10 @@ class PostgreSQLMetadataProvider(MetadataProvider):
             async with pool.connection() as connection:
                 async with connection.transaction():
                     async with connection.cursor() as cursor:
-                        for statement in _CATALOG_DDL.split(";"):\n                        statement = statement.strip()\n                        if statement:\n                            await cursor.execute(statement)
+                        for statement in _CATALOG_DDL.split(";"):
+                            statement = statement.strip()
+                            if statement:
+                                await cursor.execute(statement)
         except DatabaseConnectionError:
             raise
         except Exception as exc:
@@ -138,7 +141,10 @@ class PostgreSQLMetadataProvider(MetadataProvider):
             async with pool.connection() as connection:
                 async with connection.transaction():
                     async with connection.cursor() as cursor:
-                        for statement in _CATALOG_DDL.split(";"):\n                            statement = statement.strip()\n                            if statement:\n                                await cursor.execute(statement)
+                        for statement in _CATALOG_DDL.split(";"):
+                            statement = statement.strip()
+                            if statement:
+                                await cursor.execute(statement)
                         await cursor.execute(
                             """
                             INSERT INTO datapilot_catalog.schema_snapshots (schema_name, dialect, version)
