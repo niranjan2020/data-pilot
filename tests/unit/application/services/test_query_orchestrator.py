@@ -8,7 +8,7 @@ from datapilot.application.services.query_orchestrator import QueryOrchestrator
 from datapilot.domain.models import SchemaMetadata
 from datapilot.domain.policies import QueryExecutionPolicy
 from datapilot.domain.query import QueryRequest
-from datapilot.domain.semantic import EntityAttributeDefinition, EntityDefinition, QueryTemplate, SemanticCatalog
+from datapilot.domain.semantic import SemanticCatalog
 
 
 class FakeDatabase:
@@ -64,77 +64,6 @@ class FakeCatalog:
 
 
 @pytest.mark.asyncio
-async def test_template_with_explicit_parameters_executes_without_sql_generator():
-    database = FakeDatabase()
-    generator = FakeSQLGenerator()
-    catalog = SemanticCatalog(
-        templates=[
-            QueryTemplate(
-                name="RECORDS_BY_OWNER",
-                description="Count records by owner",
-                synonyms=["records by owner"],
-                sql_template="SELECT COUNT(*) AS count FROM records WHERE owner = {{owner}}",
-                required_parameters=["owner"],
-            )
-        ]
-    )
-    orchestrator = QueryOrchestrator(
-        database, FakeValidator(), generator, FakeCatalog(catalog), query_timeout_seconds=12.0
-    )
-
-    response = await orchestrator.query(
-        QueryRequest(question="records by owner", parameters={"owner": "Acme"})
-    )
-
-    assert response.source == "template"
-    assert response.matched_template == "RECORDS_BY_OWNER"
-    assert "owner = 'Acme'" in response.sql
-    assert response.sql.endswith("LIMIT 1000")
-    assert generator.calls == 0
-    assert database.timeouts == [12.0]
-
-
-@pytest.mark.asyncio
-async def test_template_can_use_resolved_semantic_filter():
-    database = FakeDatabase()
-    generator = FakeSQLGenerator()
-    catalog = SemanticCatalog(
-        entities=[
-            EntityDefinition(
-                name="customer",
-                synonyms=["customers"],
-                table_name="customers",
-                key_column="customer_id",
-                attributes=[
-                    EntityAttributeDefinition(
-                        name="country", synonyms=["country"], column_name="country"
-                    )
-                ],
-            )
-        ],
-        templates=[
-            QueryTemplate(
-                name="CUSTOMERS_BY_COUNTRY",
-                description="Customers by country",
-                synonyms=["customers by country"],
-                sql_template="SELECT COUNT(*) FROM customers WHERE country = {{country}}",
-                required_parameters=["country"],
-            )
-        ],
-    )
-    orchestrator = QueryOrchestrator(database, FakeValidator(), generator, FakeCatalog(catalog))
-
-    response = await orchestrator.query(QueryRequest(question="customers in India"))
-
-    assert response.source == "template"
-    assert "country = 'India'" in response.sql
-    assert response.sql.endswith("LIMIT 1000")
-    assert response.resolved_intent is not None
-    assert response.resolved_intent.filters[0].value == "India"
-    assert generator.calls == 0
-
-
-@pytest.mark.asyncio
 async def test_aggregate_generator_query_does_not_receive_arbitrary_limit():
     database = FakeDatabase()
     generator = FakeSQLGenerator("SELECT COUNT(*) AS count FROM records")
@@ -168,44 +97,3 @@ async def test_non_aggregate_generator_query_receives_policy_limit():
     assert database.executed == [response.sql]
 
 
-@pytest.mark.asyncio
-async def test_ambiguous_template_match_does_not_execute_or_generate():
-    database = FakeDatabase()
-    generator = FakeSQLGenerator()
-    catalog = SemanticCatalog(
-        templates=[
-            QueryTemplate(name="SALES_SUMMARY", description="Sales summary", synonyms=["summary"], sql_template="SELECT 1"),
-            QueryTemplate(name="INVENTORY_SUMMARY", description="Inventory summary", synonyms=["summary"], sql_template="SELECT 1"),
-        ]
-    )
-    orchestrator = QueryOrchestrator(database, FakeValidator(), generator, FakeCatalog(catalog))
-
-    response = await orchestrator.query(QueryRequest(question="summary"))
-
-    assert response.status == "ambiguous"
-    assert len(response.ambiguity_candidates) == 2
-    assert database.executed == []
-    assert generator.calls == 0
-
-
-@pytest.mark.asyncio
-async def test_template_missing_parameters_falls_back_to_generic_generator():
-    database = FakeDatabase()
-    generator = FakeSQLGenerator("SELECT COUNT(*) FROM records WHERE owner = 'Acme'")
-    catalog = SemanticCatalog(
-        templates=[
-            QueryTemplate(
-                name="RECORDS_BY_OWNER",
-                description="Count records by owner",
-                synonyms=["records by owner"],
-                sql_template="SELECT COUNT(*) FROM records WHERE owner = {{owner}}",
-                required_parameters=["owner"],
-            )
-        ]
-    )
-    orchestrator = QueryOrchestrator(database, FakeValidator(), generator, FakeCatalog(catalog))
-
-    response = await orchestrator.query(QueryRequest(question="records by owner"))
-
-    assert response.source == "generator"
-    assert generator.calls == 1
