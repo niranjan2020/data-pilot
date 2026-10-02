@@ -209,6 +209,196 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                     )
                     return (await cursor.fetchone())[0]
 
+    async def get_data_source_id(self, name: str) -> Optional[int]:
+        await self.initialize()
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    "SELECT id FROM datapilot_catalog.data_sources WHERE name = %s",
+                    (name,),
+                )
+                row = await cursor.fetchone()
+                return row[0] if row else None
+
+    async def list_catalog_tables(self, data_source_id: int) -> list[dict]:
+        await self.initialize()
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    WITH latest AS (
+                        SELECT DISTINCT ON (schema_name) id
+                        FROM datapilot_catalog.schema_snapshots
+                        WHERE data_source_id = %s
+                        ORDER BY schema_name, discovered_at DESC, id DESC
+                    )
+                    SELECT t.schema_name, t.table_name,
+                           jsonb_agg(
+                               jsonb_build_object(
+                                   'name', c.column_name,
+                                   'data_type', c.data_type,
+                                   'is_primary_key', c.is_primary_key
+                               )
+                               ORDER BY c.column_name
+                           )
+                    FROM datapilot_catalog.tables t
+                    JOIN latest l ON l.id = t.snapshot_id
+                    JOIN datapilot_catalog.columns c ON c.table_id = t.id
+                    GROUP BY t.schema_name, t.table_name
+                    ORDER BY t.schema_name, t.table_name
+                    """,
+                    (data_source_id,),
+                )
+                return [
+                    {"schema_name": row[0], "table_name": row[1], "columns": row[2] or []}
+                    for row in await cursor.fetchall()
+                ]
+
+    async def save_semantic_entity(
+        self, *, data_source_id: int, name: str, description: Optional[str],
+        schema_name: str, table_name: str, key_column: str,
+        display_column: Optional[str], synonyms: list[str],
+        attributes: list[dict],
+    ) -> int:
+        await self.initialize()
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.transaction():
+                async with connection.cursor() as cursor:
+                    await cursor.execute(
+                        """
+                        INSERT INTO datapilot_catalog.semantic_entities
+                            (data_source_id, name, description, schema_name, table_name,
+                             key_column, display_column)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (data_source_id, name) DO UPDATE SET
+                            description = EXCLUDED.description,
+                            schema_name = EXCLUDED.schema_name,
+                            table_name = EXCLUDED.table_name,
+                            key_column = EXCLUDED.key_column,
+                            display_column = EXCLUDED.display_column,
+                            updated_at = NOW()
+                        RETURNING id
+                        """,
+                        (data_source_id, name, description, schema_name, table_name,
+                         key_column, display_column),
+                    )
+                    entity_id = (await cursor.fetchone())[0]
+
+                    await cursor.execute(
+                        "DELETE FROM datapilot_catalog.semantic_entity_synonyms WHERE entity_id = %s",
+                        (entity_id,),
+                    )
+                    for synonym in sorted({s.strip() for s in synonyms if s.strip()}):
+                        await cursor.execute(
+                            """
+                            INSERT INTO datapilot_catalog.semantic_entity_synonyms
+                                (entity_id, synonym)
+                            VALUES (%s, %s)
+                            """,
+                            (entity_id, synonym),
+                        )
+
+                    await cursor.execute(
+                        "DELETE FROM datapilot_catalog.semantic_attributes WHERE entity_id = %s",
+                        (entity_id,),
+                    )
+                    for attribute in attributes:
+                        await cursor.execute(
+                            """
+                            INSERT INTO datapilot_catalog.semantic_attributes
+                                (entity_id, name, description, column_name, operators)
+                            VALUES (%s, %s, %s, %s, %s::jsonb)
+                            RETURNING id
+                            """,
+                            (
+                                entity_id,
+                                attribute["name"],
+                                attribute.get("description"),
+                                attribute["column_name"],
+                                json.dumps(attribute.get("operators") or ["="]),
+                            ),
+                        )
+                        attribute_id = (await cursor.fetchone())[0]
+                        for synonym in sorted({
+                            s.strip() for s in attribute.get("synonyms", []) if s.strip()
+                        }):
+                            await cursor.execute(
+                                """
+                                INSERT INTO datapilot_catalog.semantic_attribute_synonyms
+                                    (attribute_id, synonym)
+                                VALUES (%s, %s)
+                                """,
+                                (attribute_id, synonym),
+                            )
+                    return entity_id
+
+    async def list_semantic_entities(self, data_source_id: int) -> list[dict]:
+        await self.initialize()
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    SELECT e.id, e.name, e.description, e.schema_name, e.table_name,
+                           e.key_column, e.display_column,
+                           COALESCE(
+                               (SELECT jsonb_agg(s.synonym ORDER BY s.synonym)
+                                FROM datapilot_catalog.semantic_entity_synonyms s
+                                WHERE s.entity_id = e.id),
+                               '[]'::jsonb
+                           )
+                    FROM datapilot_catalog.semantic_entities e
+                    WHERE e.data_source_id = %s
+                    ORDER BY e.name
+                    """,
+                    (data_source_id,),
+                )
+                entity_rows = await cursor.fetchall()
+                entities = []
+                for row in entity_rows:
+                    await cursor.execute(
+                        """
+                        SELECT a.id, a.name, a.description, a.column_name, a.operators
+                        FROM datapilot_catalog.semantic_attributes a
+                        WHERE a.entity_id = %s
+                        ORDER BY a.name
+                        """,
+                        (row[0],),
+                    )
+                    attributes = []
+                    for attribute in await cursor.fetchall():
+                        await cursor.execute(
+                            """
+                            SELECT synonym
+                            FROM datapilot_catalog.semantic_attribute_synonyms
+                            WHERE attribute_id = %s
+                            ORDER BY synonym
+                            """,
+                            (attribute[0],),
+                        )
+                        attributes.append({
+                            "name": attribute[1],
+                            "description": attribute[2],
+                            "column_name": attribute[3],
+                            "operators": attribute[4] or ["="],
+                            "synonyms": [s[0] for s in await cursor.fetchall()],
+                        })
+                    entities.append({
+                        "id": row[0],
+                        "name": row[1],
+                        "description": row[2],
+                        "schema_name": row[3],
+                        "table_name": row[4],
+                        "key_column": row[5],
+                        "display_column": row[6],
+                        "synonyms": row[7] or [],
+                        "attributes": attributes,
+                    })
+                return entities
+
     @staticmethod
     def _schema_name(schema: SchemaMetadata) -> str:
         if schema.schema_name:
