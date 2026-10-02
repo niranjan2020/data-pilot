@@ -53,7 +53,7 @@ Data Pilot is designed to coordinate:
 
 - **Open-Source First (No SaaS Bloat):** The engine contains zero multi-tenancy code, billing stubs, user subscriptions, or cloud vendor lock-in. A future SaaS layer can be added externally without rewriting the core engine.
 - **Database-Agnostic:** Business logic and semantic definitions are decoupled from database specifics. PostgreSQL will be the first supported provider, with abstract protocols for Snowflake, MySQL, BigQuery, and others.
-- **LLM-Agnostic:** Pluggable provider protocol. Designed to support Google Gemini, OpenAI, Anthropic, or local open-weights models.
+- **LLM-Agnostic:** The core query engine depends on the generic `SQLGenerator` port. LLM-backed generation is only one possible adapter; provider-specific SDKs stay at the infrastructure/composition boundary.
 - **Business Logic Outside Prompts:** Templates, metrics, column mappings, entity synonyms, and schema metadata have typed Python representations—not embedded solely inside prompt strings.
 - **Deterministic and Testable:** Core modules, parsers, and validators are designed to be testable without requiring live LLM API calls.
 - **Security First:** Generated SQL is designed to pass through validation before execution.
@@ -119,14 +119,15 @@ data-pilot/
 - Deterministic schema discovery service with filtering, normalization, stable catalog versioning, and optional metadata persistence
 - Versioned PostgreSQL metadata/catalog persistence adapter for schema, table, column, and foreign-key metadata
 - Semantic catalog models and deterministic template matching with explicit ambiguity detection
-- Google Gemini LLM provider adapter with structured Pydantic responses
+- Provider-independent `SQLGenerator` boundary with an LLM-backed adapter isolated from the query orchestrator
+- Google Gemini adapter kept as one replaceable infrastructure implementation
 
 ### Next / Planned:
-- Semantic-aware NL-to-SQL orchestration
-- End-to-end API workflow and PostgreSQL test fixture
-- LLM provider integration (Google Gemini adapter)
-- Semantic layer (templates, business rules, entity resolution)
-- Natural-language-to-SQL orchestration engine
+- Generic semantic entity/value resolution
+- Query execution/resource policies
+- Local database fixture and end-to-end test harness
+- Additional SQL generator and database adapters
+- Semantic evaluation framework
 - Frontend web application
 
 ---
