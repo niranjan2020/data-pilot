@@ -73,17 +73,25 @@ class QueryOrchestrator:
             search_kinds = getattr(self._semantic_retriever, "search_kinds", None)
             if search_kinds is not None:
                 seed_limit = max(4, min(self._semantic_retrieval_limit, 6))
-                retrieved_context = await search_kinds(
+                structural_seeds = await search_kinds(
                     request.source_name, request.question,
                     ["dataset", "entity"], seed_limit,
                 )
+                # Stage 2 retrieves semantic intent objects independently. They do
+                # not select physical datasets; the authoritative catalog later
+                # constrains them to the Stage-1 dataset/entity neighborhood.
+                intent_seeds = await search_kinds(
+                    request.source_name, request.question,
+                    ["metric", "business_rule"], seed_limit,
+                )
+                retrieved_context = [*structural_seeds, *intent_seeds]
             else:
                 retrieved_context = await self._semantic_retriever.search(
                     request.source_name, request.question, self._semantic_retrieval_limit
                 )
 
         logger.info(
-            "query question=%r source=%r retrieval_stage=dataset_entity_seeds retrieved=%s",
+            "query question=%r source=%r retrieval_stage=hierarchical_seeds retrieved=%s",
             request.question, request.source_name,
             [(x.get("kind"), x.get("name"), x.get("score")) for x in retrieved_context],
         )
