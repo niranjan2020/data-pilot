@@ -19,6 +19,7 @@ from datapilot.domain.policies import QueryExecutionPolicy
 from datapilot.domain.query import QueryRequest, QueryResponse
 from datapilot.domain.semantic import QueryIntent, SemanticCatalog
 from datapilot.infrastructure.sql.query_policy import SQLQueryPolicyEnforcer
+from datapilot.infrastructure.sql.identifier_binding import bind_physical_identifiers
 
 
 logger = get_logger("datapilot.query")
@@ -104,9 +105,11 @@ class QueryOrchestrator:
             dialect=self._database.dialect,
         )
         logger.info("query generated_sql=%s", generated)
+        bound_sql = bind_physical_identifiers(generated, schema, self._database.dialect)
+        logger.info("query catalog_bound_sql=%s", bound_sql)
         return await self._validate_and_execute(
             question=request.question,
-            sql=generated,
+            sql=bound_sql,
             source="generator",
             confidence=intent.confidence,
             resolved_intent=intent,
