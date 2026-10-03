@@ -20,6 +20,7 @@ class SemanticContextAssembler:
         if source_id is None:
             return {"entities": [], "relationships": [], "metrics": [], "business_rules": []}
 
+        datasets = await self._metadata.list_semantic_datasets(source_id)
         entities = await self._metadata.list_semantic_entities(source_id)
         relationships = await self._metadata.list_semantic_relationships(source_id)
         metrics = await self._metadata.list_semantic_metrics(source_id)
@@ -27,11 +28,14 @@ class SemanticContextAssembler:
 
         entity_ids: set[int] = set()
         metric_ids: set[int] = set()
+        dataset_keys: set[tuple[str, str]] = set()
 
         for item in retrieved:
             meta = item.get("metadata") or {}
             kind = item.get("kind")
-            if kind == "entity" and meta.get("id") is not None:
+            if kind == "dataset" and meta.get("schema_name") and meta.get("table_name"):
+                dataset_keys.add((meta["schema_name"], meta["table_name"]))
+            elif kind == "entity" and meta.get("id") is not None:
                 entity_ids.add(int(meta["id"]))
             elif kind == "relationship":
                 for key in ("from_entity_id", "to_entity_id"):
@@ -47,6 +51,12 @@ class SemanticContextAssembler:
                     entity_ids.add(int(meta["entity_id"]))
                 if meta.get("metric_id") is not None:
                     metric_ids.add(int(meta["metric_id"]))
+
+        # Dataset-first expansion: a selected physical dataset activates only
+        # semantic entities explicitly configured on that dataset.
+        for entity in entities:
+            if (entity.get("schema_name"), entity.get("table_name")) in dataset_keys:
+                entity_ids.add(entity["id"])
 
         # Metrics imply their owning entity.
         for metric in metrics:
@@ -74,7 +84,13 @@ class SemanticContextAssembler:
             )
         ]
 
+        selected_datasets = [
+            d for d in datasets
+            if (d.get("schema_name"), d.get("table_name")) in dataset_keys
+        ]
+
         return {
+            "datasets": selected_datasets,
             "entities": selected_entities,
             "relationships": selected_relationships,
             "metrics": selected_metrics,
