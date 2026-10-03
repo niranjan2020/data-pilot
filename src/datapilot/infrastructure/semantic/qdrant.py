@@ -164,18 +164,34 @@ class QdrantSemanticIndex:
             self.client.upsert(collection_name=self.collection, points=points, wait=True)
         return len(documents)
 
+    async def search_kinds(
+        self, source_name: str, question: str, kinds: list[str], limit: int = 8
+    ) -> list[dict[str, Any]]:
+        """Retrieve only selected semantic document kinds for staged retrieval."""
+        return await asyncio.to_thread(
+            self._search_sync, source_name, question, limit, kinds
+        )
+
     async def search(self, source_name: str, question: str, limit: int = 8) -> list[dict[str, Any]]:
         """Retrieve context without blocking the application event loop."""
-        return await asyncio.to_thread(self._search_sync, source_name, question, limit)
+        return await asyncio.to_thread(self._search_sync, source_name, question, limit, None)
 
-    def _search_sync(self, source_name: str, question: str, limit: int = 8) -> list[dict[str, Any]]:
+    def _search_sync(
+        self, source_name: str, question: str, limit: int = 8,
+        kinds: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
         vector = list(self.embedder.embed([question]))[0].tolist()
+        must = [
+            models.FieldCondition(key="source_name", match=models.MatchValue(value=source_name))
+        ]
+        if kinds:
+            must.append(
+                models.FieldCondition(key="kind", match=models.MatchAny(any=kinds))
+            )
         result = self.client.query_points(
             collection_name=self.collection,
             query=vector,
-            query_filter=models.Filter(must=[
-                models.FieldCondition(key="source_name", match=models.MatchValue(value=source_name))
-            ]),
+            query_filter=models.Filter(must=must),
             limit=limit,
             with_payload=True,
         )
