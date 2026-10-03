@@ -8,6 +8,7 @@ import sqlglot
 from sqlglot import exp
 
 from datapilot.domain.policies import QueryExecutionPolicy, QueryPolicyResult
+from datapilot.infrastructure.sql.dialects import sqlglot_dialect
 
 
 class SQLQueryPolicyEnforcer:
@@ -29,7 +30,7 @@ class SQLQueryPolicyEnforcer:
                 errors=[f"SQL query exceeds maximum length of {policy.max_query_length} characters"],
             )
 
-        target = dialect or "postgres"
+        target = sqlglot_dialect(dialect)
         try:
             statements = sqlglot.parse(sql, read=target)
         except sqlglot.errors.ParseError as exc:
