@@ -284,7 +284,10 @@ class PostgreSQLDatabaseProvider(DatabaseProvider):
                 try:
                     async with connection.transaction():
                         async with connection.cursor() as cursor:
-                            await cursor.execute("SET LOCAL statement_timeout = %s", (int(timeout * 1000),))
+                            await cursor.execute(
+                                "SELECT set_config('statement_timeout', %s, true)",
+                                (f"{int(timeout * 1000)}ms",),
+                            )
                             await cursor.execute(sql, params or {})
                             columns = [desc.name for desc in (cursor.description or [])]
                             rows = await cursor.fetchall() if cursor.description else []
@@ -300,9 +303,17 @@ class PostgreSQLDatabaseProvider(DatabaseProvider):
         except DatabaseConnectionError:
             raise
         except Exception as exc:
+            diagnostic = getattr(exc, "diag", None)
+            details = {"error_type": type(exc).__name__}
+            message = getattr(diagnostic, "message_primary", None)
+            if message:
+                details["database_message"] = message
+            sqlstate = getattr(exc, "sqlstate", None)
+            if sqlstate:
+                details["sqlstate"] = sqlstate
             raise DatabaseExecutionError(
                 "PostgreSQL query execution failed",
-                details={"error_type": type(exc).__name__},
+                details=details,
             ) from exc
 
     async def close(self) -> None:
