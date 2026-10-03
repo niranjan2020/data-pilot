@@ -10,6 +10,7 @@ from datapilot.domain.interfaces.database import DatabaseProvider
 from datapilot.domain.interfaces.entity_resolver import EntityResolver
 from datapilot.domain.interfaces.query_policy import QueryPolicyEnforcer
 from datapilot.domain.interfaces.semantic import SemanticCatalogProvider
+from datapilot.domain.interfaces.semantic_retriever import SemanticRetriever
 from datapilot.domain.interfaces.sql_generator import SQLGenerator
 from datapilot.domain.interfaces.sql_validator import SQLValidator
 from datapilot.domain.models import SchemaMetadata
@@ -33,11 +34,15 @@ class QueryOrchestrator:
         query_policy_enforcer: Optional[QueryPolicyEnforcer] = None,
         query_policy: Optional[QueryExecutionPolicy] = None,
         query_timeout_seconds: Optional[float] = None,
+        semantic_retriever: Optional[SemanticRetriever] = None,
+        semantic_retrieval_limit: int = 8,
     ) -> None:
         self._database = database_provider
         self._validator = sql_validator
         self._sql_generator = sql_generator
         self._semantic_catalog_provider = semantic_catalog_provider
+        self._semantic_retriever = semantic_retriever
+        self._semantic_retrieval_limit = semantic_retrieval_limit
         self._entity_resolver = entity_resolver or DeterministicEntityResolver()
         self._query_policy = query_policy or QueryExecutionPolicy()
         if query_timeout_seconds is not None:
@@ -69,10 +74,17 @@ class QueryOrchestrator:
             )
 
         parameters = self._merge_resolved_parameters(request.parameters, intent)
+        retrieved_context: list[dict[str, Any]] = []
+        if self._semantic_retriever is not None and request.source_name:
+            retrieved_context = await self._semantic_retriever.search(
+                request.source_name, request.question, self._semantic_retrieval_limit
+            )
+
         generated = await self._sql_generator.generate(
             question=request.question,
             schema=schema,
             context={
+                "retrieved_semantic_context": retrieved_context,
                 "semantic_catalog": catalog.model_dump(mode="json"),
                 "query_intent": intent.model_dump(mode="json"),
                 "parameters": parameters,
@@ -85,6 +97,7 @@ class QueryOrchestrator:
             source="generator",
             confidence=intent.confidence,
             resolved_intent=intent,
+            retrieved_context=retrieved_context,
         )
 
     async def _validate_and_execute(
@@ -95,6 +108,7 @@ class QueryOrchestrator:
         source: str,
         confidence: float,
         resolved_intent: Optional[QueryIntent] = None,
+        retrieved_context: Optional[list[dict[str, Any]]] = None,
     ) -> QueryResponse:
         validation = await self._validator.validate(
             sql,
@@ -140,6 +154,7 @@ class QueryOrchestrator:
             result=result,
             confidence=confidence,
             resolved_intent=resolved_intent,
+            retrieved_context=retrieved_context or [],
             validation_warnings=[*validation.warnings, *policy_result.warnings],
         )
 
