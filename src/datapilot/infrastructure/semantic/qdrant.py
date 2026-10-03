@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from typing import Any
 
@@ -96,6 +97,10 @@ class QdrantSemanticIndex:
             ]
             self.client.upsert(collection_name=self.collection, points=points, wait=True)
         return len(documents)
+
+    async def search_async(self, source_name: str, question: str, limit: int = 8) -> list[dict[str, Any]]:
+        """Async runtime port; embedding/Qdrant client work is moved off the event loop."""
+        return await asyncio.to_thread(self.search, source_name, question, limit)
 
     def search(self, source_name: str, question: str, limit: int = 8) -> list[dict[str, Any]]:
         vector = list(self.embedder.embed([question]))[0].tolist()
