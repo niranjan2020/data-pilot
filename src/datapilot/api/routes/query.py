@@ -5,12 +5,14 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request
 
 from datapilot.application.services.query_orchestrator import QueryOrchestrator
+from datapilot.application.services.semantic_context import SemanticContextAssembler
 from datapilot.core.config import Settings, get_settings
 from datapilot.core.exceptions import ConfigurationError
 from datapilot.domain.query import QueryRequest, QueryResponse
 from datapilot.infrastructure.database.postgresql import PostgreSQLDatabaseProvider
 from datapilot.infrastructure.llm.gemini import GeminiLLMProvider
 from datapilot.infrastructure.metadata.semantic_postgresql import PostgreSQLSemanticCatalogProvider
+from datapilot.infrastructure.metadata.postgresql import PostgreSQLMetadataProvider
 from datapilot.infrastructure.sql.llm_generator import LLMBackedSQLGenerator
 from datapilot.infrastructure.semantic.qdrant import QdrantSemanticIndex
 from datapilot.infrastructure.sql.validator import SQLGlotValidator
@@ -63,6 +65,11 @@ async def get_query_orchestrator(
     semantic_retriever = QdrantSemanticIndex(
         settings.qdrant_url, settings.qdrant_collection, settings.embedding_model
     )
+    metadata_catalog = PostgreSQLMetadataProvider(
+        database_url=semantic_database_url,
+        pool_size=settings.metadata_database_pool_size,
+    )
+    semantic_context_assembler = SemanticContextAssembler(metadata_catalog)
 
     orchestrator = QueryOrchestrator(
         database_provider=database,
@@ -71,10 +78,12 @@ async def get_query_orchestrator(
         semantic_catalog_provider=semantic_catalog,
         query_timeout_seconds=settings.database_query_timeout_seconds,
         semantic_retriever=semantic_retriever,
+        semantic_context_assembler=semantic_context_assembler,
     )
 
     request.app.state.query_database = database
     request.app.state.query_semantic_catalog = semantic_catalog
+    request.app.state.query_metadata_catalog = metadata_catalog
     request.app.state.query_llm = llm
     request.app.state.query_orchestrator = orchestrator
     return orchestrator
