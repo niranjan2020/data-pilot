@@ -12,6 +12,7 @@ from datapilot.infrastructure.database.postgresql import PostgreSQLDatabaseProvi
 from datapilot.infrastructure.llm.gemini import GeminiLLMProvider
 from datapilot.infrastructure.metadata.semantic_postgresql import PostgreSQLSemanticCatalogProvider
 from datapilot.infrastructure.sql.llm_generator import LLMBackedSQLGenerator
+from datapilot.infrastructure.semantic.qdrant import QdrantSemanticIndex
 from datapilot.infrastructure.sql.validator import SQLGlotValidator
 
 router = APIRouter(prefix="/api", tags=["Query"])
@@ -59,6 +60,9 @@ async def get_query_orchestrator(
         model=settings.gemini_model,
     )
     sql_generator = LLMBackedSQLGenerator(llm)
+    semantic_retriever = QdrantSemanticIndex(
+        settings.qdrant_url, settings.qdrant_collection, settings.embedding_model
+    )
 
     orchestrator = QueryOrchestrator(
         database_provider=database,
@@ -66,6 +70,7 @@ async def get_query_orchestrator(
         sql_generator=sql_generator,
         semantic_catalog_provider=semantic_catalog,
         query_timeout_seconds=settings.database_query_timeout_seconds,
+        semantic_retriever=semantic_retriever,
     )
 
     request.app.state.query_database = database
