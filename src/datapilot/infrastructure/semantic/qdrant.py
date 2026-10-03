@@ -24,6 +24,19 @@ class QdrantSemanticIndex:
         return int.from_bytes(hashlib.sha256(raw).digest()[:8], "big") >> 1
 
     @staticmethod
+    def _dataset_text(dataset: dict) -> str:
+        return (
+            f"Dataset {dataset['schema_name']}.{dataset['table_name']}. "
+            f"{dataset.get('description') or ''}. "
+            f"Business meaning: {dataset.get('business_meaning') or ''}. "
+            f"Grain: {dataset.get('grain') or ''}. "
+            f"Identity: {dataset.get('identity_semantics') or ''}. "
+            f"Aliases: {' '.join(dataset.get('aliases') or [])}. "
+            f"Recommended use cases: {'; '.join(dataset.get('use_cases') or [])}. "
+            f"Query constraints: {'; '.join(dataset.get('query_constraints') or [])}."
+        )
+
+    @staticmethod
     def _entity_text(entity: dict) -> str:
         attrs = "; ".join(
             f"{a['name']} ({a['column_name']}): {a.get('description') or ''} "
@@ -38,9 +51,18 @@ class QdrantSemanticIndex:
 
     def build_documents(
         self, source_name: str, entities: list[dict], relationships: list[dict],
-        metrics: list[dict], rules: list[dict],
+        metrics: list[dict], rules: list[dict], datasets: list[dict] | None = None,
     ) -> list[dict[str, Any]]:
         docs: list[dict[str, Any]] = []
+        for dataset in datasets or []:
+            key = f"{dataset['schema_name']}.{dataset['table_name']}"
+            docs.append({
+                "kind": "dataset",
+                "key": key,
+                "name": key,
+                "text": self._dataset_text(dataset),
+                "metadata": dataset,
+            })
         for e in entities:
             docs.append({"kind": "entity", "key": str(e["id"]), "name": e["name"],
                          "text": self._entity_text(e), "metadata": e})
@@ -71,14 +93,18 @@ class QdrantSemanticIndex:
     def rebuild(self, source_name: str, documents: list[dict[str, Any]]) -> int:
         texts = [d["text"] for d in documents]
         vectors = list(self.embedder.embed(texts)) if texts else []
-        if vectors:
+        collections = {c.name for c in self.client.get_collections().collections}
+        if vectors and self.collection not in collections:
             size = len(vectors[0])
-            collections = {c.name for c in self.client.get_collections().collections}
-            if self.collection not in collections:
-                self.client.create_collection(
-                    collection_name=self.collection,
-                    vectors_config=models.VectorParams(size=size, distance=models.Distance.COSINE),
-                )
+            self.client.create_collection(
+                collection_name=self.collection,
+                vectors_config=models.VectorParams(size=size, distance=models.Distance.COSINE),
+            )
+            collections.add(self.collection)
+
+        # Always clear the source partition when the collection exists. This keeps
+        # Qdrant rebuildable even when PostgreSQL currently has zero semantic docs.
+        if self.collection in collections:
             self.client.delete(
                 collection_name=self.collection,
                 points_selector=models.FilterSelector(
@@ -86,7 +112,10 @@ class QdrantSemanticIndex:
                         models.FieldCondition(key="source_name", match=models.MatchValue(value=source_name))
                     ])
                 ),
+                wait=True,
             )
+
+        if vectors:
             points = [
                 models.PointStruct(
                     id=self._point_id(source_name, d["kind"], d["key"]),
