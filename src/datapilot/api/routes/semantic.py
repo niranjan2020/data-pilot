@@ -16,6 +16,18 @@ class SemanticSearchRequest(BaseModel):
     question:str=Field(min_length=1)
     limit:int=Field(default=8,ge=1,le=25)
 
+class DatasetSemanticRequest(BaseModel):
+    source_name:str=Field(min_length=1)
+    schema_name:str=Field(min_length=1)
+    table_name:str=Field(min_length=1)
+    description:Optional[str]=None
+    business_meaning:Optional[str]=None
+    grain:Optional[str]=None
+    identity_semantics:Optional[str]=None
+    aliases:list[str]=Field(default_factory=list)
+    use_cases:list[str]=Field(default_factory=list)
+    query_constraints:list[str]=Field(default_factory=list)
+
 class AttributeRequest(BaseModel):
     name:str=Field(min_length=1)
     description:Optional[str]=None
@@ -80,6 +92,38 @@ async def semantic_catalog(source_name:str):
         return {"source_name":source_name,"tables":await p.list_catalog_tables(source_id),
                 "entities":await p.list_semantic_entities(source_id),
                 "relationships":await p.list_semantic_relationships(source_id)}
+    finally: await p.close()
+
+@router.get("/{source_name}/datasets")
+async def semantic_datasets(source_name:str):
+    p=provider()
+    try:
+        source_id=await p.get_data_source_id(source_name)
+        if source_id is None: raise HTTPException(404,"Data source not found. Discover it first.")
+        return {"source_name":source_name,
+                "tables":await p.list_catalog_tables(source_id),
+                "datasets":await p.list_semantic_datasets(source_id)}
+    finally: await p.close()
+
+@router.post("/datasets")
+async def save_dataset(payload:DatasetSemanticRequest):
+    p=provider()
+    try:
+        source_id=await p.get_data_source_id(payload.source_name)
+        if source_id is None: raise HTTPException(404,"Data source not found. Discover it first.")
+        dataset_id=await p.save_semantic_dataset(
+            data_source_id=source_id,
+            schema_name=payload.schema_name,
+            table_name=payload.table_name,
+            description=payload.description,
+            business_meaning=payload.business_meaning,
+            grain=payload.grain,
+            identity_semantics=payload.identity_semantics,
+            aliases=payload.aliases,
+            use_cases=payload.use_cases,
+            query_constraints=payload.query_constraints,
+        )
+        return {"id":dataset_id,"message":"Dataset semantics saved"}
     finally: await p.close()
 
 @router.post("/entities")
