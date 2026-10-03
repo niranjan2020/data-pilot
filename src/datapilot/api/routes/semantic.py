@@ -182,7 +182,7 @@ async def rebuild_semantic_index(source_name:str):
 async def semantic_search(payload:SemanticSearchRequest):
     index=semantic_index()
     try:
-        results=index.search(payload.source_name,payload.question,payload.limit)
+        results=await index.search(payload.source_name,payload.question,payload.limit)
     except Exception as exc:
         raise HTTPException(503,f"Semantic index unavailable: {type(exc).__name__}") from exc
     return {"source_name":payload.source_name,"question":payload.question,"results":results}
