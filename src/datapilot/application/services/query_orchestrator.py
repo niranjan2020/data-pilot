@@ -247,6 +247,7 @@ class QueryOrchestrator:
             resolved_intent=resolved_intent,
             retrieved_context=retrieved_context or [],
             validation_warnings=[*validation.warnings, *policy_result.warnings],
+            trace=trace,
         )
 
     async def _load_relevant_schema(
