@@ -108,7 +108,9 @@ class QueryOrchestrator:
                 [x["name"] for x in governed_context.get("metrics", [])],
                 [x["name"] for x in governed_context.get("business_rules", [])],
             )
-        schema = schema or await self._load_relevant_schema(retrieved_context, governed_context)
+        schema = schema or await self._load_relevant_schema(
+            retrieved_context, governed_context, request.question
+        )
         logger.info(
             "query physical_schema tables=%s",
             [f"{t.schema_name}.{t.name}" for t in schema.tables],
@@ -225,8 +227,9 @@ class QueryOrchestrator:
         self,
         retrieved_context: list[dict[str, Any]],
         governed_context: Optional[dict[str, Any]] = None,
+        question: str = "",
     ) -> SchemaMetadata:
-        """Introspect physical schemas, then prune to governed semantic tables."""
+        """Introspect physical schemas, then prune tables and governed columns."""
         governed_entities = (governed_context or {}).get("entities", [])
         governed_datasets = (governed_context or {}).get("datasets", [])
         physical_tables = {
@@ -258,7 +261,94 @@ class QueryOrchestrator:
             for table in item.tables
             if (table.schema_name or item.schema_name, table.name) in physical_tables
         ]
-        return SchemaMetadata(schema_name=None, tables=tables, dialect=self._database.dialect)
+
+        # Governed column pruning. Required join/key/display/metric columns are
+        # always retained. Explicitly mentioned semantic attributes are retained.
+        # If an entity has no configured attributes, keep its full physical table
+        # as a safe compatibility fallback rather than guessing.
+        entities = governed_entities
+        relationships = (governed_context or {}).get("relationships", [])
+        metrics = (governed_context or {}).get("metrics", [])
+        normalized_question = " " + __import__("re").sub(
+            r"[^a-z0-9]+", " ", question.lower()
+        ).strip() + " "
+        required: dict[tuple[str, str], set[str]] = {}
+
+        def require(schema_name: str | None, table_name: str | None, column: str | None) -> None:
+            if schema_name and table_name and column:
+                required.setdefault((schema_name, table_name), set()).add(column.lower())
+
+        entity_by_id = {e["id"]: e for e in entities}
+        for entity in entities:
+            key = (entity.get("schema_name"), entity.get("table_name"))
+            require(*key, entity.get("key_column"))
+            require(*key, entity.get("display_column"))
+            attributes = entity.get("attributes") or []
+            for attribute in attributes:
+                terms = [
+                    attribute.get("name") or "",
+                    *(attribute.get("synonyms") or []),
+                ]
+                if any(
+                    (term_norm := __import__("re").sub(
+                        r"[^a-z0-9]+", " ", term.lower()
+                    ).strip())
+                    and f" {term_norm} " in normalized_question
+                    for term in terms
+                ):
+                    require(*key, attribute.get("column_name"))
+
+        for relationship in relationships:
+            left = entity_by_id.get(relationship.get("from_entity_id"))
+            right = entity_by_id.get(relationship.get("to_entity_id"))
+            if left:
+                require(left.get("schema_name"), left.get("table_name"), relationship.get("from_column"))
+            if right:
+                require(right.get("schema_name"), right.get("table_name"), relationship.get("to_column"))
+
+        for metric in metrics:
+            owner = entity_by_id.get(metric.get("entity_id"))
+            if owner:
+                attribute = next(
+                    (
+                        a for a in (owner.get("attributes") or [])
+                        if (a.get("name") or "").lower() == (metric.get("attribute_name") or "").lower()
+                    ),
+                    None,
+                )
+                if attribute:
+                    require(owner.get("schema_name"), owner.get("table_name"), attribute.get("column_name"))
+
+        pruned_tables = []
+        for table in tables:
+            table_key = (table.schema_name, table.name)
+            entity = next(
+                (
+                    e for e in entities
+                    if (e.get("schema_name"), e.get("table_name")) == table_key
+                ),
+                None,
+            )
+            # No semantic entity/attributes means we lack enough governance to
+            # safely prune; preserve all columns.
+            if entity is None or not (entity.get("attributes") or []):
+                pruned_tables.append(table)
+                continue
+            keep = required.get(table_key, set())
+            columns = [col for col in table.columns if col.name.lower() in keep]
+            # Never produce an unusable empty table context.
+            if not columns:
+                columns = table.columns
+            pruned_tables.append(table.model_copy(update={"columns": columns}))
+
+        logger.info(
+            "query column_context=%s",
+            {
+                f"{t.schema_name}.{t.name}": [c.name for c in t.columns]
+                for t in pruned_tables
+            },
+        )
+        return SchemaMetadata(schema_name=None, tables=pruned_tables, dialect=self._database.dialect)
 
     @staticmethod
     def _merge_resolved_parameters(
