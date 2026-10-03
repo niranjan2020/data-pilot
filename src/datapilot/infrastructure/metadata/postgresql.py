@@ -84,6 +84,28 @@ CREATE INDEX IF NOT EXISTS ix_datapilot_columns_table
 CREATE UNIQUE INDEX IF NOT EXISTS ux_datapilot_schema_source_version
     ON datapilot_catalog.schema_snapshots (data_source_id, schema_name, version);
 
+CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_datasets (
+    id BIGSERIAL PRIMARY KEY,
+    data_source_id BIGINT NOT NULL REFERENCES datapilot_catalog.data_sources(id) ON DELETE CASCADE,
+    schema_name TEXT NOT NULL,
+    table_name TEXT NOT NULL,
+    description TEXT,
+    business_meaning TEXT,
+    grain TEXT,
+    identity_semantics TEXT,
+    use_cases JSONB NOT NULL DEFAULT '[]'::jsonb,
+    query_constraints JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (data_source_id, schema_name, table_name)
+);
+
+CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_dataset_aliases (
+    dataset_id BIGINT NOT NULL REFERENCES datapilot_catalog.semantic_datasets(id) ON DELETE CASCADE,
+    alias TEXT NOT NULL,
+    PRIMARY KEY (dataset_id, alias)
+);
+
 CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_entities (
     id BIGSERIAL PRIMARY KEY,
     data_source_id BIGINT NOT NULL REFERENCES datapilot_catalog.data_sources(id) ON DELETE CASCADE,
@@ -310,6 +332,101 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                 )
                 return [
                     {"schema_name": row[0], "table_name": row[1], "columns": row[2] or []}
+                    for row in await cursor.fetchall()
+                ]
+
+    async def save_semantic_dataset(
+        self, *, data_source_id: int, schema_name: str, table_name: str,
+        description: Optional[str], business_meaning: Optional[str],
+        grain: Optional[str], identity_semantics: Optional[str],
+        aliases: list[str], use_cases: list[str], query_constraints: list[str],
+    ) -> int:
+        """Persist business semantics for one discovered physical dataset."""
+        await self.initialize()
+        catalog_tables = await self.list_catalog_tables(data_source_id)
+        if not any(
+            t["schema_name"] == schema_name and t["table_name"] == table_name
+            for t in catalog_tables
+        ):
+            raise MetadataError(
+                "Semantic dataset must reference a discovered physical table or view",
+                details={"schema_name": schema_name, "table_name": table_name},
+            )
+
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.transaction():
+                async with connection.cursor() as cursor:
+                    await cursor.execute(
+                        """
+                        INSERT INTO datapilot_catalog.semantic_datasets
+                            (data_source_id, schema_name, table_name, description,
+                             business_meaning, grain, identity_semantics,
+                             use_cases, query_constraints)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
+                        ON CONFLICT (data_source_id, schema_name, table_name) DO UPDATE SET
+                            description = EXCLUDED.description,
+                            business_meaning = EXCLUDED.business_meaning,
+                            grain = EXCLUDED.grain,
+                            identity_semantics = EXCLUDED.identity_semantics,
+                            use_cases = EXCLUDED.use_cases,
+                            query_constraints = EXCLUDED.query_constraints,
+                            updated_at = NOW()
+                        RETURNING id
+                        """,
+                        (
+                            data_source_id, schema_name, table_name, description,
+                            business_meaning, grain, identity_semantics,
+                            json.dumps([v.strip() for v in use_cases if v.strip()]),
+                            json.dumps([v.strip() for v in query_constraints if v.strip()]),
+                        ),
+                    )
+                    dataset_id = (await cursor.fetchone())[0]
+                    await cursor.execute(
+                        "DELETE FROM datapilot_catalog.semantic_dataset_aliases WHERE dataset_id = %s",
+                        (dataset_id,),
+                    )
+                    for alias in sorted({a.strip() for a in aliases if a.strip()}):
+                        await cursor.execute(
+                            """
+                            INSERT INTO datapilot_catalog.semantic_dataset_aliases (dataset_id, alias)
+                            VALUES (%s, %s)
+                            """,
+                            (dataset_id, alias),
+                        )
+                    return dataset_id
+
+    async def list_semantic_datasets(self, data_source_id: int) -> list[dict]:
+        """Return configured dataset-level semantics for a data source."""
+        await self.initialize()
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    SELECT d.id, d.schema_name, d.table_name, d.description,
+                           d.business_meaning, d.grain, d.identity_semantics,
+                           d.use_cases, d.query_constraints,
+                           COALESCE(
+                               (SELECT jsonb_agg(a.alias ORDER BY a.alias)
+                                FROM datapilot_catalog.semantic_dataset_aliases a
+                                WHERE a.dataset_id = d.id),
+                               '[]'::jsonb
+                           )
+                    FROM datapilot_catalog.semantic_datasets d
+                    WHERE d.data_source_id = %s
+                    ORDER BY d.schema_name, d.table_name
+                    """,
+                    (data_source_id,),
+                )
+                return [
+                    {
+                        "id": row[0], "schema_name": row[1], "table_name": row[2],
+                        "description": row[3], "business_meaning": row[4],
+                        "grain": row[5], "identity_semantics": row[6],
+                        "use_cases": row[7] or [], "query_constraints": row[8] or [],
+                        "aliases": row[9] or [],
+                    }
                     for row in await cursor.fetchall()
                 ]
 
