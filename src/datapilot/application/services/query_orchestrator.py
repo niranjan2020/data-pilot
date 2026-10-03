@@ -18,7 +18,7 @@ from datapilot.domain.interfaces.sql_generator import SQLGenerator
 from datapilot.domain.interfaces.sql_validator import SQLValidator
 from datapilot.domain.models import SchemaMetadata
 from datapilot.domain.policies import QueryExecutionPolicy
-from datapilot.domain.query import QueryRequest, QueryResponse
+from datapilot.domain.query import QueryRequest, QueryResponse, QueryTrace
 from datapilot.domain.semantic import QueryIntent, SemanticCatalog
 from datapilot.infrastructure.sql.query_policy import SQLQueryPolicyEnforcer
 from datapilot.infrastructure.sql.identifier_binding import bind_physical_identifiers
@@ -118,6 +118,22 @@ class QueryOrchestrator:
             "query physical_schema tables=%s",
             [f"{t.schema_name}.{t.name}" for t in schema.tables],
         )
+        trace = QueryTrace(
+            retrieved_candidates=retrieved_context,
+            governed_datasets=[
+                f"{x['schema_name']}.{x['table_name']}"
+                for x in governed_context.get("datasets", [])
+            ],
+            governed_entities=[x["name"] for x in governed_context.get("entities", [])],
+            governed_relationships=[x["name"] for x in governed_context.get("relationships", [])],
+            governed_metrics=[x["name"] for x in governed_context.get("metrics", [])],
+            governed_business_rules=[x["name"] for x in governed_context.get("business_rules", [])],
+            physical_tables=[f"{t.schema_name}.{t.name}" for t in schema.tables],
+            physical_columns={
+                f"{t.schema_name}.{t.name}": [column.name for column in t.columns]
+                for t in schema.tables
+            },
+        )
         catalog = catalog or await self._semantic_catalog_provider.get_catalog()
 
         intent = self._entity_resolver.resolve(request.question, catalog, schema)
@@ -128,6 +144,7 @@ class QueryOrchestrator:
                 confidence=intent.confidence,
                 semantic_ambiguities=intent.ambiguities,
                 resolved_intent=intent,
+                trace=trace,
                 message="The question matches more than one semantic entity. Refine the entity name or add an explicit attribute.",
             )
 
@@ -141,6 +158,7 @@ class QueryOrchestrator:
         }
         generation_context, budget = self._context_budgeter.apply(generation_context)
         logger.info("query context_budget=%s", budget)
+        trace.context_budget = budget
         generated = await self._sql_generator.generate(
             question=request.question,
             schema=schema,
@@ -157,6 +175,7 @@ class QueryOrchestrator:
             confidence=intent.confidence,
             resolved_intent=intent,
             retrieved_context=retrieved_context,
+            trace=trace,
         )
 
     async def _validate_and_execute(
@@ -168,6 +187,7 @@ class QueryOrchestrator:
         confidence: float,
         resolved_intent: Optional[QueryIntent] = None,
         retrieved_context: Optional[list[dict[str, Any]]] = None,
+        trace: Optional[QueryTrace] = None,
     ) -> QueryResponse:
         validation = await self._validator.validate(
             sql,
