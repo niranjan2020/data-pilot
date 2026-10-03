@@ -80,9 +80,15 @@ class LLMBackedSQLGenerator(SQLGenerator):
         except Exception as exc:
             if isinstance(exc, SQLGenerationError):
                 raise
+            provider_details = getattr(exc, "details", None)
             raise SQLGenerationError(
                 "Unable to generate SQL from the configured LLM provider",
-                details={"provider": self._llm.provider_name},
+                details={
+                    "provider": self._llm.provider_name,
+                    "cause_type": type(exc).__name__,
+                    "cause": str(exc),
+                    "provider_details": provider_details or {},
+                },
             ) from exc
 
     @staticmethod
