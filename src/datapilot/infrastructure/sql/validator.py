@@ -8,6 +8,7 @@ import sqlglot
 from sqlglot import exp
 
 from datapilot.domain.models import SQLValidationResult
+from datapilot.infrastructure.sql.dialects import sqlglot_dialect
 
 
 class SQLGlotValidator:
@@ -50,7 +51,7 @@ class SQLGlotValidator:
                 errors=["SQL query must be a non-empty string"],
             )
 
-        target_dialect = dialect or "postgres"
+        target_dialect = sqlglot_dialect(dialect)
         try:
             statements = sqlglot.parse(sql, read=target_dialect)
         except sqlglot.errors.ParseError as exc:
