@@ -170,5 +170,11 @@ def parse_args() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
+    # psycopg's async connection pool requires a selector-based event loop on
+    # Windows. Python defaults to ProactorEventLoop there, so make the
+    # standalone evaluation runner use the compatible policy explicitly.
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
     args = parse_args()
     sys.exit(asyncio.run(run(args.cases)))
