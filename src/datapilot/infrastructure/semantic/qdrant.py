@@ -90,6 +90,43 @@ class QdrantSemanticIndex:
             d["source_name"] = source_name
         return docs
 
+    def upsert_documents(self, source_name: str, documents: list[dict[str, Any]]) -> int:
+        """Incrementally embed and upsert semantic documents for one data source."""
+        if not documents:
+            return 0
+        texts = [d["text"] for d in documents]
+        vectors = list(self.embedder.embed(texts))
+        collections = {item.name for item in self.client.get_collections().collections}
+        if self.collection not in collections:
+            size = len(vectors[0])
+            self.client.create_collection(
+                collection_name=self.collection,
+                vectors_config=models.VectorParams(size=size, distance=models.Distance.COSINE),
+            )
+        points = [
+            models.PointStruct(
+                id=self._point_id(source_name, d["kind"], d["key"]),
+                vector=vector.tolist(),
+                payload={**d, "source_name": source_name},
+            )
+            for d, vector in zip(documents, vectors)
+        ]
+        self.client.upsert(collection_name=self.collection, points=points, wait=True)
+        return len(points)
+
+    def delete_document(self, source_name: str, kind: str, key: str) -> None:
+        """Delete one stable semantic document without touching other sources."""
+        collections = {item.name for item in self.client.get_collections().collections}
+        if self.collection not in collections:
+            return
+        self.client.delete(
+            collection_name=self.collection,
+            points_selector=models.PointIdsList(
+                points=[self._point_id(source_name, kind, key)]
+            ),
+            wait=True,
+        )
+
     def rebuild(self, source_name: str, documents: list[dict[str, Any]]) -> int:
         texts = [d["text"] for d in documents]
         vectors = list(self.embedder.embed(texts)) if texts else []
