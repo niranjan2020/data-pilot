@@ -24,6 +24,21 @@ class SQLGeneration(BaseModel):
     explanation: Optional[str] = None
 
 
+class QueryTrace(BaseModel):
+    """Structured diagnostic trace of semantic retrieval and query planning."""
+
+    retrieval_stage: str = "hierarchical_seeds"
+    retrieved_candidates: List[Dict[str, Any]] = Field(default_factory=list)
+    governed_datasets: List[str] = Field(default_factory=list)
+    governed_entities: List[str] = Field(default_factory=list)
+    governed_relationships: List[str] = Field(default_factory=list)
+    governed_metrics: List[str] = Field(default_factory=list)
+    governed_business_rules: List[str] = Field(default_factory=list)
+    physical_tables: List[str] = Field(default_factory=list)
+    physical_columns: Dict[str, List[str]] = Field(default_factory=dict)
+    context_budget: Dict[str, Any] = Field(default_factory=dict)
+
+
 class QueryResponse(BaseModel):
     """End-to-end result of the Data Pilot query orchestration workflow."""
 
@@ -37,4 +52,5 @@ class QueryResponse(BaseModel):
     resolved_intent: Optional[QueryIntent] = None
     retrieved_context: List[Dict[str, Any]] = Field(default_factory=list)
     validation_warnings: List[str] = Field(default_factory=list)
+    trace: Optional[QueryTrace] = None
     message: Optional[str] = None
