@@ -59,7 +59,13 @@ class QueryOrchestrator:
         catalog: Optional[SemanticCatalog] = None,
     ) -> QueryResponse:
         """Resolve, generate, validate and execute one natural-language query."""
-        schema = schema or await self._database.introspect_schema()
+        retrieved_context: list[dict[str, Any]] = []
+        if self._semantic_retriever is not None and request.source_name:
+            retrieved_context = await self._semantic_retriever.search(
+                request.source_name, request.question, self._semantic_retrieval_limit
+            )
+
+        schema = schema or await self._load_relevant_schema(retrieved_context)
         catalog = catalog or await self._semantic_catalog_provider.get_catalog()
 
         intent = self._entity_resolver.resolve(request.question, catalog, schema)
@@ -74,12 +80,6 @@ class QueryOrchestrator:
             )
 
         parameters = self._merge_resolved_parameters(request.parameters, intent)
-        retrieved_context: list[dict[str, Any]] = []
-        if self._semantic_retriever is not None and request.source_name:
-            retrieved_context = await self._semantic_retriever.search(
-                request.source_name, request.question, self._semantic_retrieval_limit
-            )
-
         generated = await self._sql_generator.generate(
             question=request.question,
             schema=schema,
@@ -158,12 +158,32 @@ class QueryOrchestrator:
             validation_warnings=[*validation.warnings, *policy_result.warnings],
         )
 
+    async def _load_relevant_schema(
+        self, retrieved_context: list[dict[str, Any]]
+    ) -> SchemaMetadata:
+        """Introspect only physical schemas surfaced by governed semantic retrieval."""
+        schema_names = sorted({
+            item.get("metadata", {}).get("schema_name")
+            for item in retrieved_context
+            if item.get("kind") == "entity" and item.get("metadata", {}).get("schema_name")
+        })
+        if not schema_names:
+            return await self._database.introspect_schema()
+
+        discovered = [await self._database.introspect_schema(name) for name in schema_names]
+        tables = [table for item in discovered for table in item.tables]
+        return SchemaMetadata(
+            schema_name=None,
+            tables=tables,
+            dialect=self._database.dialect,
+        )
+
     @staticmethod
     def _merge_resolved_parameters(
         parameters: Dict[str, Any],
         intent: QueryIntent,
     ) -> Dict[str, Any]:
-        """Fill missing template parameters from deterministic semantic filters."""
+        """Fill missing parameters from deterministic semantic filters."""
         merged = dict(parameters)
         for item in intent.filters:
             for key in (item.attribute, item.column_name):
