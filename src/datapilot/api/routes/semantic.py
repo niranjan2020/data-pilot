@@ -212,12 +212,15 @@ async def rebuild_semantic_index(source_name:str):
     try:
         source_id=await p.get_data_source_id(source_name)
         if source_id is None: raise HTTPException(404,"Data source not found. Discover it first.")
+        datasets=await p.list_semantic_datasets(source_id)
         entities=await p.list_semantic_entities(source_id)
         relationships=await p.list_semantic_relationships(source_id)
         metrics=await p.list_semantic_metrics(source_id)
         rules=await p.list_business_rules(source_id)
         index=semantic_index()
-        docs=index.build_documents(source_name,entities,relationships,metrics,rules)
+        docs=index.build_documents(
+            source_name, entities, relationships, metrics, rules, datasets=datasets
+        )
         count=index.rebuild(source_name,docs)
         return {"source_name":source_name,"indexed":count,"message":"Semantic index rebuilt from PostgreSQL catalog"}
     finally: await p.close()
