@@ -130,6 +130,7 @@ class GeminiLLMProvider:
                     "model": self._model,
                     "schema": response_schema.__name__,
                     "error_type": type(exc).__name__,
+                    "error": str(exc),
                 },
             ) from exc
 
