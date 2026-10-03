@@ -13,6 +13,7 @@ class QueryRequest(BaseModel):
     """A user question plus optional explicit parameters."""
 
     question: str = Field(min_length=1)
+    source_name: Optional[str] = Field(default=None, description="Configured data-source name used for semantic retrieval")
     parameters: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -34,5 +35,6 @@ class QueryResponse(BaseModel):
     confidence: float = 0.0
     semantic_ambiguities: List[str] = Field(default_factory=list)
     resolved_intent: Optional[QueryIntent] = None
+    retrieved_context: List[Dict[str, Any]] = Field(default_factory=list)
     validation_warnings: List[str] = Field(default_factory=list)
     message: Optional[str] = None
