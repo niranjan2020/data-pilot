@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from datapilot.application.services.entity_resolver import DeterministicEntityResolver
+from datapilot.application.services.context_budget import ContextBudgeter
 from datapilot.application.services.semantic_context import SemanticContextAssembler
 from datapilot.core.exceptions import SQLValidationError
 from datapilot.core.logging import get_logger
@@ -42,6 +43,7 @@ class QueryOrchestrator:
         semantic_retriever: Optional[SemanticRetriever] = None,
         semantic_retrieval_limit: int = 8,
         semantic_context_assembler: Optional[SemanticContextAssembler] = None,
+        context_budget_chars: int = 24000,
     ) -> None:
         self._database = database_provider
         self._validator = sql_validator
@@ -50,6 +52,7 @@ class QueryOrchestrator:
         self._semantic_retriever = semantic_retriever
         self._semantic_retrieval_limit = semantic_retrieval_limit
         self._semantic_context_assembler = semantic_context_assembler
+        self._context_budgeter = ContextBudgeter(context_budget_chars)
         self._entity_resolver = entity_resolver or DeterministicEntityResolver()
         self._query_policy = query_policy or QueryExecutionPolicy()
         if query_timeout_seconds is not None:
@@ -129,16 +132,19 @@ class QueryOrchestrator:
             )
 
         parameters = self._merge_resolved_parameters(request.parameters, intent)
+        generation_context = {
+            "governed_semantic_context": governed_context,
+            "retrieved_semantic_context": retrieved_context,
+            "semantic_catalog": catalog.model_dump(mode="json"),
+            "query_intent": intent.model_dump(mode="json"),
+            "parameters": parameters,
+        }
+        generation_context, budget = self._context_budgeter.apply(generation_context)
+        logger.info("query context_budget=%s", budget)
         generated = await self._sql_generator.generate(
             question=request.question,
             schema=schema,
-            context={
-                "governed_semantic_context": governed_context,
-                "retrieved_semantic_context": retrieved_context,
-                "semantic_catalog": catalog.model_dump(mode="json"),
-                "query_intent": intent.model_dump(mode="json"),
-                "parameters": parameters,
-            },
+            context=generation_context,
             dialect=self._database.dialect,
         )
         logger.info("query generated_sql=%s", generated)
