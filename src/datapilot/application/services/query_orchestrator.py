@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from datapilot.application.services.entity_resolver import DeterministicEntityResolver
+from datapilot.application.services.semantic_context import SemanticContextAssembler
 from datapilot.core.exceptions import SQLValidationError
 from datapilot.core.logging import get_logger
 from datapilot.domain.interfaces.database import DatabaseProvider
@@ -40,6 +41,7 @@ class QueryOrchestrator:
         query_timeout_seconds: Optional[float] = None,
         semantic_retriever: Optional[SemanticRetriever] = None,
         semantic_retrieval_limit: int = 8,
+        semantic_context_assembler: Optional[SemanticContextAssembler] = None,
     ) -> None:
         self._database = database_provider
         self._validator = sql_validator
@@ -47,6 +49,7 @@ class QueryOrchestrator:
         self._semantic_catalog_provider = semantic_catalog_provider
         self._semantic_retriever = semantic_retriever
         self._semantic_retrieval_limit = semantic_retrieval_limit
+        self._semantic_context_assembler = semantic_context_assembler
         self._entity_resolver = entity_resolver or DeterministicEntityResolver()
         self._query_policy = query_policy or QueryExecutionPolicy()
         if query_timeout_seconds is not None:
@@ -74,7 +77,19 @@ class QueryOrchestrator:
             request.question, request.source_name,
             [(x.get("kind"), x.get("name"), x.get("score")) for x in retrieved_context],
         )
-        schema = schema or await self._load_relevant_schema(retrieved_context)
+        governed_context: dict[str, Any] = {}
+        if self._semantic_context_assembler is not None and request.source_name:
+            governed_context = await self._semantic_context_assembler.assemble(
+                request.source_name, retrieved_context
+            )
+            logger.info(
+                "query governed_context entities=%s relationships=%s metrics=%s rules=%s",
+                [x["name"] for x in governed_context.get("entities", [])],
+                [x["name"] for x in governed_context.get("relationships", [])],
+                [x["name"] for x in governed_context.get("metrics", [])],
+                [x["name"] for x in governed_context.get("business_rules", [])],
+            )
+        schema = schema or await self._load_relevant_schema(retrieved_context, governed_context)
         logger.info(
             "query physical_schema tables=%s",
             [f"{t.schema_name}.{t.name}" for t in schema.tables],
@@ -97,6 +112,7 @@ class QueryOrchestrator:
             question=request.question,
             schema=schema,
             context={
+                "governed_semantic_context": governed_context,
                 "retrieved_semantic_context": retrieved_context,
                 "semantic_catalog": catalog.model_dump(mode="json"),
                 "query_intent": intent.model_dump(mode="json"),
@@ -187,24 +203,37 @@ class QueryOrchestrator:
         )
 
     async def _load_relevant_schema(
-        self, retrieved_context: list[dict[str, Any]]
+        self,
+        retrieved_context: list[dict[str, Any]],
+        governed_context: Optional[dict[str, Any]] = None,
     ) -> SchemaMetadata:
-        """Introspect only physical schemas surfaced by governed semantic retrieval."""
-        schema_names = sorted({
-            item.get("metadata", {}).get("schema_name")
-            for item in retrieved_context
-            if item.get("kind") == "entity" and item.get("metadata", {}).get("schema_name")
-        })
-        if not schema_names:
+        """Introspect physical schemas, then prune to governed semantic tables."""
+        governed_entities = (governed_context or {}).get("entities", [])
+        physical_tables = {
+            (e.get("schema_name"), e.get("table_name"))
+            for e in governed_entities
+            if e.get("schema_name") and e.get("table_name")
+        }
+        if not physical_tables:
+            physical_tables = {
+                (item.get("metadata", {}).get("schema_name"), item.get("metadata", {}).get("table_name"))
+                for item in retrieved_context
+                if item.get("kind") == "entity"
+                and item.get("metadata", {}).get("schema_name")
+                and item.get("metadata", {}).get("table_name")
+            }
+        if not physical_tables:
             return await self._database.introspect_schema()
 
+        schema_names = sorted({schema for schema, _ in physical_tables})
         discovered = [await self._database.introspect_schema(name) for name in schema_names]
-        tables = [table for item in discovered for table in item.tables]
-        return SchemaMetadata(
-            schema_name=None,
-            tables=tables,
-            dialect=self._database.dialect,
-        )
+        tables = [
+            table
+            for item in discovered
+            for table in item.tables
+            if (table.schema_name or item.schema_name, table.name) in physical_tables
+        ]
+        return SchemaMetadata(schema_name=None, tables=tables, dialect=self._database.dialect)
 
     @staticmethod
     def _merge_resolved_parameters(
