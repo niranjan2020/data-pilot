@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+import re
 
 from datapilot.infrastructure.metadata.postgresql import PostgreSQLMetadataProvider
 
@@ -14,7 +15,7 @@ class SemanticContextAssembler:
         self._metadata = metadata
 
     async def assemble(
-        self, source_name: str, retrieved: list[dict[str, Any]]
+        self, source_name: str, retrieved: list[dict[str, Any]], question: str = ""
     ) -> dict[str, Any]:
         source_id = await self._metadata.get_data_source_id(source_name)
         if source_id is None:
@@ -49,11 +50,9 @@ class SemanticContextAssembler:
             elif kind == "metric":
                 if meta.get("id") is not None:
                     metric_ids.add(int(meta["id"]))
-                if meta.get("entity_id") is not None:
-                    entity_ids.add(int(meta["entity_id"]))
             elif kind == "business_rule":
-                if meta.get("entity_id") is not None:
-                    entity_ids.add(int(meta["entity_id"]))
+                # Rules are intent evidence only. They must never widen the
+                # Stage-1 structural dataset/entity boundary.
                 if meta.get("metric_id") is not None:
                     metric_ids.add(int(meta["metric_id"]))
 
@@ -67,6 +66,21 @@ class SemanticContextAssembler:
                     entity_ids.add(entity["id"])
         else:
             entity_ids.update(entity_seed_ids)
+
+        # Prefer explicit configured metric names/synonyms in the question.
+        # This is deterministic semantic resolution, not business-specific logic,
+        # and supports multiple explicitly requested metrics.
+        normalized_question = " " + re.sub(r"[^a-z0-9]+", " ", question.lower()).strip() + " "
+        explicit_metric_ids: set[int] = set()
+        for metric in metrics:
+            terms = [metric.get("name") or "", *(metric.get("synonyms") or [])]
+            for term in terms:
+                normalized_term = re.sub(r"[^a-z0-9]+", " ", term.lower()).strip()
+                if normalized_term and f" {normalized_term} " in normalized_question:
+                    explicit_metric_ids.add(metric["id"])
+                    break
+        if explicit_metric_ids:
+            metric_ids = explicit_metric_ids
 
         # Intent seeds are subordinate to the structural boundary. A metric may
         # enrich a selected dataset/entity, but it must not pull an unrelated
