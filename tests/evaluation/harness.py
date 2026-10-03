@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Iterable, Mapping, Sequence
 
+from datapilot.domain.query import QueryResponse
+
 
 @dataclass(frozen=True)
 class EvaluationExpectation:
@@ -13,6 +15,15 @@ class EvaluationExpectation:
     row_count: int | None = None
     scalar: Any | None = None
     rows: tuple[tuple[Any, ...], ...] = ()
+    datasets: tuple[str, ...] = ()
+    entities: tuple[str, ...] = ()
+    relationships: tuple[str, ...] = ()
+    metrics: tuple[str, ...] = ()
+    excluded_datasets: tuple[str, ...] = ()
+    excluded_entities: tuple[str, ...] = ()
+    excluded_metrics: tuple[str, ...] = ()
+    require_completed: bool = False
+    require_sql: bool = False
 
 
 @dataclass(frozen=True)
@@ -94,3 +105,55 @@ def evaluate_case(
         passed=not failures,
         failures=tuple(failures),
     )
+
+
+def evaluate_query_response(
+    case: EvaluationCase,
+    response: QueryResponse,
+) -> EvaluationResult:
+    """Evaluate semantic selection separately from optional result ground truth."""
+    expected = case.expected
+    failures: list[str] = []
+    trace = response.trace
+
+    if expected.require_completed and response.status != "completed":
+        failures.append(f"expected completed status, got {response.status!r}")
+    if expected.require_sql and not response.sql:
+        failures.append("expected generated SQL")
+
+    if any((
+        expected.datasets, expected.entities, expected.relationships,
+        expected.metrics, expected.excluded_datasets,
+        expected.excluded_entities, expected.excluded_metrics,
+    )) and trace is None:
+        failures.append("query trace is required for semantic evaluation")
+    elif trace is not None:
+        checks = (
+            ("datasets", expected.datasets, trace.governed_datasets),
+            ("entities", expected.entities, trace.governed_entities),
+            ("relationships", expected.relationships, trace.governed_relationships),
+            ("metrics", expected.metrics, trace.governed_metrics),
+        )
+        for label, wanted, actual in checks:
+            missing = sorted(set(wanted) - set(actual))
+            if missing:
+                failures.append(f"missing expected {label}: {', '.join(missing)}")
+
+        exclusions = (
+            ("datasets", expected.excluded_datasets, trace.governed_datasets),
+            ("entities", expected.excluded_entities, trace.governed_entities),
+            ("metrics", expected.excluded_metrics, trace.governed_metrics),
+        )
+        for label, forbidden, actual in exclusions:
+            leaked = sorted(set(forbidden) & set(actual))
+            if leaked:
+                failures.append(f"unexpected {label}: {', '.join(leaked)}")
+
+    # Result assertions remain optional and independent from semantic correctness.
+    if response.status == "completed" and response.result is not None:
+        rows = response.result.get("rows", []) if isinstance(response.result, Mapping) else []
+        affected = response.result.get("affected_tables", []) if isinstance(response.result, Mapping) else []
+        result_eval = evaluate_case(case, rows=rows, affected_tables=affected)
+        failures.extend(result_eval.failures)
+
+    return EvaluationResult(case_id=case.id, passed=not failures, failures=tuple(failures))
