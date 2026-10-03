@@ -98,7 +98,7 @@ class QueryOrchestrator:
         governed_context: dict[str, Any] = {}
         if self._semantic_context_assembler is not None and request.source_name:
             governed_context = await self._semantic_context_assembler.assemble(
-                request.source_name, retrieved_context
+                request.source_name, retrieved_context, request.question
             )
             logger.info(
                 "query governed_context datasets=%s entities=%s relationships=%s metrics=%s rules=%s",
