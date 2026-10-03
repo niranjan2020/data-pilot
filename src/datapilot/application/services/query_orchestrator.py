@@ -68,12 +68,22 @@ class QueryOrchestrator:
         """Resolve, generate, validate and execute one natural-language query."""
         retrieved_context: list[dict[str, Any]] = []
         if self._semantic_retriever is not None and request.source_name:
-            retrieved_context = await self._semantic_retriever.search(
-                request.source_name, request.question, self._semantic_retrieval_limit
-            )
+            # Stage 1 discovers the relevant physical/business neighborhood rather
+            # than allowing rules/metrics to crowd datasets out of a flat top-k.
+            search_kinds = getattr(self._semantic_retriever, "search_kinds", None)
+            if search_kinds is not None:
+                seed_limit = max(4, min(self._semantic_retrieval_limit, 6))
+                retrieved_context = await search_kinds(
+                    request.source_name, request.question,
+                    ["dataset", "entity"], seed_limit,
+                )
+            else:
+                retrieved_context = await self._semantic_retriever.search(
+                    request.source_name, request.question, self._semantic_retrieval_limit
+                )
 
         logger.info(
-            "query question=%r source=%r retrieved=%s",
+            "query question=%r source=%r retrieval_stage=dataset_entity_seeds retrieved=%s",
             request.question, request.source_name,
             [(x.get("kind"), x.get("name"), x.get("score")) for x in retrieved_context],
         )
@@ -83,7 +93,8 @@ class QueryOrchestrator:
                 request.source_name, retrieved_context
             )
             logger.info(
-                "query governed_context entities=%s relationships=%s metrics=%s rules=%s",
+                "query governed_context datasets=%s entities=%s relationships=%s metrics=%s rules=%s",
+                [f"{x['schema_name']}.{x['table_name']}" for x in governed_context.get("datasets", [])],
                 [x["name"] for x in governed_context.get("entities", [])],
                 [x["name"] for x in governed_context.get("relationships", [])],
                 [x["name"] for x in governed_context.get("metrics", [])],
@@ -209,11 +220,17 @@ class QueryOrchestrator:
     ) -> SchemaMetadata:
         """Introspect physical schemas, then prune to governed semantic tables."""
         governed_entities = (governed_context or {}).get("entities", [])
+        governed_datasets = (governed_context or {}).get("datasets", [])
         physical_tables = {
+            (d.get("schema_name"), d.get("table_name"))
+            for d in governed_datasets
+            if d.get("schema_name") and d.get("table_name")
+        }
+        physical_tables.update({
             (e.get("schema_name"), e.get("table_name"))
             for e in governed_entities
             if e.get("schema_name") and e.get("table_name")
-        }
+        })
         if not physical_tables:
             physical_tables = {
                 (item.get("metadata", {}).get("schema_name"), item.get("metadata", {}).get("table_name"))
