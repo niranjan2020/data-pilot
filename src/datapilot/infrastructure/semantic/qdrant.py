@@ -98,11 +98,11 @@ class QdrantSemanticIndex:
             self.client.upsert(collection_name=self.collection, points=points, wait=True)
         return len(documents)
 
-    async def search_async(self, source_name: str, question: str, limit: int = 8) -> list[dict[str, Any]]:
-        """Async runtime port; embedding/Qdrant client work is moved off the event loop."""
-        return await asyncio.to_thread(self.search, source_name, question, limit)
+    async def search(self, source_name: str, question: str, limit: int = 8) -> list[dict[str, Any]]:
+        """Retrieve context without blocking the application event loop."""
+        return await asyncio.to_thread(self._search_sync, source_name, question, limit)
 
-    def search(self, source_name: str, question: str, limit: int = 8) -> list[dict[str, Any]]:
+    def _search_sync(self, source_name: str, question: str, limit: int = 8) -> list[dict[str, Any]]:
         vector = list(self.embedder.embed([question]))[0].tolist()
         result = self.client.query_points(
             collection_name=self.collection,
