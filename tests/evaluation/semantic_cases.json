@@ -1,0 +1,48 @@
+[
+  {
+    "id": "revenue-by-product",
+    "question": "Show revenue by product",
+    "source_name": "AdventureWorks",
+    "expected": {
+      "datasets": ["Production.Product", "Sales.SalesOrderDetail"],
+      "entities": ["Product", "Sales Order Line"],
+      "relationships": ["Sales Order Line to Product"],
+      "metrics": ["Revenue"],
+      "excluded_entities": ["Customer", "Sales Order"],
+      "excluded_metrics": ["Units Sold", "Order Count", "Average Order Value"],
+      "require_completed": true,
+      "require_sql": true
+    },
+    "notes": "Revenue result values are intentionally not asserted because the current AdventureWorks fixture has NULL LineTotal values."
+  },
+  {
+    "id": "units-sold-by-product",
+    "question": "Show units sold by product",
+    "source_name": "AdventureWorks",
+    "expected": {
+      "datasets": ["Production.Product", "Sales.SalesOrderDetail"],
+      "entities": ["Product", "Sales Order Line"],
+      "relationships": ["Sales Order Line to Product"],
+      "metrics": ["Units Sold"],
+      "excluded_entities": ["Customer", "Sales Order"],
+      "excluded_metrics": ["Revenue", "Order Count", "Average Order Value"],
+      "require_completed": true,
+      "require_sql": true
+    }
+  },
+  {
+    "id": "revenue-and-units-by-product",
+    "question": "Show revenue and units sold by product",
+    "source_name": "AdventureWorks",
+    "expected": {
+      "datasets": ["Production.Product", "Sales.SalesOrderDetail"],
+      "entities": ["Product", "Sales Order Line"],
+      "relationships": ["Sales Order Line to Product"],
+      "metrics": ["Revenue", "Units Sold"],
+      "excluded_entities": ["Customer", "Sales Order"],
+      "excluded_metrics": ["Order Count", "Average Order Value"],
+      "require_completed": true,
+      "require_sql": true
+    }
+  }
+]
