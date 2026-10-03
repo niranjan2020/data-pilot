@@ -54,7 +54,8 @@ class LLMBackedSQLGenerator(SQLGenerator):
                     "Generate exactly one read-only SQL SELECT query. "
                     "Never generate INSERT, UPDATE, DELETE, MERGE, DDL, transaction control, "
                     "or multiple statements. Use only tables and columns present in the supplied "
-                    "schema. Return the requested structured response."
+                    "schema. Use retrieved governed semantic context for business meanings, "
+                    "metric definitions, and join relationships. Return the requested structured response."
                 ),
             ),
             LLMMessage(
