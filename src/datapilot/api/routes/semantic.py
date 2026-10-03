@@ -77,6 +77,32 @@ class EntityRequest(BaseModel):
     synonyms:list[str]=Field(default_factory=list)
     attributes:list[AttributeRequest]=Field(default_factory=list)
 
+async def sync_semantic_index(
+    p: PostgreSQLMetadataProvider, source_name: str, source_id: int
+) -> tuple[str, Optional[str]]:
+    """Synchronize the source semantic partition after PostgreSQL has committed.
+
+    PostgreSQL remains authoritative. A Qdrant failure never rolls back the saved
+    semantic configuration; callers report the index as stale so it can be rebuilt.
+    """
+    try:
+        datasets=await p.list_semantic_datasets(source_id)
+        entities=await p.list_semantic_entities(source_id)
+        relationships=await p.list_semantic_relationships(source_id)
+        metrics=await p.list_semantic_metrics(source_id)
+        rules=await p.list_business_rules(source_id)
+        index=semantic_index()
+        docs=index.build_documents(
+            source_name, entities, relationships, metrics, rules, datasets=datasets
+        )
+        # Rebuild the source partition for dependency correctness. The index adapter
+        # also supports stable per-document upserts; targeted dependency sync can
+        # replace this implementation without changing the API contract.
+        await __import__("asyncio").to_thread(index.rebuild, source_name, docs)
+        return "indexed", None
+    except Exception as exc:
+        return "index_stale", type(exc).__name__
+
 def provider()->PostgreSQLMetadataProvider:
     settings=get_settings()
     if not settings.metadata_database_url:
@@ -123,7 +149,8 @@ async def save_dataset(payload:DatasetSemanticRequest):
             use_cases=payload.use_cases,
             query_constraints=payload.query_constraints,
         )
-        return {"id":dataset_id,"message":"Dataset semantics saved"}
+        index_status,index_error=await sync_semantic_index(p,payload.source_name,source_id)
+        return {"id":dataset_id,"message":"Dataset semantics saved","index_status":index_status,"index_error":index_error}
     finally: await p.close()
 
 @router.post("/entities")
@@ -137,7 +164,8 @@ async def save_entity(payload:EntityRequest):
             schema_name=payload.schema_name,table_name=payload.table_name,
             key_column=payload.key_column,display_column=payload.display_column,
             synonyms=payload.synonyms,attributes=[a.model_dump() for a in payload.attributes])
-        return {"id":entity_id,"message":"Semantic entity saved"}
+        index_status,index_error=await sync_semantic_index(p,payload.source_name,source_id)
+        return {"id":entity_id,"message":"Semantic entity saved","index_status":index_status,"index_error":index_error}
     finally: await p.close()
 
 @router.post("/relationships")
@@ -151,7 +179,8 @@ async def save_relationship(payload:RelationshipRequest):
             from_entity_id=payload.from_entity_id,from_column=payload.from_column,
             to_entity_id=payload.to_entity_id,to_column=payload.to_column,
             cardinality=payload.cardinality,description=payload.description)
-        return {"id":relationship_id,"message":"Semantic relationship saved"}
+        index_status,index_error=await sync_semantic_index(p,payload.source_name,source_id)
+        return {"id":relationship_id,"message":"Semantic relationship saved","index_status":index_status,"index_error":index_error}
     finally: await p.close()
 
 @router.get("/{source_name}/metrics")
@@ -174,7 +203,8 @@ async def save_metric(payload:MetricRequest):
             data_source_id=source_id,name=payload.name,description=payload.description,
             entity_id=payload.entity_id,attribute_name=payload.attribute_name,
             aggregation=payload.aggregation,format=payload.format,synonyms=payload.synonyms)
-        return {"id":metric_id,"message":"Semantic metric saved"}
+        index_status,index_error=await sync_semantic_index(p,payload.source_name,source_id)
+        return {"id":metric_id,"message":"Semantic metric saved","index_status":index_status,"index_error":index_error}
     finally: await p.close()
 
 @router.get("/{source_name}/business-rules")
@@ -199,7 +229,8 @@ async def save_business_rule(payload:BusinessRuleRequest):
             data_source_id=source_id,name=payload.name,description=payload.description,
             rule_type=payload.rule_type,entity_id=payload.entity_id,metric_id=payload.metric_id,
             priority=payload.priority,enabled=payload.enabled,keywords=payload.keywords)
-        return {"id":rule_id,"message":"Business rule saved"}
+        index_status,index_error=await sync_semantic_index(p,payload.source_name,source_id)
+        return {"id":rule_id,"message":"Business rule saved","index_status":index_status,"index_error":index_error}
     finally: await p.close()
 
 def semantic_index()->QdrantSemanticIndex:
@@ -221,7 +252,7 @@ async def rebuild_semantic_index(source_name:str):
         docs=index.build_documents(
             source_name, entities, relationships, metrics, rules, datasets=datasets
         )
-        count=index.rebuild(source_name,docs)
+        count=await __import__("asyncio").to_thread(index.rebuild,source_name,docs)
         return {"source_name":source_name,"indexed":count,"message":"Semantic index rebuilt from PostgreSQL catalog"}
     finally: await p.close()
 
