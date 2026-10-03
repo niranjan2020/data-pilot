@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 
 from datapilot.application.services.entity_resolver import DeterministicEntityResolver
 from datapilot.core.exceptions import SQLValidationError
+from datapilot.core.logging import get_logger
 from datapilot.domain.interfaces.database import DatabaseProvider
 from datapilot.domain.interfaces.entity_resolver import EntityResolver
 from datapilot.domain.interfaces.query_policy import QueryPolicyEnforcer
@@ -19,6 +20,8 @@ from datapilot.domain.query import QueryRequest, QueryResponse
 from datapilot.domain.semantic import QueryIntent, SemanticCatalog
 from datapilot.infrastructure.sql.query_policy import SQLQueryPolicyEnforcer
 
+
+logger = get_logger("datapilot.query")
 
 class QueryOrchestrator:
     """Execute the core query workflow independently of any LLM vendor."""
@@ -65,7 +68,16 @@ class QueryOrchestrator:
                 request.source_name, request.question, self._semantic_retrieval_limit
             )
 
+        logger.info(
+            "query question=%r source=%r retrieved=%s",
+            request.question, request.source_name,
+            [(x.get("kind"), x.get("name"), x.get("score")) for x in retrieved_context],
+        )
         schema = schema or await self._load_relevant_schema(retrieved_context)
+        logger.info(
+            "query physical_schema tables=%s",
+            [f"{t.schema_name}.{t.name}" for t in schema.tables],
+        )
         catalog = catalog or await self._semantic_catalog_provider.get_catalog()
 
         intent = self._entity_resolver.resolve(request.question, catalog, schema)
@@ -91,6 +103,7 @@ class QueryOrchestrator:
             },
             dialect=self._database.dialect,
         )
+        logger.info("query generated_sql=%s", generated)
         return await self._validate_and_execute(
             question=request.question,
             sql=generated,
@@ -122,6 +135,10 @@ class QueryOrchestrator:
             )
 
         executable_sql = validation.sanitized_sql or sql
+        logger.info(
+            "query validated_sql=%s affected_tables=%s warnings=%s",
+            executable_sql, validation.affected_tables, validation.warnings,
+        )
         policy_result = self._query_policy_enforcer.enforce(
             executable_sql,
             self._database.dialect,
@@ -133,9 +150,17 @@ class QueryOrchestrator:
                 details={"errors": policy_result.errors},
             )
 
+        logger.info(
+            "query executable_sql=%s policy_warnings=%s",
+            policy_result.sql, policy_result.warnings,
+        )
         result = await self._database.execute_query(
             policy_result.sql,
             timeout_seconds=self._query_policy.timeout_seconds,
+        )
+        logger.info(
+            "query completed rows=%s execution_time_ms=%.2f",
+            result.row_count, result.execution_time_ms,
         )
         if result.row_count > self._query_policy.max_result_rows:
             raise SQLValidationError(
