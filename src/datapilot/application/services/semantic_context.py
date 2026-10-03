@@ -29,14 +29,19 @@ class SemanticContextAssembler:
         entity_ids: set[int] = set()
         metric_ids: set[int] = set()
         dataset_keys: set[tuple[str, str]] = set()
+        entity_seed_ids: set[int] = set()
+
+        # First establish the dataset boundary independently of result ordering.
+        for item in retrieved:
+            meta = item.get("metadata") or {}
+            if item.get("kind") == "dataset" and meta.get("schema_name") and meta.get("table_name"):
+                dataset_keys.add((meta["schema_name"], meta["table_name"]))
 
         for item in retrieved:
             meta = item.get("metadata") or {}
             kind = item.get("kind")
-            if kind == "dataset" and meta.get("schema_name") and meta.get("table_name"):
-                dataset_keys.add((meta["schema_name"], meta["table_name"]))
-            elif kind == "entity" and meta.get("id") is not None:
-                entity_ids.add(int(meta["id"]))
+            if kind == "entity" and meta.get("id") is not None:
+                entity_seed_ids.add(int(meta["id"]))
             elif kind == "relationship":
                 for key in ("from_entity_id", "to_entity_id"):
                     if meta.get(key) is not None:
@@ -52,11 +57,16 @@ class SemanticContextAssembler:
                 if meta.get("metric_id") is not None:
                     metric_ids.add(int(meta["metric_id"]))
 
-        # Dataset-first expansion: a selected physical dataset activates only
-        # semantic entities explicitly configured on that dataset.
-        for entity in entities:
-            if (entity.get("schema_name"), entity.get("table_name")) in dataset_keys:
-                entity_ids.add(entity["id"])
+        # Dataset-first boundary: when dataset semantics matched, they define the
+        # semantic neighborhood. Vector-matched entities outside those datasets are
+        # intentionally ignored. If no dataset matched, entity seeds remain the
+        # backwards-compatible fallback for partially configured sources.
+        if dataset_keys:
+            for entity in entities:
+                if (entity.get("schema_name"), entity.get("table_name")) in dataset_keys:
+                    entity_ids.add(entity["id"])
+        else:
+            entity_ids.update(entity_seed_ids)
 
         # Metrics imply their owning entity.
         for metric in metrics:
