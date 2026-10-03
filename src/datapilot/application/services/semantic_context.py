@@ -68,10 +68,13 @@ class SemanticContextAssembler:
         else:
             entity_ids.update(entity_seed_ids)
 
-        # Metrics imply their owning entity.
-        for metric in metrics:
-            if metric["id"] in metric_ids:
-                entity_ids.add(metric["entity_id"])
+        # Intent seeds are subordinate to the structural boundary. A metric may
+        # enrich a selected dataset/entity, but it must not pull an unrelated
+        # physical dataset into the query neighborhood.
+        bounded_metric_ids = {
+            metric["id"] for metric in metrics
+            if metric["id"] in metric_ids and metric["entity_id"] in entity_ids
+        }
 
         # Graph expansion: include direct governed relationships touching selected
         # entities. If both endpoints are selected, the join is always relevant.
@@ -81,17 +84,38 @@ class SemanticContextAssembler:
         ]
 
         selected_entities = [e for e in entities if e["id"] in entity_ids]
+        # When Stage 2 found metric intent, keep only those relevant metrics.
+        # If no metric matched, retain entity metrics as a compatibility fallback
+        # so non-metric questions and partially configured catalogs still work.
         selected_metrics = [
-            m for m in metrics if m["id"] in metric_ids or m["entity_id"] in entity_ids
+            m for m in metrics
+            if (
+                m["id"] in bounded_metric_ids
+                if bounded_metric_ids
+                else m["entity_id"] in entity_ids
+            )
         ]
         selected_metric_ids = {m["id"] for m in selected_metrics}
-        selected_rules = [
+        rule_seed_ids = {
+            int((item.get("metadata") or {}).get("id"))
+            for item in retrieved
+            if item.get("kind") == "business_rule"
+            and (item.get("metadata") or {}).get("id") is not None
+        }
+        applicable_rules = [
             r for r in rules
             if r.get("enabled", True)
             and (
                 (r.get("entity_id") is not None and r["entity_id"] in entity_ids)
                 or (r.get("metric_id") is not None and r["metric_id"] in selected_metric_ids)
             )
+        ]
+        # Prefer semantically retrieved rules, while keeping rules directly bound
+        # to a selected metric because those define the metric's governed meaning.
+        selected_rules = [
+            r for r in applicable_rules
+            if r["id"] in rule_seed_ids
+            or (r.get("metric_id") is not None and r["metric_id"] in selected_metric_ids)
         ]
 
         selected_datasets = [
