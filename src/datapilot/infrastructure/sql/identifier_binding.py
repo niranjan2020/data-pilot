@@ -49,7 +49,11 @@ def bind_physical_identifiers(sql: str, schema: SchemaMetadata, dialect: str) ->
         if physical_schema:
             node.set("db", exp.to_identifier(physical_schema, quoted=True))
 
-        alias = node.alias
+        # sqlglot's Table.alias property falls back to the table name when no
+        # explicit alias exists. Inspect the AST alias node so only genuine
+        # query aliases are recorded here.
+        alias_expression = node.args.get("alias")
+        alias = alias_expression.name if alias_expression is not None else ""
         if alias:
             alias_to_table[alias.lower()] = physical
             query_aliases.add(alias.lower())
