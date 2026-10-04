@@ -19,7 +19,10 @@ def _schema() -> SchemaMetadata:
             TableMetadata(
                 schema_name="Sales",
                 name="SalesOrderHeader",
-                columns=[ColumnMetadata(name="SalesOrderID", data_type="integer")],
+                columns=[
+                    ColumnMetadata(name="SalesOrderID", data_type="integer"),
+                    ColumnMetadata(name="TotalDue", data_type="numeric"),
+                ],
             ),
         ],
     )
@@ -90,3 +93,11 @@ def _schema_with_sales_detail() -> SchemaMetadata:
         )
     )
     return schema
+
+
+def test_removes_schema_name_used_as_column_qualifier() -> None:
+    sql = 'SELECT AVG(Sales."TotalDue") FROM "Sales"."SalesOrderHeader"'
+
+    bound = bind_physical_identifiers(sql, _schema(), "postgresql")
+
+    assert bound == 'SELECT AVG("TotalDue") FROM "Sales"."SalesOrderHeader"'
