@@ -14,24 +14,63 @@ def test_scalar_summary_is_grounded():
     )
     assert summary["text"] == "Order Count: 31,465."
     assert summary["grounded"] is True
+    assert summary["insights"][0]["value"] == 31465
 
 
-def test_comparison_summary_uses_returned_periods():
+def test_comparison_summary_calculates_delta_and_percent():
     summary = summarize_result(
         "compare revenue",
         _result(["period", "Revenue"], [["this month", 20.0], ["last month", 15.0]]),
         {"kind": "comparison", "x_column": "period", "y_columns": ["Revenue"]},
     )
-    assert summary["text"] == "Revenue — this month: 20; last month: 15."
+    assert summary["text"] == (
+        "Revenue — this month: 20; last month: 15. "
+        "Revenue increased by 5 (33.3%) versus last month."
+    )
+    assert summary["insights"][0]["delta"] == 5.0
+    assert round(summary["insights"][0]["percent"], 1) == 33.3
+    assert summary["insights"][0]["direction"] == "increased"
 
 
-def test_ranking_summary_uses_first_returned_row():
+def test_comparison_with_zero_baseline_does_not_invent_percent():
+    summary = summarize_result(
+        "compare revenue",
+        _result(["period", "Revenue"], [["this month", 20.0], ["last month", 0.0]]),
+        {"kind": "comparison", "x_column": "period", "y_columns": ["Revenue"]},
+    )
+    assert summary["insights"][0]["percent"] is None
+    assert "percentage change is unavailable" in summary["text"]
+
+
+def test_ranking_summary_adds_runner_up_gap():
     summary = summarize_result(
         "top products",
         _result(["Product", "Units Sold"], [["A", 20], ["B", 10]]),
         {"kind": "ranking", "x_column": "Product", "y_columns": ["Units Sold"]},
     )
-    assert summary["text"] == "Top result: A with 20 Units Sold."
+    assert summary["text"] == "Top result: A with 20 Units Sold. It leads B by 10."
+    assert summary["insights"][1]["delta"] == 10.0
+
+
+def test_trend_summary_calculates_first_to_last_change():
+    summary = summarize_result(
+        "monthly revenue",
+        _result(["Month", "Revenue"], [["Jan", 100.0], ["Feb", 120.0], ["Mar", 150.0]]),
+        {"kind": "trend", "x_column": "Month", "y_columns": ["Revenue"]},
+    )
+    assert "increased by 50 (50.0%)" in summary["text"]
+    assert summary["insights"][0]["direction"] == "increased"
+    assert summary["insights"][0]["delta"] == 50.0
+
+
+def test_decrease_is_reported_with_positive_magnitude():
+    summary = summarize_result(
+        "compare revenue",
+        _result(["period", "Revenue"], [["this month", 75.0], ["last month", 100.0]]),
+        {"kind": "comparison", "x_column": "period", "y_columns": ["Revenue"]},
+    )
+    assert "decreased by 25 (25.0%)" in summary["text"]
+    assert summary["insights"][0]["delta"] == -25.0
 
 
 def test_empty_summary_does_not_invent_explanation():
@@ -41,3 +80,4 @@ def test_empty_summary_does_not_invent_explanation():
         {"kind": "empty"},
     )
     assert summary["text"] == "No rows matched this question."
+    assert summary["insights"] == []
