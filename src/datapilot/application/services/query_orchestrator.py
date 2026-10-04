@@ -179,6 +179,7 @@ class QueryOrchestrator:
             resolved_intent=intent,
             retrieved_context=retrieved_context,
             trace=trace,
+            execute=not request.dry_run,
         )
 
     async def _validate_and_execute(
@@ -191,6 +192,7 @@ class QueryOrchestrator:
         resolved_intent: Optional[QueryIntent] = None,
         retrieved_context: Optional[list[dict[str, Any]]] = None,
         trace: Optional[QueryTrace] = None,
+        execute: bool = True,
     ) -> QueryResponse:
         validation = await self._validator.validate(
             sql,
@@ -230,6 +232,23 @@ class QueryOrchestrator:
             "query executable_sql=%s policy_warnings=%s",
             policy_result.sql, policy_result.warnings,
         )
+        if not execute:
+            if trace is not None:
+                trace.execution = {"executed": False}
+            return QueryResponse(
+                question=question,
+                status="dry_run",
+                source=source,
+                sql=policy_result.sql,
+                result=None,
+                confidence=confidence,
+                resolved_intent=resolved_intent,
+                retrieved_context=retrieved_context or [],
+                validation_warnings=[*validation.warnings, *policy_result.warnings],
+                trace=trace,
+                message="Dry run completed. SQL was generated, bound, validated and policy-checked without execution.",
+            )
+
         result = await self._database.execute_query(
             policy_result.sql,
             timeout_seconds=self._query_policy.timeout_seconds,
