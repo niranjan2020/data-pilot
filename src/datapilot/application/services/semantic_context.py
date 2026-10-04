@@ -66,7 +66,16 @@ class SemanticContextAssembler:
             terms = [entity.get("name") or "", *(entity.get("synonyms") or [])]
             for term in terms:
                 normalized_term = re.sub(r"[^a-z0-9]+", " ", term.lower()).strip()
-                if normalized_term and f" {normalized_term} " in normalized_question:
+                # Business users naturally alternate singular/plural nouns
+                # ("product" / "products"). Treat a simple trailing-s plural as
+                # the same explicit semantic term without introducing a domain
+                # dictionary or fuzzy vector decision.
+                term_variants = {normalized_term}
+                if normalized_term and " " not in normalized_term:
+                    term_variants.add(
+                        normalized_term[:-1] if normalized_term.endswith("s") else normalized_term + "s"
+                    )
+                if any(variant and f" {variant} " in normalized_question for variant in term_variants):
                     explicit_entity_ids.add(entity["id"])
                     break
 
