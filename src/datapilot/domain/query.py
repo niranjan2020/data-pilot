@@ -15,6 +15,10 @@ class QueryRequest(BaseModel):
     question: str = Field(min_length=1)
     source_name: Optional[str] = Field(default=None, description="Configured data-source name used for semantic retrieval")
     parameters: Dict[str, Any] = Field(default_factory=dict)
+    dry_run: bool = Field(
+        default=False,
+        description="Build and validate the query plan without executing SQL against the source database",
+    )
 
 
 class SQLGeneration(BaseModel):
@@ -52,7 +56,7 @@ class QueryResponse(BaseModel):
     """End-to-end result of the Data Pilot query orchestration workflow."""
 
     question: str
-    status: Literal["completed", "ambiguous", "rejected"]
+    status: Literal["completed", "dry_run", "ambiguous", "rejected"]
     source: Optional[Literal["generator"]] = None
     sql: Optional[str] = None
     result: Optional[Any] = None
