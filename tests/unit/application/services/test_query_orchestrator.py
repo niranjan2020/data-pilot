@@ -97,3 +97,44 @@ async def test_non_aggregate_generator_query_receives_policy_limit():
     assert database.executed == [response.sql]
 
 
+
+
+def test_follow_up_contextualization_carries_semantics_without_sql():
+    text = QueryOrchestrator._contextualize_follow_up(
+        "Only red products",
+        {
+            "previous_question": "Show top 10 products by revenue",
+            "governed_metrics": ["Revenue"],
+            "governed_entities": ["Product", "Sales Order Line"],
+            "previous_sql": "SELECT secret_should_not_be_reused",
+        },
+    )
+
+    assert "Show top 10 products by revenue" in text
+    assert "Only red products" in text
+    assert "Revenue" in text
+    assert "Product" in text
+    assert "SELECT secret_should_not_be_reused" not in text
+
+
+@pytest.mark.asyncio
+async def test_follow_up_context_is_visible_to_generator_and_trace():
+    generator = FakeSQLGenerator("SELECT COUNT(*) AS count FROM records")
+    orchestrator = QueryOrchestrator(
+        FakeDatabase(), FakeValidator(), generator, FakeCatalog(SemanticCatalog())
+    )
+    context = {
+        "parent_history_id": 42,
+        "previous_question": "Show revenue by product",
+        "governed_metrics": ["Revenue"],
+        "governed_entities": ["Product"],
+    }
+
+    response = await orchestrator.query(
+        QueryRequest(question="Only red products"),
+        conversation_context=context,
+    )
+
+    assert generator.contexts[0]["conversation_context"] == context
+    assert response.trace is not None
+    assert response.trace.conversation_context == context
