@@ -72,4 +72,5 @@ class QueryResponse(BaseModel):
     retrieved_context: List[Dict[str, Any]] = Field(default_factory=list)
     validation_warnings: List[str] = Field(default_factory=list)
     trace: Optional[QueryTrace] = None
+    presentation: Optional[Dict[str, Any]] = Field(default=None, description="Deterministic result-presentation plan derived from result shape and query semantics")
     message: Optional[str] = None
