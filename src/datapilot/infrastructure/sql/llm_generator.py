@@ -97,6 +97,9 @@ class LLMBackedSQLGenerator(SQLGenerator):
                     "schema. The governed_semantic_context is authoritative for business meanings, "
                     "metric definitions, allowed physical entities, and join relationships. Prefer it over "
                     "raw retrieval results and never invent a join that conflicts with it. "
+                    "When a selected metric has calculation_expression, use that governed row-level "
+                    "expression exactly as the metric input and apply the configured aggregation around it; "
+                    "do not replace it with a similarly named physical column. "
                     "Return the requested structured response."
                 ),
             ),
