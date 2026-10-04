@@ -46,7 +46,47 @@ class LLMBackedSQLGenerator(SQLGenerator):
         context: Optional[dict] = None,
         dialect: Optional[str] = None,
     ) -> SQLGeneration:
-        messages = [
+        messages = self.build_messages(
+            question=question,
+            schema=schema,
+            context=context,
+            dialect=dialect or schema.dialect,
+        )
+
+        try:
+            return await self._llm.generate_structured(
+                messages,
+                SQLGeneration,
+                temperature=0.0,
+            )
+        except Exception as exc:
+            if isinstance(exc, SQLGenerationError):
+                raise
+            provider_details = getattr(exc, "details", None)
+            raise SQLGenerationError(
+                "Unable to generate SQL from the configured LLM provider",
+                details={
+                    "provider": self._llm.provider_name,
+                    "cause_type": type(exc).__name__,
+                    "cause": str(exc),
+                    "provider_details": provider_details or {},
+                },
+            ) from exc
+
+    def build_messages(
+        self,
+        *,
+        question: str,
+        schema: SchemaMetadata,
+        context: Optional[dict] = None,
+        dialect: Optional[str] = None,
+    ) -> list[LLMMessage]:
+        """Build the exact messages sent to the provider.
+
+        Exposed for admin/query-trace diagnostics so the displayed prompt cannot
+        drift from the prompt actually used for SQL generation.
+        """
+        return [
             LLMMessage(
                 role="system",
                 content=(
@@ -70,26 +110,6 @@ class LLMBackedSQLGenerator(SQLGenerator):
                 ),
             ),
         ]
-
-        try:
-            return await self._llm.generate_structured(
-                messages,
-                SQLGeneration,
-                temperature=0.0,
-            )
-        except Exception as exc:
-            if isinstance(exc, SQLGenerationError):
-                raise
-            provider_details = getattr(exc, "details", None)
-            raise SQLGenerationError(
-                "Unable to generate SQL from the configured LLM provider",
-                details={
-                    "provider": self._llm.provider_name,
-                    "cause_type": type(exc).__name__,
-                    "cause": str(exc),
-                    "provider_details": provider_details or {},
-                },
-            ) from exc
 
     @staticmethod
     def _build_prompt(
