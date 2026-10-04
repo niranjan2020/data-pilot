@@ -37,6 +37,15 @@ class QueryTrace(BaseModel):
     physical_tables: List[str] = Field(default_factory=list)
     physical_columns: Dict[str, List[str]] = Field(default_factory=dict)
     context_budget: Dict[str, Any] = Field(default_factory=dict)
+    resolved_parameters: Dict[str, Any] = Field(default_factory=dict)
+    generated_sql: Optional[str] = None
+    bound_sql: Optional[str] = None
+    validated_sql: Optional[str] = None
+    validation_affected_tables: List[str] = Field(default_factory=list)
+    validation_warnings: List[str] = Field(default_factory=list)
+    policy_sql: Optional[str] = None
+    policy_warnings: List[str] = Field(default_factory=list)
+    execution: Dict[str, Any] = Field(default_factory=dict)
 
 
 class QueryResponse(BaseModel):
