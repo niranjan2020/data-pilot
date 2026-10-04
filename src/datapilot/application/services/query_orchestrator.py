@@ -149,6 +149,7 @@ class QueryOrchestrator:
             )
 
         parameters = self._merge_resolved_parameters(request.parameters, intent)
+        trace.resolved_parameters = parameters
         generation_context = {
             "governed_semantic_context": governed_context,
             "retrieved_semantic_context": retrieved_context,
@@ -166,7 +167,9 @@ class QueryOrchestrator:
             dialect=self._database.dialect,
         )
         logger.info("query generated_sql=%s", generated)
+        trace.generated_sql = generated
         bound_sql = bind_physical_identifiers(generated, schema, self._database.dialect)
+        trace.bound_sql = bound_sql
         logger.info("query catalog_bound_sql=%s", bound_sql)
         return await self._validate_and_execute(
             question=request.question,
@@ -201,6 +204,10 @@ class QueryOrchestrator:
             )
 
         executable_sql = validation.sanitized_sql or sql
+        if trace is not None:
+            trace.validated_sql = executable_sql
+            trace.validation_affected_tables = list(validation.affected_tables)
+            trace.validation_warnings = list(validation.warnings)
         logger.info(
             "query validated_sql=%s affected_tables=%s warnings=%s",
             executable_sql, validation.affected_tables, validation.warnings,
@@ -216,6 +223,9 @@ class QueryOrchestrator:
                 details={"errors": policy_result.errors},
             )
 
+        if trace is not None:
+            trace.policy_sql = policy_result.sql
+            trace.policy_warnings = list(policy_result.warnings)
         logger.info(
             "query executable_sql=%s policy_warnings=%s",
             policy_result.sql, policy_result.warnings,
@@ -228,6 +238,11 @@ class QueryOrchestrator:
             "query completed rows=%s execution_time_ms=%.2f",
             result.row_count, result.execution_time_ms,
         )
+        if trace is not None:
+            trace.execution = {
+                "row_count": result.row_count,
+                "execution_time_ms": result.execution_time_ms,
+            }
         if result.row_count > self._query_policy.max_result_rows:
             raise SQLValidationError(
                 "Query result exceeded the configured maximum row count",
