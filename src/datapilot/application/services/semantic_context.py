@@ -26,7 +26,8 @@ class SemanticContextAssembler:
         relationships = await self._metadata.list_semantic_relationships(source_id)
         metrics = await self._metadata.list_semantic_metrics(source_id)
         rules = await self._metadata.list_business_rules(source_id)
-        time_dimensions = await self._metadata.list_time_dimensions(source_id)
+        list_time_dimensions = getattr(self._metadata, "list_time_dimensions", None)
+        time_dimensions = await list_time_dimensions(source_id) if list_time_dimensions else []
 
         entity_ids: set[int] = set()
         metric_ids: set[int] = set()
