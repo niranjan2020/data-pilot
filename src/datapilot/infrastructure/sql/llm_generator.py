@@ -100,9 +100,14 @@ class LLMBackedSQLGenerator(SQLGenerator):
                     "When a selected metric has calculation_expression, use that governed row-level "
                     "expression exactly as the metric input and apply the configured aggregation around it; "
                     "do not replace it with a similarly named physical column. "
-                    "When governed_semantic_context contains resolved_time_filter, apply its "
-                    "governed schema/table/column and exact half-open range (>= start and < end_exclusive); "
-                    "do not reinterpret the relative date phrase yourself. "
+                    "When governed_semantic_context contains resolved_time_filter, treat it as an authoritative "
+                    "time plan and do not reinterpret temporal language yourself. Use only its governed "
+                    "schema/table/column. If start/end_exclusive are present, apply the exact half-open range "
+                    "(column >= start AND column < end_exclusive). If grouping_grain is present, group that "
+                    "governed column at exactly that calendar grain using the SQL dialect's date truncation "
+                    "function. If comparison=true, compute the requested metric separately for every entry in "
+                    "periods using each period's exact half-open range and return a period label with the values. "
+                    "Do not collapse comparison periods into one combined filter/result. "
                     "Return the requested structured response."
                 ),
             ),
