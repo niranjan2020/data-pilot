@@ -8,6 +8,7 @@ from datapilot.application.services.entity_resolver import DeterministicEntityRe
 from datapilot.application.services.context_budget import ContextBudgeter
 from datapilot.application.services.semantic_context import SemanticContextAssembler
 from datapilot.application.services.time_semantics import resolve_time_semantics
+from datapilot.application.services.result_presentation import plan_result_presentation
 from datapilot.core.exceptions import SQLValidationError
 from datapilot.core.logging import get_logger
 from datapilot.domain.interfaces.database import DatabaseProvider
@@ -336,6 +337,12 @@ class QueryOrchestrator:
                 },
             )
 
+        presentation = plan_result_presentation(
+            question,
+            result,
+            trace.time_interpretation if trace is not None else None,
+        )
+
         return QueryResponse(
             question=question,
             status="completed",
@@ -347,6 +354,7 @@ class QueryOrchestrator:
             retrieved_context=retrieved_context or [],
             validation_warnings=[*validation.warnings, *policy_result.warnings],
             trace=trace,
+            presentation=presentation,
         )
 
     async def _load_relevant_schema(
