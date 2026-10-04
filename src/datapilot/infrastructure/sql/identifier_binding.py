@@ -57,6 +57,12 @@ def bind_physical_identifiers(sql: str, schema: SchemaMetadata, dialect: str) ->
         if alias:
             alias_to_table[alias.lower()] = physical
             query_aliases.add(alias.lower())
+        else:
+            # Once the physical table is schema-qualified and quoted, a
+            # qualifier such as Product.ProductID is no longer a valid reference
+            # to it in PostgreSQL. Treat the physical table name as a lookup key
+            # only; column qualifiers are removed below for unaliased tables.
+            pass
         alias_to_table[physical.name.lower()] = physical
         physical_table_names[physical.name.lower()] = physical.name
 
@@ -87,6 +93,10 @@ def bind_physical_identifiers(sql: str, schema: SchemaMetadata, dialect: str) ->
         if qualifier and qualifier.lower() not in query_aliases:
             exact_table_name = physical_table_names.get(qualifier.lower())
             if exact_table_name:
-                column.set("table", exp.to_identifier(exact_table_name, quoted=True))
+                # The FROM relation is emitted as "schema"."table". PostgreSQL
+                # does not allow a three-part "schema"."table"."column"
+                # reference. With no explicit alias, emit the now-unambiguous
+                # quoted column without a table qualifier.
+                column.set("table", None)
 
     return statement.sql(dialect=target)
