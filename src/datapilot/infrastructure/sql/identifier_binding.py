@@ -119,11 +119,14 @@ def bind_physical_identifiers(sql: str, schema: SchemaMetadata, dialect: str) ->
         # query-local identifiers, not physical catalog identifiers.
         if qualifier and qualifier_key not in query_aliases:
             exact_table_name = physical_table_names.get(qualifier.lower())
-            if exact_table_name:
+            physical_schema_name = (getattr(physical, "schema_name", None) or schema.schema_name or "").lower()
+            if exact_table_name or qualifier_key == physical_schema_name:
                 # The FROM relation is emitted as "schema"."table". PostgreSQL
-                # does not allow a three-part "schema"."table"."column"
-                # reference. With no explicit alias, emit the now-unambiguous
-                # quoted column without a table qualifier.
+                # column qualifiers must be a table name/alias, never a schema
+                # name. LLMs occasionally emit Sales.TotalDue for a single
+                # Sales.SalesOrderHeader relation; once the column has resolved
+                # unambiguously, remove either physical-table or schema
+                # qualifiers and keep the exact quoted column.
                 column.set("table", None)
 
     return statement.sql(dialect=target)
