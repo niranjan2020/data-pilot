@@ -30,8 +30,9 @@ def test_binds_unaliased_mixed_case_table_qualifier() -> None:
 
     bound = bind_physical_identifiers(sql, _schema(), "postgresql")
 
-    assert '"Production"."Product"."ProductID"' in bound
-    assert '"Production"."Product"."Color"' in bound
+    assert 'SELECT "ProductID" FROM "Production"."Product"' in bound
+    assert '"Color" = \'Red\'' in bound
+    assert '"Product"."ProductID"' not in bound
 
 
 def test_preserves_query_alias_while_binding_column_case() -> None:
@@ -49,4 +50,4 @@ def test_binds_other_unaliased_physical_table_qualifiers() -> None:
 
     bound = bind_physical_identifiers(sql, _schema(), "postgresql")
 
-    assert '"Sales"."SalesOrderHeader"."SalesOrderID"' in bound
+    assert bound == 'SELECT "SalesOrderID" FROM "Sales"."SalesOrderHeader"'
