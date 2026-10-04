@@ -100,6 +100,9 @@ class LLMBackedSQLGenerator(SQLGenerator):
                     "When a selected metric has calculation_expression, use that governed row-level "
                     "expression exactly as the metric input and apply the configured aggregation around it; "
                     "do not replace it with a similarly named physical column. "
+                    "When governed_semantic_context contains resolved_time_filter, apply its "
+                    "governed schema/table/column and exact half-open range (>= start and < end_exclusive); "
+                    "do not reinterpret the relative date phrase yourself. "
                     "Return the requested structured response."
                 ),
             ),
