@@ -92,7 +92,12 @@ class PostgreSQLQueryHistoryStore:
                     Jsonb(response.model_dump(mode="json")),
                 ),
             )
-            history_id = (await cursor.fetchone())[0]
+            row = await cursor.fetchone()
+            if row is None:
+                raise RuntimeError("Query history INSERT did not return an id")
+            # Metadata connections may use dict_row, so support both mapping and
+            # positional row factories rather than assuming tuple-style access.
+            history_id = row["id"] if isinstance(row, dict) else row[0]
             await conn.commit()
             return int(history_id)
 
