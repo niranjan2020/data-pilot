@@ -19,6 +19,11 @@ class QueryRequest(BaseModel):
         default=False,
         description="Build and validate the query plan without executing SQL against the source database",
     )
+    follow_up_to_history_id: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Explicit prior query-history item whose analytical context should be carried into this follow-up",
+    )
 
 
 class SQLGeneration(BaseModel):
@@ -56,6 +61,10 @@ class QueryTrace(BaseModel):
     policy_sql: Optional[str] = None
     policy_warnings: List[str] = Field(default_factory=list)
     execution: Dict[str, Any] = Field(default_factory=dict)
+    conversation_context: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Explicit carried-forward context for a follow-up query; prior SQL is never reused",
+    )
 
 
 class QueryResponse(BaseModel):
@@ -75,3 +84,7 @@ class QueryResponse(BaseModel):
     presentation: Optional[Dict[str, Any]] = Field(default=None, description="Deterministic result-presentation plan derived from result shape and query semantics")
     result_summary: Optional[Dict[str, Any]] = Field(default=None, description="Grounded natural-language answer derived only from executed result rows")
     message: Optional[str] = None
+    history_id: Optional[int] = Field(
+        default=None,
+        description="Persisted query-history id when the response is returned through the HTTP API",
+    )
