@@ -156,7 +156,7 @@ def summarize_result(question: str, result: QueryResult, presentation: dict[str,
                         {"type": "leader_gap", "runner_up": rows[1][xi], "measure": measure, "delta": gap}
                     )
 
-            return {"text": text, "kind": kind, "grounded": True, "insights": insights}
+            return {"text": text, "kind": kind, "grounded": True, "insights": insights, "diagnostics": diagnostics}
 
     if kind == "trend":
         x_column = presentation.get("x_column")
@@ -194,7 +194,7 @@ def summarize_result(question: str, result: QueryResult, presentation: dict[str,
                         f"by {_display(abs(change['delta']))} ({abs(change['percent']):.1f}%)."
                     )
 
-            return {"text": text, "kind": kind, "grounded": True, "insights": insights}
+            return {"text": text, "kind": kind, "grounded": True, "insights": insights, "diagnostics": diagnostics}
 
     return {
         "text": f"Returned {result.row_count:,} row{'s' if result.row_count != 1 else ''}.",
