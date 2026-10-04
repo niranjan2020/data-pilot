@@ -51,3 +51,12 @@ def test_binds_other_unaliased_physical_table_qualifiers() -> None:
     bound = bind_physical_identifiers(sql, _schema(), "postgresql")
 
     assert bound == 'SELECT "SalesOrderID" FROM "Sales"."SalesOrderHeader"'
+
+
+def test_binds_unqualified_columns_against_referenced_table_only() -> None:
+    sql = "SELECT productid, name FROM Production.Product WHERE color = 'Red'"
+
+    bound = bind_physical_identifiers(sql, _schema(), "postgresql")
+
+    assert 'SELECT "ProductID", "Name" FROM "Production"."Product"' in bound
+    assert '"Color" = \'Red\'' in bound
