@@ -66,6 +66,7 @@ class SemanticContextAssembler:
         # "order"; the longer governed phrase must win instead of selecting both
         # entities and widening the semantic boundary.
         explicit_entity_matches: list[tuple[int, int]] = []
+        explicit_entity_phrases: dict[int, set[str]] = {}
         for entity in entities:
             best_specificity = 0
             terms = [entity.get("name") or "", *(entity.get("synonyms") or [])]
@@ -82,6 +83,7 @@ class SemanticContextAssembler:
                 for variant in term_variants:
                     if variant and f" {variant} " in normalized_question:
                         best_specificity = max(best_specificity, len(variant.split()))
+                        explicit_entity_phrases.setdefault(entity["id"], set()).add(variant)
             if best_specificity:
                 explicit_entity_matches.append((entity["id"], best_specificity))
 
@@ -111,16 +113,29 @@ class SemanticContextAssembler:
             entity_ids.update(entity_seed_ids)
 
         # Prefer explicit configured metric names/synonyms in the question.
-        # This is deterministic semantic resolution, not business-specific logic,
-        # and supports multiple explicitly requested metrics.
+        # When an entity phrase is explicit, do not reinterpret a shorter metric
+        # synonym contained wholly inside that phrase (for example a metric
+        # synonym "sales" inside the entity phrase "sales orders").
+        selected_entity_phrases = {
+            phrase
+            for entity_id in explicit_entity_ids
+            for phrase in explicit_entity_phrases.get(entity_id, set())
+        }
         explicit_metric_ids: set[int] = set()
         for metric in metrics:
             terms = [metric.get("name") or "", *(metric.get("synonyms") or [])]
             for term in terms:
                 normalized_term = re.sub(r"[^a-z0-9]+", " ", term.lower()).strip()
                 if normalized_term and f" {normalized_term} " in normalized_question:
-                    explicit_metric_ids.add(metric["id"])
-                    break
+                    metric_words = normalized_term.split()
+                    shadowed_by_entity = any(
+                        len(entity_phrase.split()) > len(metric_words)
+                        and f" {normalized_term} " in f" {entity_phrase} "
+                        for entity_phrase in selected_entity_phrases
+                    )
+                    if not shadowed_by_entity:
+                        explicit_metric_ids.add(metric["id"])
+                        break
         if explicit_metric_ids:
             metric_ids = explicit_metric_ids
             # An explicitly named governed metric is also structural evidence:
@@ -155,10 +170,12 @@ class SemanticContextAssembler:
         # An explicit entity-only question should not inherit every metric owned by
         # nearby vector candidates. Metric fallback is only useful when there is no
         # explicit entity anchor and no explicit metric intent.
-        if bounded_metric_ids:
+        if explicit_metric_ids:
             selected_metrics = [m for m in metrics if m["id"] in bounded_metric_ids]
         elif explicit_entity_ids:
             selected_metrics = []
+        elif bounded_metric_ids:
+            selected_metrics = [m for m in metrics if m["id"] in bounded_metric_ids]
         else:
             selected_metrics = [m for m in metrics if m["entity_id"] in entity_ids]
         selected_metric_ids = {m["id"] for m in selected_metrics}
