@@ -136,17 +136,15 @@ class SemanticContextAssembler:
         ]
 
         selected_entities = [e for e in entities if e["id"] in entity_ids]
-        # When Stage 2 found metric intent, keep only those relevant metrics.
-        # If no metric matched, retain entity metrics as a compatibility fallback
-        # so non-metric questions and partially configured catalogs still work.
-        selected_metrics = [
-            m for m in metrics
-            if (
-                m["id"] in bounded_metric_ids
-                if bounded_metric_ids
-                else m["entity_id"] in entity_ids
-            )
-        ]
+        # An explicit entity-only question should not inherit every metric owned by
+        # nearby vector candidates. Metric fallback is only useful when there is no
+        # explicit entity anchor and no explicit metric intent.
+        if bounded_metric_ids:
+            selected_metrics = [m for m in metrics if m["id"] in bounded_metric_ids]
+        elif explicit_entity_ids:
+            selected_metrics = []
+        else:
+            selected_metrics = [m for m in metrics if m["entity_id"] in entity_ids]
         selected_metric_ids = {m["id"] for m in selected_metrics}
         rule_seed_ids = {
             int((item.get("metadata") or {}).get("id"))
