@@ -15,6 +15,39 @@ type SemanticEntityForm={id?:number;name:string;description:string;table:string;
 const emptyEntity=():SemanticEntityForm=>({name:"",description:"",table:"",key_column:"",display_column:"",synonyms:"",attributes:[]});
 const API="http://localhost:8000";
 
+function displayValue(value:any){
+ if(value===null||value===undefined)return "—";
+ if(typeof value==="number")return new Intl.NumberFormat(undefined,{maximumFractionDigits:2}).format(value);
+ return String(value);
+}
+function ResultVisualization({response}:{response:any}){
+ const result=response?.result; const plan=response?.presentation;
+ if(!result?.columns?.length||!plan||plan.kind==="empty")return null;
+ const columns:string[]=result.columns||[]; const rows:any[][]=result.rows||[];
+ const xIndex=plan.x_column?columns.indexOf(plan.x_column):-1;
+ const yColumns:string[]=plan.y_columns||[]; const yIndices=yColumns.map((y:string)=>columns.indexOf(y)).filter((i:number)=>i>=0);
+ if(plan.recommended_visual==="kpi"&&yIndices.length){
+  return <div className="presentationPanel"><div className="presentationHeading"><div><strong>{yColumns[0]}</strong><span>KPI · {plan.reason}</span></div><em>Auto</em></div><div className="kpiValue">{displayValue(rows[0]?.[yIndices[0]])}</div></div>
+ }
+ if((plan.recommended_visual==="bar"||plan.recommended_visual==="line")&&xIndex>=0&&yIndices.length&&rows.length){
+  const width=900,height=300,left=64,right=20,top=24,bottom=58,plotW=width-left-right,plotH=height-top-bottom;
+  const values=rows.flatMap((r:any[])=>yIndices.map((i:number)=>Number(r[i])).filter(Number.isFinite));
+  const minRaw=Math.min(...values),maxRaw=Math.max(...values); const min=Math.min(0,minRaw); const max=maxRaw===min?min+1:maxRaw;
+  const y=(v:number)=>top+plotH-((v-min)/(max-min))*plotH;
+  const x=(ri:number)=>left+(rows.length===1?plotW/2:(ri/(rows.length-1))*plotW);
+  const barGroup=plotW/Math.max(rows.length,1),barWidth=Math.max(4,Math.min(48,(barGroup*.72)/Math.max(yIndices.length,1)));
+  return <div className="presentationPanel"><div className="presentationHeading"><div><strong>{plan.kind==="trend"?"Trend":plan.kind==="ranking"?"Ranking":"Comparison"}</strong><span>{plan.reason}</span></div><em>Auto · {plan.recommended_visual}</em></div>
+   <div className="chartWrap"><svg className="resultChart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={plan.reason||"Result chart"}>
+    <line x1={left} y1={top+plotH} x2={width-right} y2={top+plotH} className="chartAxis"/>
+    <line x1={left} y1={top} x2={left} y2={top+plotH} className="chartAxis"/>
+    {[0,.25,.5,.75,1].map((t:number)=>{const val=min+(max-min)*t,py=y(val);return <g key={t}><line x1={left} y1={py} x2={width-right} y2={py} className="chartGrid"/><text x={left-8} y={py+4} textAnchor="end" className="chartLabel">{displayValue(val)}</text></g>})}
+    {plan.recommended_visual==="line"?yIndices.map((yi:number,si:number)=>{const points=rows.map((r:any[],ri:number)=>`${x(ri)},${y(Number(r[yi])||0)}`).join(" ");return <g key={yi} className={"chartSeries series"+(si%4)}><polyline points={points} className="chartLine"/>{rows.map((r:any[],ri:number)=><circle key={ri} cx={x(ri)} cy={y(Number(r[yi])||0)} r="4" className="chartPoint"/>)}</g>}):rows.flatMap((r:any[],ri:number)=>yIndices.map((yi:number,si:number)=>{const v=Number(r[yi])||0,bx=left+ri*barGroup+(barGroup-yIndices.length*barWidth)/2+si*barWidth,by=y(Math.max(v,0)),base=y(Math.min(v,0));return <rect key={ri+"-"+si} x={bx} y={Math.min(by,base)} width={barWidth-2} height={Math.max(1,Math.abs(base-by))} rx="3" className={"chartBar series"+(si%4)}/> }))}
+    {rows.map((r:any[],ri:number)=>{const every=Math.max(1,Math.ceil(rows.length/10));return ri%every===0?<text key={ri} x={plan.recommended_visual==="bar"?left+ri*barGroup+barGroup/2:x(ri)} y={height-30} textAnchor="middle" className="chartLabel">{String(r[xIndex]??"").slice(0,18)}</text>:null})}
+   </svg></div>{yColumns.length>1&&<div className="chartLegend">{yColumns.map((name:string,i:number)=><span key={name} className={"seriesText series"+(i%4)}>● {name}</span>)}</div>}</div>
+ }
+ return null;
+}
+
 export function App(){
  const [active,setActive]=useState("Data Sources");
  const [form,setForm]=useState<Form>({name:"AdventureWorks",host:"localhost",port:5432,database:"postgres",username:"postgres",password:"",sslmode:"disable"});
@@ -157,7 +190,7 @@ export function App(){
  <div className="traceStep traceWide"><b>10</b><div><strong>Retrieval diagnostics</strong><p>Raw Qdrant candidates captured for this run. Similarity score helps retrieval; governed selection remains authoritative.</p><details><summary>Show {(queryResponse.trace.retrieved_candidates||[]).length} candidates</summary><div className="candidateTable">{(queryResponse.trace.retrieved_candidates||[]).map((r:any,i:number)=><div className="candidateRow" key={(r.stage||"")+"-"+(r.kind||"")+"-"+(r.name||"")+"-"+i}><span>{r.stage||queryResponse.trace.retrieval_stage||"retrieval"}</span><strong>{r.name||r.key||"Unnamed"}</strong><span>{String(r.kind||"unknown").replace("_"," ")}</span><code>{Number(r.score||0).toFixed(3)}</code><em className={r.decision==="selected"?"selectedDecision":"rejectedDecision"}>{r.decision||"unclassified"}</em></div>)}</div></details></div></div>
  </div>:<div className="empty">No structured trace returned.</div>}</article>
  <div className="queryDiagnostics"><article className="contextPanel"><div className="sectionHeading"><h3>Retrieved semantic context</h3><span>{(queryResponse.retrieved_context||[]).length} items</span></div><div className="contextList">{(queryResponse.retrieved_context||[]).map((x:any,i:number)=><div className="contextCard" key={x.kind+"-"+x.key+"-"+i}><strong>{x.name}</strong>{(()=>{const d=(queryResponse.trace?.retrieved_candidates||[]).find((r:any)=>r.kind===x.kind&&r.name===x.name);return <span>{x.kind.replace("_"," ")} · score {Number(x.score||0).toFixed(3)} · {d?.decision||"unclassified"}</span>})()}<p>{x.text}</p></div>)}</div></article><article className="sqlPanel"><div className="sectionHeading"><h3>Executable SQL</h3><span>{queryResponse.status}</span></div><pre className="sqlBlock">{queryResponse.sql||"No SQL generated"}</pre><div className={"validationStatus "+(queryResponse.validation_warnings?.length?"warning":"success")}><strong>{queryResponse.validation_warnings?.length?"Validation warnings":"Validation passed"}</strong><span>{queryResponse.validation_warnings?.length?queryResponse.validation_warnings.join(" · "):"SQL passed safety and execution policy checks."}</span></div></article></div>
- <article className="resultPanel"><div className="resultHeader"><div><h3>Result</h3><p>{queryResponse.result?.row_count??0} rows · {Number(queryResponse.result?.execution_time_ms||0).toFixed(1)} ms</p></div></div>{queryResponse.result?.columns?.length?<div className="resultTableWrap"><table className="resultTable"><thead><tr>{queryResponse.result.columns.map((col:string)=><th key={col}>{col}</th>)}</tr></thead><tbody>{(queryResponse.result.rows||[]).map((row:any[],ri:number)=><tr key={ri}>{row.map((value:any,ci:number)=><td key={ci} className={value===null?"nullCell":""}>{value===null?"NULL":String(value)}</td>)}</tr>)}</tbody></table></div>:<div className="empty">Query returned no columns.</div>}</article></>}</section>}
+ <article className="resultPanel"><div className="resultHeader"><div><h3>Result</h3><p>{queryResponse.result?.row_count??0} rows · {Number(queryResponse.result?.execution_time_ms||0).toFixed(1)} ms</p></div>{queryResponse.presentation&&<span className="presentationBadge">{queryResponse.presentation.kind} · {queryResponse.presentation.recommended_visual}</span>}</div><ResultVisualization response={queryResponse}/>{queryResponse.result?.columns?.length?<details className="rawResult" open={!queryResponse.presentation||queryResponse.presentation.recommended_visual==="table"}><summary>Raw result table</summary><div className="resultTableWrap"><table className="resultTable"><thead><tr>{queryResponse.result.columns.map((col:string)=><th key={col}>{col}</th>)}</tr></thead><tbody>{(queryResponse.result.rows||[]).map((row:any[],ri:number)=><tr key={ri}>{row.map((value:any,ci:number)=><td key={ci} className={value===null?"nullCell":""}>{value===null?"NULL":String(value)}</td>)}</tr>)}</tbody></table></div></details>:<div className="empty">Query returned no columns.</div>}</article></>}</section>}
  {!["Data Sources","Schema Explorer","Semantic Model","Metrics","Business Rules","Time Semantics","Query Playground"].includes(active)&&<section className="grid"><article className="wide"><h3>{active} foundation</h3><p>This is the next configuration surface after data-source discovery.</p><div className="empty">No configuration has been created yet.</div></article></section>}
  </main></div>
 }
