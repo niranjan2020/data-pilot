@@ -118,8 +118,40 @@ class QueryOrchestrator:
             "query physical_schema tables=%s",
             [f"{t.schema_name}.{t.name}" for t in schema.tables],
         )
+        governed_dataset_names = {
+            f"{x['schema_name']}.{x['table_name']}"
+            for x in governed_context.get("datasets", [])
+        }
+        governed_entity_names = {x["name"] for x in governed_context.get("entities", [])}
+        governed_metric_names = {x["name"] for x in governed_context.get("metrics", [])}
+        governed_rule_names = {x["name"] for x in governed_context.get("business_rules", [])}
+        retrieval_diagnostics: list[dict[str, Any]] = []
+        for candidate in retrieved_context:
+            item = dict(candidate)
+            kind = str(item.get("kind") or "")
+            name = str(item.get("name") or "")
+            metadata = item.get("metadata") or {}
+            dataset_name = (
+                f"{metadata.get('schema_name')}.{metadata.get('table_name')}"
+                if metadata.get("schema_name") and metadata.get("table_name")
+                else name
+            )
+            selected = (
+                (kind == "dataset" and dataset_name in governed_dataset_names)
+                or (kind == "entity" and name in governed_entity_names)
+                or (kind == "metric" and name in governed_metric_names)
+                or (kind == "business_rule" and name in governed_rule_names)
+            )
+            item["decision"] = "selected" if selected else "rejected"
+            item["decision_reason"] = (
+                "Included in governed semantic context"
+                if selected
+                else "Retrieved by vector search but excluded by semantic governance"
+            )
+            retrieval_diagnostics.append(item)
+
         trace = QueryTrace(
-            retrieved_candidates=retrieved_context,
+            retrieved_candidates=retrieval_diagnostics,
             governed_datasets=[
                 f"{x['schema_name']}.{x['table_name']}"
                 for x in governed_context.get("datasets", [])
@@ -160,6 +192,18 @@ class QueryOrchestrator:
         generation_context, budget = self._context_budgeter.apply(generation_context)
         logger.info("query context_budget=%s", budget)
         trace.context_budget = budget
+        build_messages = getattr(self._sql_generator, "build_messages", None)
+        if callable(build_messages):
+            diagnostic_messages = build_messages(
+                question=request.question,
+                schema=schema,
+                context=generation_context,
+                dialect=self._database.dialect,
+            )
+            trace.llm_messages = [
+                {"role": message.role, "content": message.content}
+                for message in diagnostic_messages
+            ]
         generated = await self._sql_generator.generate(
             question=request.question,
             schema=schema,
