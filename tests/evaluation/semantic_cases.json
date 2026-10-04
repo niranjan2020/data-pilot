@@ -3,262 +3,129 @@
     "id": "revenue-by-product",
     "question": "Show revenue by product",
     "source_name": "AdventureWorks",
-    "expected": {
-      "datasets": [
-        "Production.Product",
-        "Sales.SalesOrderDetail"
-      ],
-      "entities": [
-        "Product",
-        "Sales Order Line"
-      ],
-      "relationships": [
-        "Sales Order Line to Product"
-      ],
-      "metrics": [
-        "Revenue"
-      ],
-      "excluded_entities": [
-        "Customer",
-        "Sales Order"
-      ],
-      "excluded_metrics": [
-        "Units Sold",
-        "Order Count",
-        "Average Order Value"
-      ],
-      "require_completed": true,
-      "require_sql": true
-    },
-    "notes": "Revenue result values are intentionally not asserted because the current AdventureWorks fixture has NULL LineTotal values."
+    "expected": {"datasets": ["Production.Product", "Sales.SalesOrderDetail"], "entities": ["Product", "Sales Order Line"], "relationships": ["Sales Order Line to Product"], "metrics": ["Revenue"], "excluded_entities": ["Customer", "Sales Order"], "excluded_metrics": ["Units Sold", "Order Count", "Average Order Value"], "require_completed": true, "require_sql": true},
+    "notes": "Revenue values are not asserted because the current fixture has NULL LineTotal values."
   },
   {
     "id": "units-sold-by-product",
     "question": "Show units sold by product",
     "source_name": "AdventureWorks",
-    "expected": {
-      "datasets": [
-        "Production.Product",
-        "Sales.SalesOrderDetail"
-      ],
-      "entities": [
-        "Product",
-        "Sales Order Line"
-      ],
-      "relationships": [
-        "Sales Order Line to Product"
-      ],
-      "metrics": [
-        "Units Sold"
-      ],
-      "excluded_entities": [
-        "Customer",
-        "Sales Order"
-      ],
-      "excluded_metrics": [
-        "Revenue",
-        "Order Count",
-        "Average Order Value"
-      ],
-      "require_completed": true,
-      "require_sql": true
-    }
+    "expected": {"datasets": ["Production.Product", "Sales.SalesOrderDetail"], "entities": ["Product", "Sales Order Line"], "relationships": ["Sales Order Line to Product"], "metrics": ["Units Sold"], "excluded_entities": ["Customer", "Sales Order"], "excluded_metrics": ["Revenue", "Order Count", "Average Order Value"], "require_completed": true, "require_sql": true}
   },
   {
     "id": "revenue-and-units-by-product",
     "question": "Show revenue and units sold by product",
     "source_name": "AdventureWorks",
-    "expected": {
-      "datasets": [
-        "Production.Product",
-        "Sales.SalesOrderDetail"
-      ],
-      "entities": [
-        "Product",
-        "Sales Order Line"
-      ],
-      "relationships": [
-        "Sales Order Line to Product"
-      ],
-      "metrics": [
-        "Revenue",
-        "Units Sold"
-      ],
-      "excluded_entities": [
-        "Customer",
-        "Sales Order"
-      ],
-      "excluded_metrics": [
-        "Order Count",
-        "Average Order Value"
-      ],
-      "require_completed": true,
-      "require_sql": true
-    }
+    "expected": {"datasets": ["Production.Product", "Sales.SalesOrderDetail"], "entities": ["Product", "Sales Order Line"], "relationships": ["Sales Order Line to Product"], "metrics": ["Revenue", "Units Sold"], "excluded_entities": ["Customer", "Sales Order"], "excluded_metrics": ["Order Count", "Average Order Value"], "require_completed": true, "require_sql": true}
   },
   {
     "id": "products-only",
     "question": "Show all products",
     "source_name": "AdventureWorks",
-    "expected": {
-      "datasets": [
-        "Production.Product"
-      ],
-      "entities": [
-        "Product"
-      ],
-      "excluded_datasets": [
-        "Sales.SalesOrderDetail",
-        "Sales.SalesOrderHeader",
-        "Sales.Customer"
-      ],
-      "excluded_entities": [
-        "Sales Order Line",
-        "Sales Order",
-        "Customer"
-      ],
-      "excluded_metrics": [
-        "Revenue",
-        "Units Sold",
-        "Order Count",
-        "Average Order Value"
-      ],
-      "require_completed": true,
-      "require_sql": true
-    }
+    "expected": {"datasets": ["Production.Product"], "entities": ["Product"], "excluded_datasets": ["Sales.SalesOrderDetail", "Sales.SalesOrderHeader", "Sales.Customer"], "excluded_entities": ["Sales Order Line", "Sales Order", "Customer"], "excluded_metrics": ["Revenue", "Units Sold", "Order Count", "Average Order Value"], "require_completed": true, "require_sql": true}
   },
   {
     "id": "red-products",
     "question": "Show red products",
     "source_name": "AdventureWorks",
-    "expected": {
-      "datasets": [
-        "Production.Product"
-      ],
-      "entities": [
-        "Product"
-      ],
-      "excluded_datasets": [
-        "Sales.SalesOrderDetail",
-        "Sales.SalesOrderHeader",
-        "Sales.Customer"
-      ],
-      "excluded_entities": [
-        "Sales Order Line",
-        "Sales Order",
-        "Customer"
-      ],
-      "excluded_metrics": [
-        "Revenue",
-        "Units Sold",
-        "Order Count",
-        "Average Order Value"
-      ],
-      "require_completed": true,
-      "require_sql": true
-    },
-    "notes": "Exercises entity retrieval with an attribute-value filter while asserting semantic isolation."
+    "expected": {"datasets": ["Production.Product"], "entities": ["Product"], "excluded_datasets": ["Sales.SalesOrderDetail", "Sales.SalesOrderHeader", "Sales.Customer"], "excluded_entities": ["Sales Order Line", "Sales Order", "Customer"], "excluded_metrics": ["Revenue", "Units Sold", "Order Count", "Average Order Value"], "require_completed": true, "require_sql": true}
   },
   {
     "id": "order-count-by-customer",
     "question": "Show top 10 customers by order count",
     "source_name": "AdventureWorks",
-    "expected": {
-      "datasets": [
-        "Sales.Customer",
-        "Sales.SalesOrderHeader"
-      ],
-      "entities": [
-        "Customer",
-        "Sales Order"
-      ],
-      "relationships": [
-        "Sales Order to Customer"
-      ],
-      "metrics": [
-        "Order Count"
-      ],
-      "excluded_datasets": [
-        "Production.Product",
-        "Sales.SalesOrderDetail"
-      ],
-      "excluded_entities": [
-        "Product",
-        "Sales Order Line"
-      ],
-      "excluded_metrics": [
-        "Revenue",
-        "Units Sold",
-        "Average Order Value"
-      ],
-      "require_completed": true,
-      "require_sql": true
-    }
+    "expected": {"datasets": ["Sales.Customer", "Sales.SalesOrderHeader"], "entities": ["Customer", "Sales Order"], "relationships": ["Sales Order to Customer"], "metrics": ["Order Count"], "excluded_datasets": ["Production.Product", "Sales.SalesOrderDetail"], "excluded_entities": ["Product", "Sales Order Line"], "excluded_metrics": ["Revenue", "Units Sold", "Average Order Value"], "require_completed": true, "require_sql": true}
   },
   {
     "id": "units-sold-for-red-products",
     "question": "Show units sold for red products",
     "source_name": "AdventureWorks",
-    "expected": {
-      "datasets": [
-        "Production.Product",
-        "Sales.SalesOrderDetail"
-      ],
-      "entities": [
-        "Product",
-        "Sales Order Line"
-      ],
-      "relationships": [
-        "Sales Order Line to Product"
-      ],
-      "metrics": [
-        "Units Sold"
-      ],
-      "excluded_entities": [
-        "Customer",
-        "Sales Order"
-      ],
-      "excluded_metrics": [
-        "Revenue",
-        "Order Count",
-        "Average Order Value"
-      ],
-      "require_completed": true,
-      "require_sql": true
-    },
-    "notes": "Exercises metric retrieval plus a filter attribute on the related Product entity."
+    "expected": {"datasets": ["Production.Product", "Sales.SalesOrderDetail"], "entities": ["Product", "Sales Order Line"], "relationships": ["Sales Order Line to Product"], "metrics": ["Units Sold"], "excluded_entities": ["Customer", "Sales Order"], "excluded_metrics": ["Revenue", "Order Count", "Average Order Value"], "require_completed": true, "require_sql": true}
   },
   {
     "id": "top-products-by-units-sold",
     "question": "Show top 10 products by units sold",
     "source_name": "AdventureWorks",
-    "expected": {
-      "datasets": [
-        "Production.Product",
-        "Sales.SalesOrderDetail"
-      ],
-      "entities": [
-        "Product",
-        "Sales Order Line"
-      ],
-      "relationships": [
-        "Sales Order Line to Product"
-      ],
-      "metrics": [
-        "Units Sold"
-      ],
-      "excluded_entities": [
-        "Customer",
-        "Sales Order"
-      ],
-      "excluded_metrics": [
-        "Revenue",
-        "Order Count",
-        "Average Order Value"
-      ],
-      "require_completed": true,
-      "require_sql": true
-    },
-    "notes": "Exercises ranking/top-N language while keeping semantic expectations focused on governed retrieval."
+    "expected": {"datasets": ["Production.Product", "Sales.SalesOrderDetail"], "entities": ["Product", "Sales Order Line"], "relationships": ["Sales Order Line to Product"], "metrics": ["Units Sold"], "excluded_entities": ["Customer", "Sales Order"], "excluded_metrics": ["Revenue", "Order Count", "Average Order Value"], "require_completed": true, "require_sql": true}
+  },
+  {
+    "id": "items-synonym",
+    "question": "Show all items",
+    "source_name": "AdventureWorks",
+    "expected": {"datasets": ["Production.Product"], "entities": ["Product"], "excluded_entities": ["Sales Order Line", "Sales Order", "Customer"], "excluded_metrics": ["Revenue", "Units Sold", "Order Count", "Average Order Value"], "require_completed": true, "require_sql": true},
+    "notes": "Exercises configured entity synonym: item -> Product."
+  },
+  {
+    "id": "sales-synonym-by-product",
+    "question": "Show sales by product",
+    "source_name": "AdventureWorks",
+    "expected": {"datasets": ["Production.Product", "Sales.SalesOrderDetail"], "entities": ["Product", "Sales Order Line"], "relationships": ["Sales Order Line to Product"], "metrics": ["Revenue"], "excluded_entities": ["Customer", "Sales Order"], "excluded_metrics": ["Units Sold", "Order Count", "Average Order Value"], "require_completed": true, "require_sql": true},
+    "notes": "Exercises configured Revenue synonym: sales."
+  },
+  {
+    "id": "total-sales-by-product",
+    "question": "Show total sales by product",
+    "source_name": "AdventureWorks",
+    "expected": {"datasets": ["Production.Product", "Sales.SalesOrderDetail"], "entities": ["Product", "Sales Order Line"], "relationships": ["Sales Order Line to Product"], "metrics": ["Revenue"], "excluded_metrics": ["Units Sold", "Order Count", "Average Order Value"], "require_completed": true, "require_sql": true},
+    "notes": "Exercises a multi-word metric synonym."
+  },
+  {
+    "id": "buyers-by-order-count",
+    "question": "Show top 10 buyers by order count",
+    "source_name": "AdventureWorks",
+    "expected": {"datasets": ["Sales.Customer", "Sales.SalesOrderHeader"], "entities": ["Customer", "Sales Order"], "relationships": ["Sales Order to Customer"], "metrics": ["Order Count"], "excluded_entities": ["Product", "Sales Order Line"], "excluded_metrics": ["Revenue", "Units Sold", "Average Order Value"], "require_completed": true, "require_sql": true},
+    "notes": "Exercises configured Customer synonym: buyer."
+  },
+  {
+    "id": "average-order-value",
+    "question": "Show average order value",
+    "source_name": "AdventureWorks",
+    "expected": {"datasets": ["Sales.SalesOrderHeader"], "entities": ["Sales Order"], "metrics": ["Average Order Value"], "excluded_entities": ["Product", "Sales Order Line", "Customer"], "excluded_metrics": ["Revenue", "Units Sold", "Order Count"], "require_completed": true, "require_sql": true}
+  },
+  {
+    "id": "average-order-value-by-customer",
+    "question": "Show top 10 customers by average order value",
+    "source_name": "AdventureWorks",
+    "expected": {"datasets": ["Sales.Customer", "Sales.SalesOrderHeader"], "entities": ["Customer", "Sales Order"], "relationships": ["Sales Order to Customer"], "metrics": ["Average Order Value"], "excluded_entities": ["Product", "Sales Order Line"], "excluded_metrics": ["Revenue", "Units Sold", "Order Count"], "require_completed": true, "require_sql": true}
+  },
+  {
+    "id": "orders-only",
+    "question": "Show top 10 sales orders",
+    "source_name": "AdventureWorks",
+    "expected": {"datasets": ["Sales.SalesOrderHeader"], "entities": ["Sales Order"], "excluded_entities": ["Product", "Sales Order Line", "Customer"], "excluded_metrics": ["Revenue", "Units Sold", "Order Count", "Average Order Value"], "require_completed": true, "require_sql": true},
+    "notes": "Exercises multi-word entity matching without metric intent."
+  },
+  {
+    "id": "order-lines-only",
+    "question": "Show top 10 order lines",
+    "source_name": "AdventureWorks",
+    "expected": {"datasets": ["Sales.SalesOrderDetail"], "entities": ["Sales Order Line"], "excluded_entities": ["Product", "Sales Order", "Customer"], "excluded_metrics": ["Revenue", "Units Sold", "Order Count", "Average Order Value"], "require_completed": true, "require_sql": true}
+  },
+  {
+    "id": "product-colour-synonym",
+    "question": "Show top 10 products by product colour",
+    "source_name": "AdventureWorks",
+    "expected": {"datasets": ["Production.Product"], "entities": ["Product"], "excluded_entities": ["Sales Order Line", "Sales Order", "Customer"], "excluded_metrics": ["Revenue", "Units Sold", "Order Count", "Average Order Value"], "require_completed": true, "require_sql": true},
+    "notes": "Exercises configured attribute synonym colour while asserting entity isolation."
+  },
+  {
+    "id": "sales-amount-for-red-items",
+    "question": "Show sales amount for red items",
+    "source_name": "AdventureWorks",
+    "expected": {"datasets": ["Production.Product", "Sales.SalesOrderDetail"], "entities": ["Product", "Sales Order Line"], "relationships": ["Sales Order Line to Product"], "metrics": ["Revenue"], "excluded_entities": ["Customer", "Sales Order"], "excluded_metrics": ["Units Sold", "Order Count", "Average Order Value"], "require_completed": true, "require_sql": true},
+    "notes": "Combines entity synonym, metric synonym, relationship traversal and value filter."
+  },
+  {
+    "id": "units-and-revenue-for-red-products",
+    "question": "Show revenue and units sold for red products",
+    "source_name": "AdventureWorks",
+    "expected": {"datasets": ["Production.Product", "Sales.SalesOrderDetail"], "entities": ["Product", "Sales Order Line"], "relationships": ["Sales Order Line to Product"], "metrics": ["Revenue", "Units Sold"], "excluded_entities": ["Customer", "Sales Order"], "excluded_metrics": ["Order Count", "Average Order Value"], "require_completed": true, "require_sql": true}
+  },
+  {
+    "id": "order-count-only",
+    "question": "Show order count",
+    "source_name": "AdventureWorks",
+    "expected": {"datasets": ["Sales.SalesOrderHeader"], "entities": ["Sales Order"], "metrics": ["Order Count"], "excluded_entities": ["Product", "Sales Order Line", "Customer"], "excluded_metrics": ["Revenue", "Units Sold", "Average Order Value"], "require_completed": true, "require_sql": true},
+    "notes": "Metric-only question must use the metric owner as the structural anchor."
   }
 ]
