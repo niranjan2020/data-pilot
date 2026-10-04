@@ -60,3 +60,33 @@ def test_binds_unqualified_columns_against_referenced_table_only() -> None:
 
     assert 'SELECT "ProductID", "Name" FROM "Production"."Product"' in bound
     assert '"Color" = \'Red\'' in bound
+
+
+def test_binds_alias_qualified_mixed_case_columns() -> None:
+    sql = (
+        "SELECT SUM(T1.OrderQty) FROM Sales.SalesOrderDetail AS T1 "
+        "JOIN Production.Product AS T2 ON T1.ProductID = T2.ProductID "
+        "WHERE T2.Color = 'Red'"
+    )
+
+    bound = bind_physical_identifiers(sql, _schema_with_sales_detail(), "postgresql")
+
+    assert '"T1"."OrderQty"' in bound
+    assert '"T1"."ProductID" = "T2"."ProductID"' in bound
+    assert '"T2"."Color" = \'Red\'' in bound
+
+
+def _schema_with_sales_detail() -> SchemaMetadata:
+    schema = _schema()
+    schema.tables.append(
+        TableMetadata(
+            schema_name="Sales",
+            name="SalesOrderDetail",
+            columns=[
+                ColumnMetadata(name="SalesOrderDetailID", data_type="integer"),
+                ColumnMetadata(name="ProductID", data_type="integer"),
+                ColumnMetadata(name="OrderQty", data_type="integer"),
+            ],
+        )
+    )
+    return schema
