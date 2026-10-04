@@ -126,8 +126,41 @@ async def query(
     history: PostgreSQLQueryHistoryStore = Depends(get_query_history_store),
 ) -> QueryResponse:
     """Execute one natural-language database question and persist its lineage."""
-    response = await orchestrator.query(payload)
-    await history.record(payload, response)
+    conversation_context: dict | None = None
+    if payload.follow_up_to_history_id is not None:
+        parent = await history.get(payload.follow_up_to_history_id)
+        if parent is None:
+            raise HTTPException(status_code=404, detail="Follow-up query history item not found")
+        if payload.source_name and parent.get("source_name") != payload.source_name:
+            raise HTTPException(
+                status_code=400,
+                detail="Follow-up context must come from the same data source",
+            )
+        saved_response = parent.get("response") or {}
+        if saved_response.get("status") not in {"completed", "dry_run"}:
+            raise HTTPException(
+                status_code=400,
+                detail="Only completed or dry-run queries can be used as follow-up context",
+            )
+        parent_trace = saved_response.get("trace") or {}
+        conversation_context = {
+            "parent_history_id": parent["id"],
+            "previous_question": parent["question"],
+            "governed_datasets": parent_trace.get("governed_datasets") or [],
+            "governed_entities": parent_trace.get("governed_entities") or [],
+            "governed_metrics": parent_trace.get("governed_metrics") or [],
+            "governed_business_rules": parent_trace.get("governed_business_rules") or [],
+            "governed_time_dimensions": parent_trace.get("governed_time_dimensions") or [],
+            "time_interpretation": parent_trace.get("time_interpretation") or {},
+            "resolved_parameters": parent_trace.get("resolved_parameters") or {},
+        }
+
+    response = await orchestrator.query(
+        payload,
+        conversation_context=conversation_context,
+    )
+    history_id = await history.record(payload, response)
+    response.history_id = history_id
     return response
 
 
