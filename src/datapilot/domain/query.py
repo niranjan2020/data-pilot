@@ -73,4 +73,5 @@ class QueryResponse(BaseModel):
     validation_warnings: List[str] = Field(default_factory=list)
     trace: Optional[QueryTrace] = None
     presentation: Optional[Dict[str, Any]] = Field(default=None, description="Deterministic result-presentation plan derived from result shape and query semantics")
+    result_summary: Optional[Dict[str, Any]] = Field(default=None, description="Grounded natural-language answer derived only from executed result rows")
     message: Optional[str] = None
