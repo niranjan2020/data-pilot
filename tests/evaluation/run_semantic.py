@@ -56,6 +56,8 @@ def load_cases(path: Path) -> list[tuple[EvaluationCase, str]]:
                 excluded_metrics=tuple(expected.get("excluded_metrics", [])),
                 require_completed=expected.get("require_completed", False),
                 require_sql=expected.get("require_sql", False),
+                sql_contains=tuple(expected.get("sql_contains", [])),
+                sql_excludes=tuple(expected.get("sql_excludes", [])),
             ),
         )
         cases.append((case, item.get("source_name", "")))
