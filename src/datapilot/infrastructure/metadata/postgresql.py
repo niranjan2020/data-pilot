@@ -142,6 +142,22 @@ CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_attribute_synonyms (
     PRIMARY KEY (attribute_id, synonym)
 );
 
+CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_time_dimensions (
+    id BIGSERIAL PRIMARY KEY,
+    data_source_id BIGINT NOT NULL REFERENCES datapilot_catalog.data_sources(id) ON DELETE CASCADE,
+    entity_id BIGINT NOT NULL REFERENCES datapilot_catalog.semantic_entities(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    column_name TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'event_time',
+    grain TEXT NOT NULL DEFAULT 'day',
+    timezone TEXT NOT NULL DEFAULT 'UTC',
+    is_default BOOLEAN NOT NULL DEFAULT FALSE,
+    synonyms JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (data_source_id, name)
+);
+
 CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_relationships (
     id BIGSERIAL PRIMARY KEY,
     data_source_id BIGINT NOT NULL REFERENCES datapilot_catalog.data_sources(id) ON DELETE CASCADE,
@@ -578,6 +594,103 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                         "attributes": attributes,
                     })
                 return entities
+
+    async def save_time_dimension(
+        self, *, data_source_id: int, entity_id: int, name: str,
+        column_name: str, role: str, grain: str, timezone: str,
+        is_default: bool, synonyms: list[str],
+    ) -> int:
+        """Persist a governed date/time role on a semantic entity."""
+        await self.initialize()
+        allowed_grains = {"date", "day", "week", "month", "quarter", "year", "timestamp"}
+        if grain not in allowed_grains:
+            raise MetadataError("Unsupported time-dimension grain")
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.transaction():
+                async with connection.cursor() as cursor:
+                    await cursor.execute(
+                        """
+                        SELECT e.schema_name, e.table_name
+                        FROM datapilot_catalog.semantic_entities e
+                        WHERE e.data_source_id = %s AND e.id = %s
+                        """,
+                        (data_source_id, entity_id),
+                    )
+                    entity = await cursor.fetchone()
+                    if not entity:
+                        raise MetadataError("Time dimension entity must belong to the selected data source")
+                    await cursor.execute(
+                        """
+                        SELECT COUNT(*)
+                        FROM datapilot_catalog.semantic_attributes a
+                        WHERE a.entity_id = %s AND a.column_name = %s
+                        """,
+                        (entity_id, column_name),
+                    )
+                    if (await cursor.fetchone())[0] == 0:
+                        raise MetadataError(
+                            "Time dimension column must be exposed as a semantic attribute",
+                            details={"column_name": column_name},
+                        )
+                    if is_default:
+                        await cursor.execute(
+                            """
+                            UPDATE datapilot_catalog.semantic_time_dimensions
+                            SET is_default = FALSE, updated_at = NOW()
+                            WHERE data_source_id = %s AND entity_id = %s
+                            """,
+                            (data_source_id, entity_id),
+                        )
+                    await cursor.execute(
+                        """
+                        INSERT INTO datapilot_catalog.semantic_time_dimensions
+                            (data_source_id, entity_id, name, column_name, role, grain,
+                             timezone, is_default, synonyms)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                        ON CONFLICT (data_source_id, name) DO UPDATE SET
+                            entity_id = EXCLUDED.entity_id,
+                            column_name = EXCLUDED.column_name,
+                            role = EXCLUDED.role,
+                            grain = EXCLUDED.grain,
+                            timezone = EXCLUDED.timezone,
+                            is_default = EXCLUDED.is_default,
+                            synonyms = EXCLUDED.synonyms,
+                            updated_at = NOW()
+                        RETURNING id
+                        """,
+                        (
+                            data_source_id, entity_id, name, column_name, role, grain,
+                            timezone, is_default,
+                            json.dumps(sorted({s.strip() for s in synonyms if s.strip()})),
+                        ),
+                    )
+                    return (await cursor.fetchone())[0]
+
+    async def list_time_dimensions(self, data_source_id: int) -> list[dict]:
+        await self.initialize()
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    SELECT td.id, td.name, td.entity_id, e.name, e.schema_name, e.table_name,
+                           td.column_name, td.role, td.grain, td.timezone, td.is_default,
+                           td.synonyms
+                    FROM datapilot_catalog.semantic_time_dimensions td
+                    JOIN datapilot_catalog.semantic_entities e ON e.id = td.entity_id
+                    WHERE td.data_source_id = %s
+                    ORDER BY e.name, td.is_default DESC, td.name
+                    """,
+                    (data_source_id,),
+                )
+                return [{
+                    "id": row[0], "name": row[1], "entity_id": row[2],
+                    "entity_name": row[3], "schema_name": row[4], "table_name": row[5],
+                    "column_name": row[6], "role": row[7], "grain": row[8],
+                    "timezone": row[9], "is_default": row[10],
+                    "synonyms": row[11] or [],
+                } for row in await cursor.fetchall()]
 
     async def save_semantic_relationship(
         self, *, data_source_id: int, name: str, from_entity_id: int,
