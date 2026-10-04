@@ -161,7 +161,7 @@
   },
   {
     "id": "order-count-by-customer",
-    "question": "Show order count by customer",
+    "question": "Show top 10 customers by order count",
     "source_name": "AdventureWorks",
     "expected": {
       "datasets": [
