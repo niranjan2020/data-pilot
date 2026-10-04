@@ -33,6 +33,7 @@ def bind_physical_identifiers(sql: str, schema: SchemaMetadata, dialect: str) ->
     alias_to_table: dict[str, object] = {}
     physical_table_names: dict[str, str] = {}
     query_aliases: set[str] = set()
+    referenced_tables: list[object] = []
     for node in statement.find_all(exp.Table):
         db_name = node.db or ""
         table_name = node.name
@@ -44,6 +45,7 @@ def bind_physical_identifiers(sql: str, schema: SchemaMetadata, dialect: str) ->
         if physical is None:
             continue
 
+        referenced_tables.append(physical)
         physical_schema = physical.schema_name or schema.schema_name
         node.set("this", exp.to_identifier(physical.name, quoted=True))
         if physical_schema:
@@ -70,8 +72,13 @@ def bind_physical_identifiers(sql: str, schema: SchemaMetadata, dialect: str) ->
         qualifier = column.table
         physical = alias_to_table.get(qualifier.lower()) if qualifier else None
         if physical is None:
+            # Resolve unqualified columns only against tables actually present in
+            # this SQL statement. The governed schema can contain several tables
+            # with common names such as ID/Name; searching the whole schema makes
+            # an otherwise unambiguous single-table query impossible to bind.
+            search_tables = referenced_tables or schema.tables
             matches = [
-                table for table in schema.tables
+                table for table in search_tables
                 if any(c.name.lower() == column.name.lower() for c in table.columns)
             ]
             if len(matches) == 1:
