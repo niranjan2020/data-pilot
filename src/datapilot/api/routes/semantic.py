@@ -51,7 +51,8 @@ class MetricRequest(BaseModel):
     name:str=Field(min_length=1)
     description:Optional[str]=None
     entity_id:int
-    attribute_name:str=Field(min_length=1)
+    attribute_name:Optional[str]=None
+    calculation_expression:Optional[str]=None
     aggregation:str=Field(pattern="^(sum|count|count_distinct|avg|min|max)$")
     format:str=Field(default="number",pattern="^(number|currency|percent|integer)$")
     synonyms:list[str]=Field(default_factory=list)
@@ -202,7 +203,8 @@ async def save_metric(payload:MetricRequest):
         metric_id=await p.save_semantic_metric(
             data_source_id=source_id,name=payload.name,description=payload.description,
             entity_id=payload.entity_id,attribute_name=payload.attribute_name,
-            aggregation=payload.aggregation,format=payload.format,synonyms=payload.synonyms)
+            aggregation=payload.aggregation,format=payload.format,synonyms=payload.synonyms,
+            calculation_expression=payload.calculation_expression)
         index_status,index_error=await sync_semantic_index(p,payload.source_name,source_id)
         return {"id":metric_id,"message":"Semantic metric saved","index_status":index_status,"index_error":index_error}
     finally: await p.close()
