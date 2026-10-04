@@ -57,8 +57,13 @@ def bind_physical_identifiers(sql: str, schema: SchemaMetadata, dialect: str) ->
         alias_expression = node.args.get("alias")
         alias = alias_expression.name if alias_expression is not None else ""
         if alias:
-            alias_to_table[alias.lower()] = physical
-            query_aliases.add(alias.lower())
+            alias_key = alias.lower()
+            alias_to_table[alias_key] = physical
+            query_aliases.add(alias_key)
+            # PostgreSQL also folds unquoted aliases to lowercase. Quote the
+            # alias itself so generated T1/t1 references have one canonical
+            # spelling throughout the statement.
+            alias_expression.set("this", exp.to_identifier(alias, quoted=True))
         else:
             # Once the physical table is schema-qualified and quoted, a
             # qualifier such as Product.ProductID is no longer a valid reference
@@ -70,7 +75,8 @@ def bind_physical_identifiers(sql: str, schema: SchemaMetadata, dialect: str) ->
 
     for column in statement.find_all(exp.Column):
         qualifier = column.table
-        physical = alias_to_table.get(qualifier.lower()) if qualifier else None
+        qualifier_key = qualifier.lower() if qualifier else ""
+        physical = alias_to_table.get(qualifier_key) if qualifier else None
         if physical is None:
             # Resolve unqualified columns only against tables actually present in
             # this SQL statement. The governed schema can contain several tables
@@ -91,13 +97,27 @@ def bind_physical_identifiers(sql: str, schema: SchemaMetadata, dialect: str) ->
         )
         if exact:
             column.set("this", exp.to_identifier(exact, quoted=True))
+        if qualifier and qualifier_key in query_aliases:
+            # Keep alias-qualified columns, but bind the qualifier to the exact
+            # explicit alias casing used in the FROM/JOIN clause.
+            alias_expression = next(
+                (
+                    node.args.get("alias")
+                    for node in statement.find_all(exp.Table)
+                    if node.args.get("alias") is not None
+                    and node.args["alias"].name.lower() == qualifier_key
+                ),
+                None,
+            )
+            if alias_expression is not None:
+                column.set("table", exp.to_identifier(alias_expression.name, quoted=True))
 
         # A qualified column may use a physical table name instead of an alias
         # (for example Product.ProductID). PostgreSQL quoted mixed-case table
         # names must be canonicalized in the qualifier as well as the column.
         # Real SQL aliases are intentionally left untouched because aliases are
         # query-local identifiers, not physical catalog identifiers.
-        if qualifier and qualifier.lower() not in query_aliases:
+        if qualifier and qualifier_key not in query_aliases:
             exact_table_name = physical_table_names.get(qualifier.lower())
             if exact_table_name:
                 # The FROM relation is emitted as "schema"."table". PostgreSQL
