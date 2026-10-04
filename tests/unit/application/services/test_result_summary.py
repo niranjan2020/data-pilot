@@ -81,3 +81,33 @@ def test_empty_summary_does_not_invent_explanation():
     )
     assert summary["text"] == "No rows matched this question."
     assert summary["insights"] == []
+
+
+def test_all_null_measure_is_reported_without_guessing_cause():
+    summary = summarize_result(
+        "compare revenue",
+        _result(["period", "Revenue"], [["this month", None], ["last month", None]]),
+        {"kind": "comparison", "x_column": "period", "y_columns": ["Revenue"]},
+    )
+    assert summary["diagnostics"][0]["code"] == "all_null_measure"
+    assert summary["diagnostics"][0]["severity"] == "warning"
+    assert "NULL for every returned row" in summary["diagnostics"][0]["message"]
+
+
+def test_partial_null_measure_is_reported():
+    summary = summarize_result(
+        "monthly revenue",
+        _result(["Month", "Revenue"], [["Jan", 10.0], ["Feb", None]]),
+        {"kind": "trend", "x_column": "Month", "y_columns": ["Revenue"]},
+    )
+    assert summary["diagnostics"][0]["code"] == "partial_null_measure"
+
+
+def test_empty_result_includes_non_speculative_diagnostic():
+    summary = summarize_result(
+        "revenue this month",
+        _result(["Revenue"], []),
+        {"kind": "empty", "y_columns": ["Revenue"]},
+    )
+    assert summary["diagnostics"][0]["code"] == "empty_result"
+    assert "Review filters or time range" in summary["diagnostics"][0]["message"]
