@@ -42,19 +42,52 @@ def _change(current: Any, previous: Any) -> dict[str, Any] | None:
     return {"delta": delta, "percent": percent, "direction": direction}
 
 
+def _diagnostics(columns: list[str], rows: list[Any], presentation: dict[str, Any]) -> list[dict[str, Any]]:
+    """Detect result-quality conditions from returned data without guessing their cause."""
+    if not rows:
+        return [{
+            "code": "empty_result",
+            "severity": "info",
+            "message": "The query executed successfully but returned no rows. Review filters or time range if data was expected.",
+        }]
+
+    diagnostics: list[dict[str, Any]] = []
+    y_columns = [column for column in (presentation.get("y_columns") or []) if column in columns]
+    for column in y_columns:
+        index = columns.index(column)
+        values = [row[index] for row in rows]
+        if values and all(value is None for value in values):
+            diagnostics.append({
+                "code": "all_null_measure",
+                "severity": "warning",
+                "column": column,
+                "message": f"{column} is NULL for every returned row. No analytical change or ranking can be calculated from this measure.",
+            })
+        elif any(value is None for value in values):
+            diagnostics.append({
+                "code": "partial_null_measure",
+                "severity": "info",
+                "column": column,
+                "message": f"{column} contains NULL values in some returned rows.",
+            })
+    return diagnostics
+
+
 def summarize_result(question: str, result: QueryResult, presentation: dict[str, Any]) -> dict[str, Any]:
     """Build a concise analytical answer only from returned rows; never infer missing facts."""
+    kind = str(presentation.get("kind") or "table")
+    columns = list(result.columns)
+    rows = list(result.rows)
+    diagnostics = _diagnostics(columns, rows, presentation)
+
     if result.row_count == 0:
         return {
             "text": "No rows matched this question.",
             "kind": "empty",
             "grounded": True,
             "insights": [],
+            "diagnostics": diagnostics,
         }
-
-    kind = str(presentation.get("kind") or "table")
-    columns = list(result.columns)
-    rows = list(result.rows)
 
     if kind == "scalar" and rows:
         y_columns = presentation.get("y_columns") or []
@@ -65,6 +98,7 @@ def summarize_result(question: str, result: QueryResult, presentation: dict[str,
             "kind": kind,
             "grounded": True,
             "insights": [{"type": "value", "measure": measure, "value": rows[0][index]}],
+            "diagnostics": diagnostics,
         }
 
     if kind == "comparison":
@@ -101,7 +135,7 @@ def summarize_result(question: str, result: QueryResult, presentation: dict[str,
                             f"({abs(change['percent']):.1f}%) versus {_display(rows[1][xi])}."
                         )
 
-            return {"text": text, "kind": kind, "grounded": True, "insights": insights}
+            return {"text": text, "kind": kind, "grounded": True, "insights": insights, "diagnostics": diagnostics}
 
     if kind == "ranking":
         x_column = presentation.get("x_column")
@@ -167,4 +201,5 @@ def summarize_result(question: str, result: QueryResult, presentation: dict[str,
         "kind": kind,
         "grounded": True,
         "insights": [],
+        "diagnostics": diagnostics,
     }
