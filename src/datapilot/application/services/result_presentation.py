@@ -44,19 +44,22 @@ def plan_result_presentation(question: str, result: QueryResult, time_interpreta
                     reason="A single row with one numeric measure is best presented as a KPI.")
         return plan
 
+    # A synthetic period label represents discrete comparison buckets, not a
+    # chronological series. Check it before generic time-name detection because
+    # "period_label" intentionally contains the word "period".
+    period_column = next((c for c in columns if c.lower() in {"period", "period_label"}), None)
+    if period_column and numeric_columns:
+        plan.update(kind="comparison", recommended_visual="bar", x_column=period_column,
+                    y_columns=numeric_columns,
+                    reason="Named comparison periods with numeric measures are best compared with bars.")
+        return plan
+
     temporal_column = next((c for c in columns if any(h in c.lower() for h in _TIME_HINTS)), None)
     grouping_grain = time_interpretation.get("grouping_grain")
     if temporal_column and numeric_columns and (grouping_grain or result.row_count > 1):
         plan.update(kind="trend", recommended_visual="line", x_column=temporal_column,
                     y_columns=numeric_columns,
                     reason="An ordered time dimension with numeric measures is best presented as a trend.")
-        return plan
-
-    period_column = next((c for c in columns if c.lower() in {"period", "period_label"}), None)
-    if period_column and numeric_columns:
-        plan.update(kind="comparison", recommended_visual="bar", x_column=period_column,
-                    y_columns=numeric_columns,
-                    reason="Named comparison periods with numeric measures are best compared with bars.")
         return plan
 
     if any(h in q for h in _COMPARE_HINTS) and dimension_columns and numeric_columns:
