@@ -42,6 +42,8 @@ class QueryTrace(BaseModel):
     governed_relationships: List[str] = Field(default_factory=list)
     governed_metrics: List[str] = Field(default_factory=list)
     governed_business_rules: List[str] = Field(default_factory=list)
+    governed_time_dimensions: List[str] = Field(default_factory=list)
+    time_interpretation: Dict[str, Any] = Field(default_factory=dict)
     physical_tables: List[str] = Field(default_factory=list)
     physical_columns: Dict[str, List[str]] = Field(default_factory=dict)
     context_budget: Dict[str, Any] = Field(default_factory=dict)
