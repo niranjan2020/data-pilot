@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 from datapilot.application.services.entity_resolver import DeterministicEntityResolver
 from datapilot.application.services.context_budget import ContextBudgeter
 from datapilot.application.services.semantic_context import SemanticContextAssembler
+from datapilot.application.services.time_semantics import resolve_time_semantics
 from datapilot.core.exceptions import SQLValidationError
 from datapilot.core.logging import get_logger
 from datapilot.domain.interfaces.database import DatabaseProvider
@@ -160,6 +161,7 @@ class QueryOrchestrator:
             governed_relationships=[x["name"] for x in governed_context.get("relationships", [])],
             governed_metrics=[x["name"] for x in governed_context.get("metrics", [])],
             governed_business_rules=[x["name"] for x in governed_context.get("business_rules", [])],
+            governed_time_dimensions=[x["name"] for x in governed_context.get("time_dimensions", [])],
             physical_tables=[f"{t.schema_name}.{t.name}" for t in schema.tables],
             physical_columns={
                 f"{t.schema_name}.{t.name}": [column.name for column in t.columns]
@@ -182,6 +184,25 @@ class QueryOrchestrator:
 
         parameters = self._merge_resolved_parameters(request.parameters, intent)
         trace.resolved_parameters = parameters
+        time_interpretation = resolve_time_semantics(
+            request.question, governed_context.get("time_dimensions", [])
+        )
+        if time_interpretation:
+            trace.time_interpretation = time_interpretation
+            if time_interpretation.get("status") == "ambiguous":
+                return QueryResponse(
+                    question=request.question,
+                    status="ambiguous",
+                    confidence=intent.confidence,
+                    semantic_ambiguities=[
+                        "Time reference matches multiple governed time dimensions: "
+                        + ", ".join(time_interpretation.get("candidates", []))
+                    ],
+                    resolved_intent=intent,
+                    trace=trace,
+                    message="Clarify which governed date/time role should be used.",
+                )
+            governed_context["resolved_time_filter"] = time_interpretation
         generation_context = {
             "governed_semantic_context": governed_context,
             "retrieved_semantic_context": retrieved_context,
