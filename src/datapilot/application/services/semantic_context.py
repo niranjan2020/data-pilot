@@ -168,9 +168,19 @@ class SemanticContextAssembler:
             or (r.get("metric_id") is not None and r["metric_id"] in selected_metric_ids)
         ]
 
+        # Keep the dataset boundary synchronized with the final governed
+        # entity boundary. Explicit metric resolution can add its owning entity
+        # after the initial dataset seeds were chosen, and every selected entity
+        # must expose its authoritative physical dataset to downstream tracing
+        # and schema pruning.
+        final_dataset_keys = {
+            (entity.get("schema_name"), entity.get("table_name"))
+            for entity in selected_entities
+            if entity.get("schema_name") and entity.get("table_name")
+        }
         selected_datasets = [
             d for d in datasets
-            if (d.get("schema_name"), d.get("table_name")) in dataset_keys
+            if (d.get("schema_name"), d.get("table_name")) in final_dataset_keys
         ]
 
         return {
