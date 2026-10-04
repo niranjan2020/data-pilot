@@ -33,6 +33,10 @@ class QueryTrace(BaseModel):
 
     retrieval_stage: str = "hierarchical_seeds"
     retrieved_candidates: List[Dict[str, Any]] = Field(default_factory=list)
+    llm_messages: List[Dict[str, str]] = Field(
+        default_factory=list,
+        description="Exact system/user messages supplied to the SQL-generation LLM, for admin diagnostics",
+    )
     governed_datasets: List[str] = Field(default_factory=list)
     governed_entities: List[str] = Field(default_factory=list)
     governed_relationships: List[str] = Field(default_factory=list)
