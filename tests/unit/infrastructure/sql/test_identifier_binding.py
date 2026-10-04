@@ -13,6 +13,7 @@ def _schema() -> SchemaMetadata:
                 name="Product",
                 columns=[
                     ColumnMetadata(name="ProductID", data_type="integer"),
+                    ColumnMetadata(name="Name", data_type="text"),
                     ColumnMetadata(name="Color", data_type="text"),
                 ],
             ),
@@ -43,9 +44,9 @@ def test_preserves_query_alias_while_binding_column_case() -> None:
 
     bound = bind_physical_identifiers(sql, _schema(), "postgresql")
 
-    assert 't1."ProductID"' in bound
-    assert 't1."Color"' in bound
-    assert '"t1"' not in bound
+    assert '"t1"."ProductID"' in bound
+    assert '"t1"."Color"' in bound
+    assert 'AS "t1"' in bound
 
 
 def test_binds_other_unaliased_physical_table_qualifiers() -> None:
