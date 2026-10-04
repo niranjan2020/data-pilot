@@ -171,6 +171,12 @@ CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_metrics (
     UNIQUE (data_source_id, name)
 );
 
+ALTER TABLE IF EXISTS datapilot_catalog.semantic_metrics
+    ALTER COLUMN attribute_name DROP NOT NULL;
+
+ALTER TABLE IF EXISTS datapilot_catalog.semantic_metrics
+    ADD COLUMN IF NOT EXISTS calculation_expression TEXT;
+
 CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_metric_synonyms (
     metric_id BIGINT NOT NULL REFERENCES datapilot_catalog.semantic_metrics(id) ON DELETE CASCADE,
     synonym TEXT NOT NULL,
@@ -644,8 +650,8 @@ class PostgreSQLMetadataProvider(MetadataProvider):
 
     async def save_semantic_metric(
         self, *, data_source_id: int, name: str, description: Optional[str],
-        entity_id: int, attribute_name: str, aggregation: str,
-        format: str, synonyms: list[str],
+        entity_id: int, attribute_name: Optional[str], aggregation: str,
+        format: str, synonyms: list[str], calculation_expression: Optional[str] = None,
     ) -> int:
         await self.initialize()
         allowed = {"sum", "count", "count_distinct", "avg", "min", "max"}
@@ -655,33 +661,68 @@ class PostgreSQLMetadataProvider(MetadataProvider):
         async with pool.connection() as connection:
             async with connection.transaction():
                 async with connection.cursor() as cursor:
-                    await cursor.execute(
-                        """
-                        SELECT COUNT(*) FROM datapilot_catalog.semantic_attributes a
-                        JOIN datapilot_catalog.semantic_entities e ON e.id = a.entity_id
-                        WHERE e.data_source_id = %s AND e.id = %s AND a.name = %s
-                        """,
-                        (data_source_id, entity_id, attribute_name),
-                    )
-                    if (await cursor.fetchone())[0] != 1:
-                        raise MetadataError("Metric attribute must belong to the selected entity")
+                    expression = (calculation_expression or "").strip() or None
+                    if expression is None:
+                        if not attribute_name:
+                            raise MetadataError("Simple metric requires an attribute")
+                        await cursor.execute(
+                            """
+                            SELECT COUNT(*) FROM datapilot_catalog.semantic_attributes a
+                            JOIN datapilot_catalog.semantic_entities e ON e.id = a.entity_id
+                            WHERE e.data_source_id = %s AND e.id = %s AND a.name = %s
+                            """,
+                            (data_source_id, entity_id, attribute_name),
+                        )
+                        if (await cursor.fetchone())[0] != 1:
+                            raise MetadataError("Metric attribute must belong to the selected entity")
+                    else:
+                        # Derived expressions are deliberately limited to columns on the
+                        # metric's base entity. SQL safety is validated before persistence.
+                        await cursor.execute(
+                            """
+                            SELECT a.column_name
+                            FROM datapilot_catalog.semantic_attributes a
+                            JOIN datapilot_catalog.semantic_entities e ON e.id = a.entity_id
+                            WHERE e.data_source_id = %s AND e.id = %s
+                            """,
+                            (data_source_id, entity_id),
+                        )
+                        allowed_columns = {row[0].lower() for row in await cursor.fetchall()}
+                        try:
+                            from sqlglot import parse_one, exp
+                            tree = parse_one(expression, read="postgres")
+                        except Exception as exc:
+                            raise MetadataError(
+                                "Derived metric calculation expression is not valid SQL",
+                                details={"error_type": type(exc).__name__},
+                            ) from exc
+                        if any(tree.find(kind) is not None for kind in (exp.Select, exp.Subquery, exp.Insert, exp.Update, exp.Delete)):
+                            raise MetadataError("Derived metric expression must be a row-level scalar expression")
+                        referenced = {column.name.lower() for column in tree.find_all(exp.Column)}
+                        unknown = sorted(referenced - allowed_columns)
+                        if unknown:
+                            raise MetadataError(
+                                "Derived metric expression references columns outside the selected entity",
+                                details={"unknown_columns": unknown},
+                            )
                     await cursor.execute(
                         """
                         INSERT INTO datapilot_catalog.semantic_metrics
                             (data_source_id, name, description, entity_id,
-                             attribute_name, aggregation, format)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                             attribute_name, aggregation, format, calculation_expression)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (data_source_id, name) DO UPDATE SET
                             description = EXCLUDED.description,
                             entity_id = EXCLUDED.entity_id,
                             attribute_name = EXCLUDED.attribute_name,
                             aggregation = EXCLUDED.aggregation,
                             format = EXCLUDED.format,
+                            calculation_expression = EXCLUDED.calculation_expression,
                             updated_at = NOW()
                         RETURNING id
                         """,
                         (data_source_id, name, description, entity_id,
-                         attribute_name, aggregation, format),
+                         attribute_name, aggregation, format, expression),
                     )
                     metric_id = (await cursor.fetchone())[0]
                     await cursor.execute(
@@ -703,7 +744,7 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                 await cursor.execute(
                     """
                     SELECT m.id, m.name, m.description, m.entity_id, e.name,
-                           m.attribute_name, m.aggregation, m.format,
+                           m.attribute_name, m.aggregation, m.format, m.calculation_expression,
                            COALESCE(
                                (SELECT jsonb_agg(s.synonym ORDER BY s.synonym)
                                 FROM datapilot_catalog.semantic_metric_synonyms s
@@ -721,7 +762,9 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                     "id": row[0], "name": row[1], "description": row[2],
                     "entity_id": row[3], "entity_name": row[4],
                     "attribute_name": row[5], "aggregation": row[6],
-                    "format": row[7], "synonyms": row[8] or [],
+                    "format": row[7], "calculation_expression": row[8],
+                    "metric_type": "derived" if row[8] else "simple",
+                    "synonyms": row[9] or [],
                 } for row in await cursor.fetchall()]
 
     async def save_business_rule(
