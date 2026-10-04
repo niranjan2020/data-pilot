@@ -311,19 +311,12 @@ class QueryOrchestrator:
             require(*key, entity.get("key_column"))
             require(*key, entity.get("display_column"))
             attributes = entity.get("attributes") or []
+            # Configured semantic attributes are already governed/approved
+            # columns. Keep them for selected entities so value-only language
+            # such as "red products" can still generate a Color filter even when
+            # the attribute name itself is not present in the question.
             for attribute in attributes:
-                terms = [
-                    attribute.get("name") or "",
-                    *(attribute.get("synonyms") or []),
-                ]
-                if any(
-                    (term_norm := __import__("re").sub(
-                        r"[^a-z0-9]+", " ", term.lower()
-                    ).strip())
-                    and f" {term_norm} " in normalized_question
-                    for term in terms
-                ):
-                    require(*key, attribute.get("column_name"))
+                require(*key, attribute.get("column_name"))
 
         for relationship in relationships:
             left = entity_by_id.get(relationship.get("from_entity_id"))
