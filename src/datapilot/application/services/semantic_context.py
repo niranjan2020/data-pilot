@@ -56,11 +56,29 @@ class SemanticContextAssembler:
                 if meta.get("metric_id") is not None:
                     metric_ids.add(int(meta["metric_id"]))
 
-        # Dataset-first boundary: when dataset semantics matched, they define the
-        # semantic neighborhood. Vector-matched entities outside those datasets are
-        # intentionally ignored. If no dataset matched, entity seeds remain the
-        # backwards-compatible fallback for partially configured sources.
-        if dataset_keys:
+        # Exact business vocabulary in the question is stronger evidence than
+        # approximate vector neighbours. Use explicitly mentioned entity names or
+        # synonyms as structural anchors so a broad top-k search cannot widen a
+        # simple question such as "show all products".
+        normalized_question = " " + re.sub(r"[^a-z0-9]+", " ", question.lower()).strip() + " "
+        explicit_entity_ids: set[int] = set()
+        for entity in entities:
+            terms = [entity.get("name") or "", *(entity.get("synonyms") or [])]
+            for term in terms:
+                normalized_term = re.sub(r"[^a-z0-9]+", " ", term.lower()).strip()
+                if normalized_term and f" {normalized_term} " in normalized_question:
+                    explicit_entity_ids.add(entity["id"])
+                    break
+
+        if explicit_entity_ids:
+            entity_ids = set(explicit_entity_ids)
+            dataset_keys = {
+                (entity.get("schema_name"), entity.get("table_name"))
+                for entity in entities
+                if entity["id"] in explicit_entity_ids
+                and entity.get("schema_name") and entity.get("table_name")
+            }
+        elif dataset_keys:
             for entity in entities:
                 if (entity.get("schema_name"), entity.get("table_name")) in dataset_keys:
                     entity_ids.add(entity["id"])
@@ -70,7 +88,6 @@ class SemanticContextAssembler:
         # Prefer explicit configured metric names/synonyms in the question.
         # This is deterministic semantic resolution, not business-specific logic,
         # and supports multiple explicitly requested metrics.
-        normalized_question = " " + re.sub(r"[^a-z0-9]+", " ", question.lower()).strip() + " "
         explicit_metric_ids: set[int] = set()
         for metric in metrics:
             terms = [metric.get("name") or "", *(metric.get("synonyms") or [])]
@@ -81,6 +98,18 @@ class SemanticContextAssembler:
                     break
         if explicit_metric_ids:
             metric_ids = explicit_metric_ids
+            # An explicitly named governed metric is also structural evidence:
+            # include its owning entity. This allows questions such as "order
+            # count by customer" to connect the Customer anchor to the Sales Order
+            # metric owner without trusting unrelated vector neighbours.
+            metric_owner_ids = {
+                metric["entity_id"] for metric in metrics
+                if metric["id"] in explicit_metric_ids
+            }
+            entity_ids.update(metric_owner_ids)
+            for entity in entities:
+                if entity["id"] in metric_owner_ids:
+                    dataset_keys.add((entity.get("schema_name"), entity.get("table_name")))
 
         # Intent seeds are subordinate to the structural boundary. A metric may
         # enrich a selected dataset/entity, but it must not pull an unrelated
