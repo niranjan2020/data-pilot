@@ -182,6 +182,22 @@ class SemanticContextAssembler:
             d for d in datasets
             if (d.get("schema_name"), d.get("table_name")) in final_dataset_keys
         ]
+        # Dataset metadata is optional governance enrichment; an entity's
+        # authoritative schema/table mapping must still define the physical
+        # boundary even when no separate dataset-info record was configured.
+        # Synthesize only the minimal boundary record needed downstream/trace.
+        selected_dataset_keys = {
+            (d.get("schema_name"), d.get("table_name")) for d in selected_datasets
+        }
+        selected_datasets.extend(
+            {
+                "schema_name": schema_name,
+                "table_name": table_name,
+                "name": f"{schema_name}.{table_name}",
+                "description": None,
+            }
+            for schema_name, table_name in sorted(final_dataset_keys - selected_dataset_keys)
+        )
 
         return {
             "datasets": selected_datasets,
