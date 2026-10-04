@@ -57,6 +57,17 @@ class MetricRequest(BaseModel):
     format:str=Field(default="number",pattern="^(number|currency|percent|integer)$")
     synonyms:list[str]=Field(default_factory=list)
 
+class TimeDimensionRequest(BaseModel):
+    source_name:str=Field(min_length=1)
+    name:str=Field(min_length=1)
+    entity_id:int
+    column_name:str=Field(min_length=1)
+    role:str=Field(default="event_time",min_length=1)
+    grain:str=Field(default="day",pattern="^(date|day|week|month|quarter|year|timestamp)$")
+    timezone:str=Field(default="UTC",min_length=1)
+    is_default:bool=False
+    synonyms:list[str]=Field(default_factory=list)
+
 class RelationshipRequest(BaseModel):
     source_name:str=Field(min_length=1)
     name:str=Field(min_length=1)
@@ -167,6 +178,30 @@ async def save_entity(payload:EntityRequest):
             synonyms=payload.synonyms,attributes=[a.model_dump() for a in payload.attributes])
         index_status,index_error=await sync_semantic_index(p,payload.source_name,source_id)
         return {"id":entity_id,"message":"Semantic entity saved","index_status":index_status,"index_error":index_error}
+    finally: await p.close()
+
+@router.get("/{source_name}/time-dimensions")
+async def time_dimensions(source_name:str):
+    p=provider()
+    try:
+        source_id=await p.get_data_source_id(source_name)
+        if source_id is None: raise HTTPException(404,"Data source not found. Discover it first.")
+        return {"source_name":source_name,
+                "entities":await p.list_semantic_entities(source_id),
+                "time_dimensions":await p.list_time_dimensions(source_id)}
+    finally: await p.close()
+
+@router.post("/time-dimensions")
+async def save_time_dimension(payload:TimeDimensionRequest):
+    p=provider()
+    try:
+        source_id=await p.get_data_source_id(payload.source_name)
+        if source_id is None: raise HTTPException(404,"Data source not found. Discover it first.")
+        dimension_id=await p.save_time_dimension(
+            data_source_id=source_id,entity_id=payload.entity_id,name=payload.name,
+            column_name=payload.column_name,role=payload.role,grain=payload.grain,
+            timezone=payload.timezone,is_default=payload.is_default,synonyms=payload.synonyms)
+        return {"id":dimension_id,"message":"Time dimension saved"}
     finally: await p.close()
 
 @router.post("/relationships")
