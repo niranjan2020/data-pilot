@@ -61,30 +61,39 @@ class SemanticContextAssembler:
         # synonyms as structural anchors so a broad top-k search cannot widen a
         # simple question such as "show all products".
         normalized_question = " " + re.sub(r"[^a-z0-9]+", " ", question.lower()).strip() + " "
-        explicit_entity_ids: set[int] = set()
+        # Keep the most specific explicit entity phrase(s). A question such
+        # as "show order lines" may also contain a shorter synonym such as
+        # "order"; the longer governed phrase must win instead of selecting both
+        # entities and widening the semantic boundary.
+        explicit_entity_matches: list[tuple[int, int]] = []
         for entity in entities:
+            best_specificity = 0
             terms = [entity.get("name") or "", *(entity.get("synonyms") or [])]
             for term in terms:
                 normalized_term = re.sub(r"[^a-z0-9]+", " ", term.lower()).strip()
-                # Business users naturally alternate singular/plural nouns
-                # ("product" / "products"). Treat a simple trailing-s plural as
-                # the same explicit semantic term without introducing a domain
-                # dictionary or fuzzy vector decision.
                 term_variants = {normalized_term}
                 if normalized_term:
                     words = normalized_term.split()
                     last_word = words[-1]
-                    # Apply the same simple singular/plural normalization to the
-                    # head noun of multi-word business terms too: "sales order"
-                    # should explicitly anchor "sales orders", and "order line"
-                    # should anchor "order lines".
                     alternate_last = (
                         last_word[:-1] if last_word.endswith("s") else last_word + "s"
                     )
                     term_variants.add(" ".join([*words[:-1], alternate_last]))
-                if any(variant and f" {variant} " in normalized_question for variant in term_variants):
-                    explicit_entity_ids.add(entity["id"])
-                    break
+                for variant in term_variants:
+                    if variant and f" {variant} " in normalized_question:
+                        best_specificity = max(best_specificity, len(variant.split()))
+            if best_specificity:
+                explicit_entity_matches.append((entity["id"], best_specificity))
+
+        max_entity_specificity = max(
+            (specificity for _, specificity in explicit_entity_matches),
+            default=0,
+        )
+        explicit_entity_ids: set[int] = {
+            entity_id
+            for entity_id, specificity in explicit_entity_matches
+            if specificity == max_entity_specificity
+        }
 
         if explicit_entity_ids:
             entity_ids = set(explicit_entity_ids)
