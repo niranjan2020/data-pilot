@@ -9,6 +9,7 @@ from datapilot.application.services.context_budget import ContextBudgeter
 from datapilot.application.services.semantic_context import SemanticContextAssembler
 from datapilot.application.services.time_semantics import resolve_time_semantics
 from datapilot.application.services.result_presentation import plan_result_presentation
+from datapilot.application.services.result_summary import summarize_result
 from datapilot.core.exceptions import SQLValidationError
 from datapilot.core.logging import get_logger
 from datapilot.domain.interfaces.database import DatabaseProvider
@@ -343,6 +344,8 @@ class QueryOrchestrator:
             trace.time_interpretation if trace is not None else None,
         )
 
+        result_summary = summarize_result(question, result, presentation)
+
         return QueryResponse(
             question=question,
             status="completed",
@@ -355,6 +358,7 @@ class QueryOrchestrator:
             validation_warnings=[*validation.warnings, *policy_result.warnings],
             trace=trace,
             presentation=presentation,
+            result_summary=result_summary,
         )
 
     async def _load_relevant_schema(
