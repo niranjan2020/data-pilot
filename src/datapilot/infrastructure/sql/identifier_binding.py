@@ -31,6 +31,7 @@ def bind_physical_identifiers(sql: str, schema: SchemaMetadata, dialect: str) ->
         tables_by_name.setdefault(table.name.lower(), []).append(table)
 
     alias_to_table: dict[str, object] = {}
+    physical_table_names: dict[str, str] = {}
     for node in statement.find_all(exp.Table):
         db_name = node.db or ""
         table_name = node.name
@@ -51,6 +52,7 @@ def bind_physical_identifiers(sql: str, schema: SchemaMetadata, dialect: str) ->
         if alias:
             alias_to_table[alias.lower()] = physical
         alias_to_table[physical.name.lower()] = physical
+        physical_table_names[physical.name.lower()] = physical.name
 
     for column in statement.find_all(exp.Column):
         qualifier = column.table
@@ -70,5 +72,19 @@ def bind_physical_identifiers(sql: str, schema: SchemaMetadata, dialect: str) ->
         )
         if exact:
             column.set("this", exp.to_identifier(exact, quoted=True))
+
+        # A qualified column may use a physical table name instead of an alias
+        # (for example Product.ProductID). PostgreSQL quoted mixed-case table
+        # names must be canonicalized in the qualifier as well as the column.
+        # Real SQL aliases are intentionally left untouched because aliases are
+        # query-local identifiers, not physical catalog identifiers.
+        if qualifier and qualifier.lower() not in {
+            node.alias.lower()
+            for node in statement.find_all(exp.Table)
+            if node.alias
+        }:
+            exact_table_name = physical_table_names.get(qualifier.lower())
+            if exact_table_name:
+                column.set("table", exp.to_identifier(exact_table_name, quoted=True))
 
     return statement.sql(dialect=target)
