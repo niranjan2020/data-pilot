@@ -304,7 +304,14 @@ class PostgreSQLDatabaseProvider(DatabaseProvider):
             raise
         except Exception as exc:
             diagnostic = getattr(exc, "diag", None)
-            details = {"error_type": type(exc).__name__}
+            details = {
+                "error_type": type(exc).__name__,
+                # Safe for developer diagnostics: Data Pilot only permits
+                # read-only generated SQL here. Including the exact statement
+                # makes AST/binding/policy failures reproducible without
+                # exposing connection credentials or database contents.
+                "sql": sql,
+            }
             message = getattr(diagnostic, "message_primary", None)
             if message:
                 details["database_message"] = message
