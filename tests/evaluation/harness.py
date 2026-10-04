@@ -24,6 +24,8 @@ class EvaluationExpectation:
     excluded_metrics: tuple[str, ...] = ()
     require_completed: bool = False
     require_sql: bool = False
+    sql_contains: tuple[str, ...] = ()
+    sql_excludes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -120,6 +122,13 @@ def evaluate_query_response(
         failures.append(f"expected completed status, got {response.status!r}")
     if expected.require_sql and not response.sql:
         failures.append("expected generated SQL")
+    normalized_sql = (response.sql or "").lower()
+    for fragment in expected.sql_contains:
+        if fragment.lower() not in normalized_sql:
+            failures.append(f"SQL missing expected fragment: {fragment!r}")
+    for fragment in expected.sql_excludes:
+        if fragment.lower() in normalized_sql:
+            failures.append(f"SQL contains forbidden fragment: {fragment!r}")
 
     if any((
         expected.datasets, expected.entities, expected.relationships,
