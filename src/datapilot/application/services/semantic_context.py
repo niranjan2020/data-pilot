@@ -153,6 +153,60 @@ class SemanticContextAssembler:
                 if entity["id"] in metric_owner_ids:
                     dataset_keys.add((entity.get("schema_name"), entity.get("table_name")))
 
+        # Temporal intent may require a governed date role that lives on a
+        # directly related entity rather than on the metric owner. For example,
+        # Revenue may live on Sales Order Line while Order Date lives on Sales
+        # Order. Expand by one authoritative relationship hop only; never let
+        # vector retrieval invent the temporal join.
+        temporal_intent = bool(re.search(
+            r"\b(today|yesterday|ytd|year to date|daily|weekly|monthly|quarterly|yearly|"
+            r"trend|this month|last month|previous month|this quarter|last quarter|"
+            r"previous quarter|this year|last year|previous year|last [0-9]+ days?|"
+            r"past [0-9]+ days?|last [0-9]+ months?|past [0-9]+ months?|by day|by week|"
+            r"by month|by quarter|by year)\b",
+            normalized_question,
+        ))
+        selected_time_dimension_ids: set[int] = set()
+        if temporal_intent and time_dimensions:
+            explicit_time_dimensions: list[dict[str, Any]] = []
+            for dimension in time_dimensions:
+                terms = [
+                    dimension.get("name") or "",
+                    dimension.get("role") or "",
+                    *(dimension.get("synonyms") or []),
+                ]
+                if any(
+                    term
+                    and f" {re.sub(r'[^a-z0-9]+', ' ', term.lower()).strip()} " in normalized_question
+                    for term in terms
+                ):
+                    explicit_time_dimensions.append(dimension)
+
+            candidates = explicit_time_dimensions or [
+                dimension for dimension in time_dimensions if dimension.get("is_default")
+            ]
+            connected_candidates: list[dict[str, Any]] = []
+            for dimension in candidates:
+                target_id = dimension["entity_id"]
+                if target_id in entity_ids:
+                    connected_candidates.append(dimension)
+                    continue
+                if any(
+                    (relationship["from_entity_id"] in entity_ids and relationship["to_entity_id"] == target_id)
+                    or (relationship["to_entity_id"] in entity_ids and relationship["from_entity_id"] == target_id)
+                    for relationship in relationships
+                ):
+                    connected_candidates.append(dimension)
+
+            # Preserve multiple equally governed candidates so the deterministic
+            # time resolver can return ambiguity rather than silently choosing.
+            for dimension in connected_candidates:
+                selected_time_dimension_ids.add(dimension["id"])
+                entity_ids.add(dimension["entity_id"])
+                entity = next((e for e in entities if e["id"] == dimension["entity_id"]), None)
+                if entity:
+                    dataset_keys.add((entity.get("schema_name"), entity.get("table_name")))
+
         # Intent seeds are subordinate to the structural boundary. A metric may
         # enrich a selected dataset/entity, but it must not pull an unrelated
         # physical dataset into the query neighborhood.
@@ -243,5 +297,6 @@ class SemanticContextAssembler:
             "time_dimensions": [
                 dimension for dimension in time_dimensions
                 if dimension["entity_id"] in entity_ids
+                and (not temporal_intent or not selected_time_dimension_ids or dimension["id"] in selected_time_dimension_ids)
             ],
         }
