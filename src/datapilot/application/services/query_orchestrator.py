@@ -70,8 +70,13 @@ class QueryOrchestrator:
         *,
         schema: Optional[SchemaMetadata] = None,
         catalog: Optional[SemanticCatalog] = None,
+        conversation_context: Optional[dict[str, Any]] = None,
     ) -> QueryResponse:
         """Resolve, generate, validate and execute one natural-language query."""
+        conversation_context = dict(conversation_context or {})
+        contextual_question = self._contextualize_follow_up(
+            request.question, conversation_context
+        )
         retrieved_context: list[dict[str, Any]] = []
         if self._semantic_retriever is not None and request.source_name:
             # Stage 1 discovers the relevant physical/business neighborhood rather
@@ -80,20 +85,20 @@ class QueryOrchestrator:
             if search_kinds is not None:
                 seed_limit = max(4, min(self._semantic_retrieval_limit, 6))
                 structural_seeds = await search_kinds(
-                    request.source_name, request.question,
+                    request.source_name, contextual_question,
                     ["dataset", "entity"], seed_limit,
                 )
                 # Stage 2 retrieves semantic intent objects independently. They do
                 # not select physical datasets; the authoritative catalog later
                 # constrains them to the Stage-1 dataset/entity neighborhood.
                 intent_seeds = await search_kinds(
-                    request.source_name, request.question,
+                    request.source_name, contextual_question,
                     ["metric", "business_rule"], seed_limit,
                 )
                 retrieved_context = [*structural_seeds, *intent_seeds]
             else:
                 retrieved_context = await self._semantic_retriever.search(
-                    request.source_name, request.question, self._semantic_retrieval_limit
+                    request.source_name, contextual_question, self._semantic_retrieval_limit
                 )
 
         logger.info(
@@ -104,7 +109,7 @@ class QueryOrchestrator:
         governed_context: dict[str, Any] = {}
         if self._semantic_context_assembler is not None and request.source_name:
             governed_context = await self._semantic_context_assembler.assemble(
-                request.source_name, retrieved_context, request.question
+                request.source_name, retrieved_context, contextual_question
             )
             logger.info(
                 "query governed_context datasets=%s entities=%s relationships=%s metrics=%s rules=%s",
@@ -115,7 +120,7 @@ class QueryOrchestrator:
                 [x["name"] for x in governed_context.get("business_rules", [])],
             )
         schema = schema or await self._load_relevant_schema(
-            retrieved_context, governed_context, request.question
+            retrieved_context, governed_context, contextual_question
         )
         logger.info(
             "query physical_schema tables=%s",
@@ -169,10 +174,11 @@ class QueryOrchestrator:
                 f"{t.schema_name}.{t.name}": [column.name for column in t.columns]
                 for t in schema.tables
             },
+            conversation_context=conversation_context,
         )
         catalog = catalog or await self._semantic_catalog_provider.get_catalog()
 
-        intent = self._entity_resolver.resolve(request.question, catalog, schema)
+        intent = self._entity_resolver.resolve(contextual_question, catalog, schema)
         if intent.ambiguities:
             return QueryResponse(
                 question=request.question,
@@ -187,7 +193,7 @@ class QueryOrchestrator:
         parameters = self._merge_resolved_parameters(request.parameters, intent)
         trace.resolved_parameters = parameters
         time_interpretation = resolve_time_semantics(
-            request.question, governed_context.get("time_dimensions", [])
+            contextual_question, governed_context.get("time_dimensions", [])
         )
         if time_interpretation:
             trace.time_interpretation = time_interpretation
@@ -211,6 +217,7 @@ class QueryOrchestrator:
             "semantic_catalog": catalog.model_dump(mode="json"),
             "query_intent": intent.model_dump(mode="json"),
             "parameters": parameters,
+            "conversation_context": conversation_context,
         }
         generation_context, budget = self._context_budgeter.apply(generation_context)
         logger.info("query context_budget=%s", budget)
@@ -480,6 +487,35 @@ class QueryOrchestrator:
             },
         )
         return SchemaMetadata(schema_name=None, tables=pruned_tables, dialect=self._database.dialect)
+
+    @staticmethod
+    def _contextualize_follow_up(
+        question: str,
+        conversation_context: Dict[str, Any],
+    ) -> str:
+        """Create retrieval/resolution text for an explicit follow-up.
+
+        The previous SQL is intentionally excluded. Only the prior natural-language
+        question and governed semantic lineage are carried forward, so every turn
+        still performs fresh retrieval, SQL generation, validation and policy checks.
+        """
+        previous_question = str(conversation_context.get("previous_question") or "").strip()
+        if not previous_question:
+            return question
+
+        metrics = ", ".join(conversation_context.get("governed_metrics") or [])
+        entities = ", ".join(conversation_context.get("governed_entities") or [])
+        semantic_hint = "; ".join(
+            part for part in (
+                f"prior metrics: {metrics}" if metrics else "",
+                f"prior entities: {entities}" if entities else "",
+            ) if part
+        )
+        suffix = f" ({semantic_hint})" if semantic_hint else ""
+        return (
+            f"Previous analytical question: {previous_question}{suffix}. "
+            f"Current follow-up: {question}"
+        )
 
     @staticmethod
     def _merge_resolved_parameters(
