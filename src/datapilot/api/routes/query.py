@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from datapilot.application.services.query_orchestrator import QueryOrchestrator
 from datapilot.application.services.semantic_context import SemanticContextAssembler
@@ -13,11 +13,33 @@ from datapilot.infrastructure.database.postgresql import PostgreSQLDatabaseProvi
 from datapilot.infrastructure.llm.gemini import GeminiLLMProvider
 from datapilot.infrastructure.metadata.semantic_postgresql import PostgreSQLSemanticCatalogProvider
 from datapilot.infrastructure.metadata.postgresql import PostgreSQLMetadataProvider
+from datapilot.infrastructure.metadata.query_history import PostgreSQLQueryHistoryStore
 from datapilot.infrastructure.sql.llm_generator import LLMBackedSQLGenerator
 from datapilot.infrastructure.semantic.qdrant import QdrantSemanticIndex
 from datapilot.infrastructure.sql.validator import SQLGlotValidator
 
 router = APIRouter(prefix="/api", tags=["Query"])
+
+
+async def get_query_history_store(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+) -> PostgreSQLQueryHistoryStore:
+    """Return the shared query-history store backed by platform metadata PostgreSQL."""
+    existing = getattr(request.app.state, "query_history_store", None)
+    if existing is not None:
+        return existing
+
+    database_url = settings.metadata_database_url or settings.default_database_url
+    if not database_url:
+        raise ConfigurationError("METADATA_DATABASE_URL is required for query history")
+    store = PostgreSQLQueryHistoryStore(
+        database_url=database_url,
+        pool_size=settings.metadata_database_pool_size,
+    )
+    await store.initialize()
+    request.app.state.query_history_store = store
+    return store
 
 
 async def get_query_orchestrator(
@@ -101,6 +123,31 @@ async def get_query_orchestrator(
 async def query(
     payload: QueryRequest,
     orchestrator: QueryOrchestrator = Depends(get_query_orchestrator),
+    history: PostgreSQLQueryHistoryStore = Depends(get_query_history_store),
 ) -> QueryResponse:
-    """Execute one natural-language database question."""
-    return await orchestrator.query(payload)
+    """Execute one natural-language database question and persist its lineage."""
+    response = await orchestrator.query(payload)
+    await history.record(payload, response)
+    return response
+
+
+@router.get("/query/history", summary="List recent query history")
+async def list_query_history(
+    source_name: str | None = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    history: PostgreSQLQueryHistoryStore = Depends(get_query_history_store),
+) -> list[dict]:
+    """List recent persisted queries, newest first."""
+    return await history.list(source_name=source_name, limit=limit)
+
+
+@router.get("/query/history/{history_id}", summary="Get query history detail")
+async def get_query_history(
+    history_id: int,
+    history: PostgreSQLQueryHistoryStore = Depends(get_query_history_store),
+) -> dict:
+    """Return a historical query together with its saved response and trace."""
+    item = await history.get(history_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Query history item not found")
+    return item
