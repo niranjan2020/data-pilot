@@ -73,8 +73,15 @@ class QdrantSemanticIndex:
             docs.append({"kind": "relationship", "key": str(r["id"]), "name": r["name"],
                          "text": text, "metadata": r})
         for m in metrics:
+            if m.get("calculation_expression"):
+                definition = (
+                    f"{m['aggregation']} of derived expression "
+                    f"{m['calculation_expression']} on {m['entity_name']}"
+                )
+            else:
+                definition = f"{m['aggregation']} of {m['entity_name']}.{m['attribute_name']}"
             text = (f"Metric {m['name']}. {m.get('description') or ''}. "
-                    f"{m['aggregation']} of {m['entity_name']}.{m['attribute_name']}. "
+                    f"{definition}. "
                     f"Synonyms {' '.join(m.get('synonyms') or [])}. Format {m['format']}.")
             docs.append({"kind": "metric", "key": str(m["id"]), "name": m["name"],
                          "text": text, "metadata": m})
