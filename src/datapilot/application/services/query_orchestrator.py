@@ -76,6 +76,8 @@ class QueryOrchestrator:
     ) -> QueryResponse:
         """Resolve, generate, validate and execute one natural-language query."""
         conversation_context = dict(conversation_context or {})
+        inherited_clarifications = dict(conversation_context.get("clarification_selections") or {})
+        effective_clarifications = {**inherited_clarifications, **request.clarification_selections}
         contextual_question = self._contextualize_follow_up(
             request.question, conversation_context
         )
@@ -181,11 +183,12 @@ class QueryOrchestrator:
                 for t in schema.tables
             },
             conversation_context=conversation_context,
+            clarification_selections=effective_clarifications,
         )
         catalog = catalog or await self._semantic_catalog_provider.get_catalog()
 
         resolver_catalog = catalog
-        selected_entity = request.clarification_selections.get("entity")
+        selected_entity = effective_clarifications.get("entity")
         if selected_entity:
             selected_entities = [
                 entity for entity in catalog.entities
@@ -221,7 +224,7 @@ class QueryOrchestrator:
                 message="I found more than one governed entity that could match this question.",
             )
 
-        selected_metric = request.clarification_selections.get("metric")
+        selected_metric = effective_clarifications.get("metric")
         governed_metrics = governed_context.get("metrics", [])
         if selected_metric:
             governed_metrics = [
@@ -259,7 +262,7 @@ class QueryOrchestrator:
                     message="The metric wording matches more than one governed business metric.",
                 )
 
-        selected_attribute = request.clarification_selections.get("attribute")
+        selected_attribute = effective_clarifications.get("attribute")
         attribute_candidates = self._ambiguous_attribute_matches(
             contextual_question, governed_context.get("entities", [])
         )
@@ -303,7 +306,7 @@ class QueryOrchestrator:
         parameters = self._merge_resolved_parameters(request.parameters, intent)
         trace.resolved_parameters = parameters
         governed_time_dimensions = governed_context.get("time_dimensions", [])
-        selected_time_dimension = request.clarification_selections.get("time_dimension")
+        selected_time_dimension = effective_clarifications.get("time_dimension")
         if selected_time_dimension:
             governed_time_dimensions = [
                 dimension for dimension in governed_time_dimensions
@@ -343,7 +346,7 @@ class QueryOrchestrator:
             "semantic_catalog": catalog.model_dump(mode="json"),
             "query_intent": intent.model_dump(mode="json"),
             "parameters": parameters,
-            "clarification_selections": request.clarification_selections,
+            "clarification_selections": effective_clarifications,
             "conversation_context": conversation_context,
         }
         generation_context, budget = self._context_budgeter.apply(generation_context)
