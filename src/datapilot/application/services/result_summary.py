@@ -484,6 +484,23 @@ def summarize_result(question: str, result: QueryResult, presentation: dict[str,
                 insights.append({"type": "trend_pattern", "measure": measure, "direction": direction})
             insights.extend(_trend_movement_insights(columns, rows, x_column, measure))
             insights.extend(_trend_dynamics_insights(columns, rows, x_column, measure))
+            turning_points = [item for item in insights if item.get("type") == "turning_point"]
+            if turning_points:
+                labels = ", ".join(
+                    f"{item['turning_type']} at {_display(item['label'])}"
+                    for item in turning_points[:3]
+                )
+                text += f" Turning points in the returned periods: {labels}."
+
+            momentum = next(
+                (item for item in insights if item.get("type") == "strongest_momentum_change"),
+                None,
+            )
+            if momentum is not None and momentum.get("momentum") != "steady":
+                text += (
+                    f" The strongest momentum change was {momentum['momentum']} "
+                    f"from {_display(momentum['from_label'])} to {_display(momentum['to_label'])}."
+                )
             return {"text": text, "kind": kind, "grounded": True, "insights": insights, "diagnostics": diagnostics, "quality": quality}
 
     return {
