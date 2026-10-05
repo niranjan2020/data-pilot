@@ -471,7 +471,7 @@ def _time_checks(
         current = node
         while isinstance(current, (exp.Cast, exp.Paren)):
             current = current.this
-        if isinstance(current, exp.Literal):
+        if isinstance(current, (exp.Literal, exp.Var, exp.Identifier)):
             return str(current.this)
         return None
 
@@ -529,9 +529,23 @@ def _time_checks(
         grain_ok = False
         if group is not None:
             for expression in group.expressions:
-                for function in expression.find_all(exp.DateTrunc):
-                    unit = scalar_text(function.this)
-                    target = function.expression
+                # sqlglot represents PostgreSQL DATE_TRUNC as TimestampTrunc in
+                # current releases (older releases used DateTrunc). Inspect the
+                # normalized AST shape instead of coupling correctness to one
+                # concrete sqlglot expression class.
+                for function in expression.walk():
+                    key = str(getattr(function, "key", "") or "").casefold().replace("_", "")
+                    if key not in {"datetrunc", "timestamptrunc", "datetimetrunc"}:
+                        continue
+
+                    unit_node = function.args.get("unit")
+                    target = function.args.get("this")
+                    if unit_node is None:
+                        # Compatibility with the older DateTrunc AST shape.
+                        unit_node = function.args.get("this")
+                        target = function.args.get("expression")
+
+                    unit = scalar_text(unit_node)
                     if unit and unit.casefold() == grain and contains_time_column(target):
                         grain_ok = True
                         break
