@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from typing import Any, Dict, Optional
 
 from datapilot.application.services.entity_resolver import DeterministicEntityResolver
