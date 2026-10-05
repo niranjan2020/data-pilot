@@ -1002,24 +1002,30 @@
     "notes": "Customer synonym ranked by a governed metric."
   },
   {
-    "id": "items-by-colour",
-    "question": "Show items by colour",
+    "id": "units-sold-by-product-colour",
+    "question": "Show units sold by product colour",
     "source_name": "AdventureWorks",
     "expected": {
       "datasets": [
-        "Production.Product"
+        "Production.Product",
+        "Sales.SalesOrderDetail"
       ],
       "entities": [
-        "Product"
+        "Product",
+        "Sales Order Line"
+      ],
+      "relationships": [
+        "Sales Order Line to Product"
+      ],
+      "metrics": [
+        "Units Sold"
       ],
       "excluded_entities": [
-        "Sales Order Line",
-        "Sales Order",
-        "Customer"
+        "Customer",
+        "Sales Order"
       ],
       "excluded_metrics": [
         "Revenue",
-        "Units Sold",
         "Order Count",
         "Average Order Value"
       ],
@@ -1027,13 +1033,16 @@
       "require_sql": true,
       "required_correctness_codes": [
         "physical_scope_alignment",
+        "relationship_alignment",
         "grouping_dimension_alignment"
       ],
       "forbidden_correctness_codes": [
         "physical_scope_violation",
-        "grouping_dimension_violation"
+        "relationship_violation",
+        "grouping_dimension_violation",
+        "join_fanout_violation"
       ]
     },
-    "notes": "Entity synonym plus governed attribute synonym grouping."
+    "notes": "Unambiguous governed attribute-synonym grouping with a metric and relationship traversal."
   }
 ]
