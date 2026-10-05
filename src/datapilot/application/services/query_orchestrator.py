@@ -234,15 +234,19 @@ class QueryOrchestrator:
             governed_context["metrics"] = governed_metrics
             trace.governed_metrics = [str(metric.get("name") or "") for metric in governed_metrics]
         else:
-            metric_candidates = self._explicit_metric_matches(contextual_question, governed_metrics)
-            if len(metric_candidates) > 1:
+            metric_matches = self._explicit_metric_matches(contextual_question, governed_metrics)
+            ambiguous_group = next(
+                (group for group in metric_matches.values() if len(group) > 1),
+                None,
+            )
+            if ambiguous_group:
                 return QueryResponse(
                     question=request.question,
                     status="ambiguous",
                     confidence=intent.confidence,
                     semantic_ambiguities=[
                         "Metric reference matches multiple governed metrics: "
-                        + ", ".join(metric["name"] for metric in metric_candidates)
+                        + ", ".join(metric["name"] for metric in ambiguous_group)
                     ],
                     clarification=ClarificationRequest(
                         kind="metric",
@@ -254,13 +258,31 @@ class QueryOrchestrator:
                                 label=str(metric["name"]),
                                 description=str(metric.get("description") or "") or None,
                             )
-                            for metric in metric_candidates
+                            for metric in ambiguous_group
                         ],
                     ),
                     resolved_intent=intent,
                     trace=trace,
                     message="The metric wording matches more than one governed business metric.",
                 )
+
+            # Multiple distinct explicit metric references are composition, not
+            # ambiguity. For example, "revenue and units sold" intentionally asks
+            # for both governed metrics. Restrict generation to those explicit
+            # metrics so unrelated vector candidates cannot leak into the query.
+            explicit_metrics: list[dict[str, Any]] = []
+            seen_metric_names: set[str] = set()
+            for group in metric_matches.values():
+                for metric in group:
+                    metric_name = str(metric.get("name") or "")
+                    if metric_name.casefold() not in seen_metric_names:
+                        explicit_metrics.append(metric)
+                        seen_metric_names.add(metric_name.casefold())
+            if explicit_metrics:
+                governed_context["metrics"] = explicit_metrics
+                trace.governed_metrics = [
+                    str(metric.get("name") or "") for metric in explicit_metrics
+                ]
 
         selected_attribute = effective_clarifications.get("attribute")
         attribute_candidates = self._ambiguous_attribute_matches(
@@ -658,25 +680,29 @@ class QueryOrchestrator:
     @staticmethod
     def _explicit_metric_matches(
         question: str, metrics: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
-        """Return governed metrics explicitly named by the user's wording.
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Group explicit governed metric matches by the wording that matched.
 
-        Ambiguity is raised only for exact semantic names/synonyms, never merely
-        because vector retrieval returned several plausible metrics.
+        A single phrase mapping to multiple metrics is genuinely ambiguous
+        (for example a shared synonym such as "sales"). Distinct phrases such
+        as "revenue" and "units sold" are an intentional multi-metric request
+        and must be composed rather than clarified.
         """
         normalized = " " + " ".join(
             re.findall(r"[a-z0-9]+", question.casefold())
         ) + " "
-        matches: list[dict[str, Any]] = []
+        matches: dict[str, list[dict[str, Any]]] = {}
         for metric in metrics:
             terms = [metric.get("name"), *(metric.get("synonyms") or [])]
+            matched_terms: set[str] = set()
             for term in terms:
                 if not term:
                     continue
                 semantic_term = " ".join(re.findall(r"[a-z0-9]+", str(term).casefold()))
                 if semantic_term and f" {semantic_term} " in normalized:
-                    matches.append(metric)
-                    break
+                    matched_terms.add(semantic_term)
+            for semantic_term in matched_terms:
+                matches.setdefault(semantic_term, []).append(metric)
         return matches
 
     @staticmethod
