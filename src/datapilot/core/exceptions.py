@@ -52,6 +52,16 @@ class MetadataError(DataPilotError):
     pass
 
 
+class SemanticRetrievalError(DataPilotError):
+    """Raised when semantic retrieval cannot complete."""
+    pass
+
+
+class TimeInterpretationError(DataPilotError):
+    """Raised when deterministic governed time interpretation cannot complete."""
+    pass
+
+
 class SQLGenerationError(DataPilotError):
     """Raised when SQL synthesis or translation fails."""
     pass
