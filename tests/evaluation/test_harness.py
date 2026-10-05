@@ -30,7 +30,7 @@ def test_evaluation_accepts_required_correctness_codes():
         expected=EvaluationExpectation(
             required_correctness_codes=(
                 "metric_expression_alignment",
-                "grouping_alignment",
+                "grouping_dimension_alignment",
                 "time_filter_alignment",
             ),
             forbidden_correctness_codes=("time_filter_violation",),
@@ -42,7 +42,7 @@ def test_evaluation_accepts_required_correctness_codes():
         trace=QueryTrace(
             correctness_checks=[
                 {"code": "metric_expression_alignment", "status": "passed"},
-                {"code": "grouping_alignment", "status": "passed"},
+                {"code": "grouping_dimension_alignment", "status": "passed"},
                 {"code": "time_filter_alignment", "status": "passed"},
             ]
         ),
