@@ -162,3 +162,29 @@ async def test_versioned_fixture_entity_clarification_resumes_real_orchestrator(
     }
     assert response.trace is not None
     assert response.trace.clarification_selections == {"entity": "Customer"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("selected_entity", ["Employee", "Supplier", "Customer Account"])
+async def test_versioned_fixture_rejects_unknown_entity_clarification_selection(
+    selected_entity,
+):
+    orchestrator = QueryOrchestrator(
+        NoExecutionDatabase(),
+        NoValidation(),
+        NoGeneration(),
+        FixtureCatalog(load_catalog()),
+    )
+
+    response = await orchestrator.query(
+        QueryRequest(
+            question="Show account",
+            clarification_selections={"entity": selected_entity},
+        )
+    )
+
+    assert response.status == "rejected"
+    assert response.sql is None
+    assert response.clarification is None
+    assert response.trace is not None
+    assert response.trace.clarification_selections == {"entity": selected_entity}
