@@ -100,3 +100,14 @@ def test_evaluation_requires_trace_for_correctness_expectations():
 
     assert not result.passed
     assert "query trace is required for correctness evaluation" in result.failures
+
+
+def test_evaluation_case_can_group_follow_up_conversation():
+    case = EvaluationCase(
+        id="follow-up",
+        question="Only red ones",
+        expected=EvaluationExpectation(require_completed=True),
+        conversation_id="product-revenue",
+    )
+
+    assert case.conversation_id == "product-revenue"
