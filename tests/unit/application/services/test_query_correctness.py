@@ -83,3 +83,36 @@ def test_correctness_rejects_wrong_aggregation_for_derived_metric():
         }],
     )
     assert any(check["code"] == "metric_expression_violation" for check in checks)
+
+
+def test_correctness_passes_required_grouping_dimension():
+    checks = assess_query_correctness(
+        affected_tables=["Production.Product", "Sales.SalesOrderDetail"],
+        governed_tables=["Production.Product", "Sales.SalesOrderDetail"],
+        sql='SELECT "p"."Name", SUM("d"."LineTotal") FROM "Production"."Product" p JOIN "Sales"."SalesOrderDetail" d ON p."ProductID" = d."ProductID" GROUP BY "p"."Name"',
+        required_grouping_columns=["Name"],
+    )
+    grouping = next(check for check in checks if check["code"] == "grouping_dimension_alignment")
+    assert grouping["status"] == "passed"
+
+
+def test_correctness_rejects_missing_required_grouping_dimension():
+    checks = assess_query_correctness(
+        affected_tables=["Production.Product", "Sales.SalesOrderDetail"],
+        governed_tables=["Production.Product", "Sales.SalesOrderDetail"],
+        sql='SELECT "p"."Color", SUM("d"."LineTotal") FROM "Production"."Product" p JOIN "Sales"."SalesOrderDetail" d ON p."ProductID" = d."ProductID" GROUP BY "p"."Color"',
+        required_grouping_columns=["Name"],
+    )
+    grouping = next(check for check in checks if check["code"] == "grouping_dimension_violation")
+    assert grouping["status"] == "failed"
+    assert grouping["missing_columns"] == ["name"]
+
+
+def test_correctness_accepts_additional_grouping_when_required_dimension_is_present():
+    checks = assess_query_correctness(
+        affected_tables=["Production.Product"],
+        governed_tables=["Production.Product"],
+        sql='SELECT "Name", "Color", COUNT(*) FROM "Production"."Product" GROUP BY "Name", "Color"',
+        required_grouping_columns=["Name"],
+    )
+    assert any(check["code"] == "grouping_dimension_alignment" for check in checks)
