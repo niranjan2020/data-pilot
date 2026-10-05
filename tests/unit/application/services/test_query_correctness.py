@@ -179,3 +179,55 @@ def test_correctness_accepts_qualified_governed_filter():
         }],
     )
     assert any(item["code"] == "filter_alignment" for item in checks)
+
+
+def _product_line_relationship():
+    return [{
+        "name": "Sales Order Line to Product",
+        "from_table": "Sales.SalesOrderDetail",
+        "from_column": "ProductID",
+        "to_table": "Production.Product",
+        "to_column": "ProductID",
+    }]
+
+
+def test_correctness_passes_governed_relationship_join():
+    checks = assess_query_correctness(
+        affected_tables=["Production.Product", "Sales.SalesOrderDetail"],
+        governed_tables=["Production.Product", "Sales.SalesOrderDetail"],
+        sql='SELECT "p"."Name", SUM("d"."LineTotal") FROM "Production"."Product" p JOIN "Sales"."SalesOrderDetail" d ON "p"."ProductID" = "d"."ProductID" GROUP BY "p"."Name"',
+        required_relationships=_product_line_relationship(),
+    )
+    check = next(item for item in checks if item["code"] == "relationship_alignment")
+    assert check["status"] == "passed"
+
+
+def test_correctness_rejects_wrong_governed_relationship_join_columns():
+    checks = assess_query_correctness(
+        affected_tables=["Production.Product", "Sales.SalesOrderDetail"],
+        governed_tables=["Production.Product", "Sales.SalesOrderDetail"],
+        sql='SELECT "p"."Name" FROM "Production"."Product" p JOIN "Sales"."SalesOrderDetail" d ON "p"."ProductID" = "d"."SalesOrderID"',
+        required_relationships=_product_line_relationship(),
+    )
+    check = next(item for item in checks if item["code"] == "relationship_violation")
+    assert check["status"] == "failed"
+
+
+def test_correctness_rejects_missing_governed_relationship_join():
+    checks = assess_query_correctness(
+        affected_tables=["Production.Product", "Sales.SalesOrderDetail"],
+        governed_tables=["Production.Product", "Sales.SalesOrderDetail"],
+        sql='SELECT "p"."Name" FROM "Production"."Product" p CROSS JOIN "Sales"."SalesOrderDetail" d',
+        required_relationships=_product_line_relationship(),
+    )
+    assert any(item["code"] == "relationship_violation" for item in checks)
+
+
+def test_correctness_accepts_reversed_governed_relationship_equality():
+    checks = assess_query_correctness(
+        affected_tables=["Production.Product", "Sales.SalesOrderDetail"],
+        governed_tables=["Production.Product", "Sales.SalesOrderDetail"],
+        sql='SELECT "p"."Name" FROM "Production"."Product" p JOIN "Sales"."SalesOrderDetail" d ON "d"."ProductID" = "p"."ProductID"',
+        required_relationships=_product_line_relationship(),
+    )
+    assert any(item["code"] == "relationship_alignment" for item in checks)
