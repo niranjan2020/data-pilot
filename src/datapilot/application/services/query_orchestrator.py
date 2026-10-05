@@ -335,6 +335,7 @@ class QueryOrchestrator:
             contextual_question,
             governed_context.get("entities", []),
             selected_attribute=governed_context.get("resolved_attribute_selection"),
+            metrics=governed_context.get("metrics", []),
         )
         if governed_filters:
             governed_context["resolved_filters"] = governed_filters
@@ -931,6 +932,7 @@ class QueryOrchestrator:
         entities: list[dict[str, Any]],
         *,
         selected_attribute: Optional[dict[str, Any]] = None,
+        metrics: Optional[list[dict[str, Any]]] = None,
     ) -> list[str]:
         """Resolve explicit grouping to the most specific governed dimension."""
         if selected_attribute:
@@ -943,6 +945,48 @@ class QueryOrchestrator:
                 return [selected_column]
 
         normalized = " ".join(re.findall(r"[a-z0-9]+", question.casefold()))
+
+        # In ranking forms such as "top customers by order count", "by" names
+        # the ranking metric rather than a grouping dimension. Group by the
+        # requested entity instead.
+        metric_terms = []
+        for metric in metrics or []:
+            metric_terms.extend([metric.get("name"), *(metric.get("synonyms") or [])])
+        ranking_by_metric = any(
+            semantic
+            and re.search(
+                rf"\bby\s+{re.escape(semantic)}\b",
+                normalized,
+            )
+            for term in metric_terms
+            for semantic in [
+                " ".join(re.findall(r"[a-z0-9]+", str(term or "").casefold()))
+            ]
+        )
+        if ranking_by_metric:
+            prefix = normalized.split(" by ", 1)[0]
+            entity_candidates: list[tuple[int, str]] = []
+            for entity in entities:
+                column = str(
+                    entity.get("display_column") or entity.get("key_column") or ""
+                ).strip()
+                if not column:
+                    continue
+                for term in [entity.get("name"), *(entity.get("synonyms") or [])]:
+                    semantic = " ".join(
+                        re.findall(r"[a-z0-9]+", str(term or "").casefold())
+                    )
+                    if semantic and re.search(
+                        rf"\b{re.escape(semantic)}(?:s)?\b",
+                        prefix,
+                    ):
+                        entity_candidates.append((len(semantic.split()), column))
+            if entity_candidates:
+                best = max(score for score, _ in entity_candidates)
+                return list(dict.fromkeys(
+                    column for score, column in entity_candidates if score == best
+                ))
+
         attribute_matches: list[tuple[int, str]] = []
         entity_matches: list[tuple[int, str]] = []
 
