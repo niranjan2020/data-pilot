@@ -219,6 +219,44 @@ class QueryOrchestrator:
                 message="I found more than one governed entity that could match this question.",
             )
 
+        selected_metric = request.clarification_selections.get("metric")
+        governed_metrics = governed_context.get("metrics", [])
+        if selected_metric:
+            governed_metrics = [
+                metric for metric in governed_metrics
+                if str(metric.get("name") or "").casefold() == selected_metric.casefold()
+            ]
+            governed_context["metrics"] = governed_metrics
+            trace.governed_metrics = [str(metric.get("name") or "") for metric in governed_metrics]
+        else:
+            metric_candidates = self._explicit_metric_matches(contextual_question, governed_metrics)
+            if len(metric_candidates) > 1:
+                return QueryResponse(
+                    question=request.question,
+                    status="ambiguous",
+                    confidence=intent.confidence,
+                    semantic_ambiguities=[
+                        "Metric reference matches multiple governed metrics: "
+                        + ", ".join(metric["name"] for metric in metric_candidates)
+                    ],
+                    clarification=ClarificationRequest(
+                        kind="metric",
+                        key="metric",
+                        question="Which governed metric do you mean?",
+                        options=[
+                            ClarificationOption(
+                                value=str(metric["name"]),
+                                label=str(metric["name"]),
+                                description=str(metric.get("description") or "") or None,
+                            )
+                            for metric in metric_candidates
+                        ],
+                    ),
+                    resolved_intent=intent,
+                    trace=trace,
+                    message="The metric wording matches more than one governed business metric.",
+                )
+
         parameters = self._merge_resolved_parameters(request.parameters, intent)
         trace.resolved_parameters = parameters
         governed_time_dimensions = governed_context.get("time_dimensions", [])
@@ -570,6 +608,30 @@ class QueryOrchestrator:
             f"Prior analytical turns: {lineage}{suffix}. "
             f"Current follow-up: {question}"
         )
+
+    @staticmethod
+    def _explicit_metric_matches(
+        question: str, metrics: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Return governed metrics explicitly named by the user's wording.
+
+        Ambiguity is raised only for exact semantic names/synonyms, never merely
+        because vector retrieval returned several plausible metrics.
+        """
+        normalized = " " + " ".join(
+            re.findall(r"[a-z0-9]+", question.casefold())
+        ) + " "
+        matches: list[dict[str, Any]] = []
+        for metric in metrics:
+            terms = [metric.get("name"), *(metric.get("synonyms") or [])]
+            for term in terms:
+                if not term:
+                    continue
+                semantic_term = " ".join(re.findall(r"[a-z0-9]+", str(term).casefold()))
+                if semantic_term and f" {semantic_term} " in normalized:
+                    matches.append(metric)
+                    break
+        return matches
 
     @staticmethod
     def _merge_resolved_parameters(
