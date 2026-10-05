@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from datapilot.core.exceptions import SQLValidationError
+from datapilot.core.exceptions import SemanticRetrievalError, SQLValidationError, TimeInterpretationError
 from datapilot.application.services.query_orchestrator import QueryOrchestrator
 from datapilot.domain.models import SchemaMetadata
 from datapilot.domain.policies import QueryExecutionPolicy
@@ -884,3 +884,58 @@ async def test_orchestrator_blocks_wrong_governed_time_sql_before_execution():
         and check["status"] == "failed"
         for check in failed_checks
     )
+
+
+class FailingSemanticRetriever:
+    async def search(self, source_name, question, limit):
+        raise RuntimeError("vector backend unavailable")
+
+
+@pytest.mark.asyncio
+async def test_semantic_retrieval_failure_is_wrapped_at_orchestrator_boundary():
+    generator = FakeSQLGenerator()
+    database = FakeDatabase()
+    orchestrator = QueryOrchestrator(
+        database,
+        FakeValidator(),
+        generator,
+        FakeCatalog(SemanticCatalog()),
+        semantic_retriever=FailingSemanticRetriever(),
+    )
+
+    with pytest.raises(SemanticRetrievalError) as error:
+        await orchestrator.query(
+            QueryRequest(question="Show records", source_name="Commerce")
+        )
+
+    assert isinstance(error.value.__cause__, RuntimeError)
+    assert error.value.details["source_name"] == "Commerce"
+    assert generator.calls == 0
+    assert database.executed == []
+
+
+@pytest.mark.asyncio
+async def test_time_interpretation_failure_is_wrapped_before_generation(monkeypatch):
+    generator = FakeSQLGenerator()
+    database = FakeDatabase()
+    orchestrator = QueryOrchestrator(
+        database,
+        FakeValidator(),
+        generator,
+        FakeCatalog(SemanticCatalog()),
+    )
+
+    def fail_time_resolution(question, dimensions):
+        raise ValueError("invalid governed time metadata")
+
+    monkeypatch.setattr(
+        "datapilot.application.services.query_orchestrator.resolve_time_semantics",
+        fail_time_resolution,
+    )
+
+    with pytest.raises(TimeInterpretationError) as error:
+        await orchestrator.query(QueryRequest(question="Show records"))
+
+    assert isinstance(error.value.__cause__, ValueError)
+    assert generator.calls == 0
+    assert database.executed == []
