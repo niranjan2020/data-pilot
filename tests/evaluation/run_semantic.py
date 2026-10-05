@@ -62,6 +62,8 @@ def load_cases(path: Path) -> list[tuple[EvaluationCase, str]]:
                 clarification_options=tuple(expected.get("clarification_options", [])),
                 sql_contains=tuple(expected.get("sql_contains", [])),
                 sql_excludes=tuple(expected.get("sql_excludes", [])),
+                required_correctness_codes=tuple(expected.get("required_correctness_codes", [])),
+                forbidden_correctness_codes=tuple(expected.get("forbidden_correctness_codes", [])),
             ),
         )
         cases.append((case, item.get("source_name", "")))
