@@ -73,12 +73,59 @@ def _diagnostics(columns: list[str], rows: list[Any], presentation: dict[str, An
     return diagnostics
 
 
+
+def assess_result_quality(
+    result: QueryResult,
+    presentation: dict[str, Any],
+    diagnostics: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Classify whether an executed result is analytically usable.
+
+    SQL execution success is intentionally separate from analytical quality.
+    This assessment is deterministic and based only on returned rows plus the
+    selected presentation measures.
+    """
+    diagnostics = diagnostics if diagnostics is not None else _diagnostics(
+        list(result.columns), list(result.rows), presentation
+    )
+    codes = {str(item.get("code") or "") for item in diagnostics}
+
+    if result.row_count == 0:
+        return {
+            "status": "empty",
+            "usable": False,
+            "complete": False,
+            "reason": "The query executed successfully but returned no rows.",
+        }
+    if "all_null_measure" in codes:
+        return {
+            "status": "unusable",
+            "usable": False,
+            "complete": False,
+            "reason": "At least one analytical measure is NULL for every returned row.",
+        }
+    if "partial_null_measure" in codes:
+        return {
+            "status": "partial",
+            "usable": True,
+            "complete": False,
+            "reason": "The result is usable, but at least one analytical measure contains missing values.",
+        }
+    return {
+        "status": "good",
+        "usable": True,
+        "complete": True,
+        "reason": "The returned analytical measures contain usable values.",
+    }
+
+
 def summarize_result(question: str, result: QueryResult, presentation: dict[str, Any]) -> dict[str, Any]:
     """Build a concise analytical answer only from returned rows; never infer missing facts."""
     kind = str(presentation.get("kind") or "table")
     columns = list(result.columns)
     rows = list(result.rows)
     diagnostics = _diagnostics(columns, rows, presentation)
+    quality = assess_result_quality(result, presentation, diagnostics)
 
     if result.row_count == 0:
         return {
@@ -87,6 +134,7 @@ def summarize_result(question: str, result: QueryResult, presentation: dict[str,
             "grounded": True,
             "insights": [],
             "diagnostics": diagnostics,
+            "quality": quality,
         }
 
     if kind == "scalar" and rows:
@@ -99,6 +147,7 @@ def summarize_result(question: str, result: QueryResult, presentation: dict[str,
             "grounded": True,
             "insights": [{"type": "value", "measure": measure, "value": rows[0][index]}],
             "diagnostics": diagnostics,
+            "quality": quality,
         }
 
     if kind == "comparison":
@@ -135,7 +184,7 @@ def summarize_result(question: str, result: QueryResult, presentation: dict[str,
                             f"({abs(change['percent']):.1f}%) versus {_display(rows[1][xi])}."
                         )
 
-            return {"text": text, "kind": kind, "grounded": True, "insights": insights, "diagnostics": diagnostics}
+            return {"text": text, "kind": kind, "grounded": True, "insights": insights, "diagnostics": diagnostics, "quality": quality}
 
     if kind == "ranking":
         x_column = presentation.get("x_column")
@@ -156,7 +205,7 @@ def summarize_result(question: str, result: QueryResult, presentation: dict[str,
                         {"type": "leader_gap", "runner_up": rows[1][xi], "measure": measure, "delta": gap}
                     )
 
-            return {"text": text, "kind": kind, "grounded": True, "insights": insights, "diagnostics": diagnostics}
+            return {"text": text, "kind": kind, "grounded": True, "insights": insights, "diagnostics": diagnostics, "quality": quality}
 
     if kind == "trend":
         x_column = presentation.get("x_column")
@@ -194,7 +243,7 @@ def summarize_result(question: str, result: QueryResult, presentation: dict[str,
                         f"by {_display(abs(change['delta']))} ({abs(change['percent']):.1f}%)."
                     )
 
-            return {"text": text, "kind": kind, "grounded": True, "insights": insights, "diagnostics": diagnostics}
+            return {"text": text, "kind": kind, "grounded": True, "insights": insights, "diagnostics": diagnostics, "quality": quality}
 
     return {
         "text": f"Returned {result.row_count:,} row{'s' if result.row_count != 1 else ''}.",
@@ -202,4 +251,5 @@ def summarize_result(question: str, result: QueryResult, presentation: dict[str,
         "grounded": True,
         "insights": [],
         "diagnostics": diagnostics,
+        "quality": quality,
     }
