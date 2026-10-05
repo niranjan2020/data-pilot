@@ -211,11 +211,15 @@ def test_runtime_exception_classification_distinguishes_pipeline_stages():
         DatabaseExecutionError,
         LLMError,
         MetadataError,
+        SemanticRetrievalError,
         SQLGenerationError,
         SQLValidationError,
+        TimeInterpretationError,
     )
     from tests.evaluation.run_semantic import classify_runtime_exception
 
+    assert classify_runtime_exception(SemanticRetrievalError("retrieval failed")) == ("semantic_retrieval",)
+    assert classify_runtime_exception(TimeInterpretationError("time failed")) == ("time_interpretation",)
     assert classify_runtime_exception(DatabaseExecutionError("db failed")) == ("execution",)
     assert classify_runtime_exception(SQLGenerationError("generation failed")) == ("sql_generation",)
     assert classify_runtime_exception(LLMError("llm failed")) == ("sql_generation",)
