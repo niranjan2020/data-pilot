@@ -939,3 +939,58 @@ async def test_time_interpretation_failure_is_wrapped_before_generation(monkeypa
     assert isinstance(error.value.__cause__, ValueError)
     assert generator.calls == 0
     assert database.executed == []
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_fails_closed_when_required_correctness_is_unverifiable(monkeypatch):
+    database = FakeDatabase()
+    generator = FakeSQLGenerator("SELECT COUNT(*) AS count FROM records")
+    orchestrator = QueryOrchestrator(
+        database,
+        FakeValidator(),
+        generator,
+        FakeCatalog(SemanticCatalog()),
+    )
+
+    monkeypatch.setattr(
+        "datapilot.application.services.query_orchestrator.assess_query_correctness",
+        lambda **kwargs: [{
+            "code": "relationship_verification_unavailable",
+            "status": "skipped",
+            "severity": "info",
+            "message": "verification unavailable",
+        }],
+    )
+
+    with pytest.raises(SQLValidationError) as error:
+        await orchestrator.query(QueryRequest(question="How many records exist?"))
+
+    assert error.value.details["checks"][0]["code"] == "relationship_verification_unavailable"
+    assert database.executed == []
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_does_not_fail_closed_for_non_required_scope_skip(monkeypatch):
+    database = FakeDatabase()
+    generator = FakeSQLGenerator("SELECT COUNT(*) AS count FROM records")
+    orchestrator = QueryOrchestrator(
+        database,
+        FakeValidator(),
+        generator,
+        FakeCatalog(SemanticCatalog()),
+    )
+
+    monkeypatch.setattr(
+        "datapilot.application.services.query_orchestrator.assess_query_correctness",
+        lambda **kwargs: [{
+            "code": "governed_scope_unavailable",
+            "status": "skipped",
+            "severity": "info",
+            "message": "no governed scope",
+        }],
+    )
+
+    response = await orchestrator.query(QueryRequest(question="How many records exist?"))
+
+    assert response.status == "completed"
+    assert database.executed
