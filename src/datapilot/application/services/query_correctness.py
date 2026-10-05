@@ -188,7 +188,7 @@ def assess_query_correctness(
         if not _within_governed_scope(table, governed)
     ]
     if unexpected:
-        return metric_checks + [{
+        return semantic_checks + [{
             "code": "physical_scope_violation",
             "status": "failed",
             "severity": "error",
@@ -198,7 +198,7 @@ def assess_query_correctness(
             + ", ".join(unexpected),
         }]
 
-    return metric_checks + [{
+    return semantic_checks + [{
         "code": "physical_scope_alignment",
         "status": "passed",
         "severity": "info",
