@@ -237,6 +237,61 @@ def _outlier_insights(
         for label, value in outliers[:3]
     ]
 
+
+def _trend_movement_insights(
+    columns: list[str], rows: list[Any], x_column: str | None, measure: str | None
+) -> list[dict[str, Any]]:
+    """Summarize the strongest adjacent movements in the returned time series."""
+    points = _numeric_points(columns, rows, x_column, measure)
+    if len(points) < 2 or measure is None:
+        return []
+
+    movements: list[dict[str, Any]] = []
+    for index in range(1, len(points)):
+        previous_label, previous_value = points[index - 1]
+        label, value = points[index]
+        change = _change(value, previous_value)
+        if change is None:
+            continue
+        movements.append({
+            "from_label": previous_label,
+            "to_label": label,
+            "from_value": previous_value,
+            "to_value": value,
+            **change,
+        })
+
+    if not movements:
+        return []
+
+    largest = max(movements, key=lambda item: abs(item["delta"]))
+    insights: list[dict[str, Any]] = [{
+        "type": "largest_period_change",
+        "measure": measure,
+        "scope": "returned_periods",
+        **largest,
+    }]
+
+    increases = [item for item in movements if item["delta"] > 0]
+    decreases = [item for item in movements if item["delta"] < 0]
+    if increases:
+        strongest_increase = max(increases, key=lambda item: item["delta"])
+        insights.append({
+            "type": "strongest_period_increase",
+            "measure": measure,
+            "scope": "returned_periods",
+            **strongest_increase,
+        })
+    if decreases:
+        strongest_decrease = min(decreases, key=lambda item: item["delta"])
+        insights.append({
+            "type": "strongest_period_decrease",
+            "measure": measure,
+            "scope": "returned_periods",
+            **strongest_decrease,
+        })
+    return insights
+
 def summarize_result(question: str, result: QueryResult, presentation: dict[str, Any]) -> dict[str, Any]:
     """Build a concise analytical answer only from returned rows; never infer missing facts."""
     kind = str(presentation.get("kind") or "table")
@@ -376,6 +431,7 @@ def summarize_result(question: str, result: QueryResult, presentation: dict[str,
                     else "mixed"
                 )
                 insights.append({"type": "trend_pattern", "measure": measure, "direction": direction})
+            insights.extend(_trend_movement_insights(columns, rows, x_column, measure))
             return {"text": text, "kind": kind, "grounded": True, "insights": insights, "diagnostics": diagnostics, "quality": quality}
 
     return {
