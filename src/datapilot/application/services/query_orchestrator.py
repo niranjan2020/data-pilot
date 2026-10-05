@@ -826,10 +826,13 @@ class QueryOrchestrator:
                 continue
             required.append({
                 "name": relationship.get("name"),
+                "from_entity_id": relationship.get("from_entity_id"),
                 "from_table": f"{left.get('schema_name')}.{left.get('table_name')}",
                 "from_column": relationship.get("from_column"),
+                "to_entity_id": relationship.get("to_entity_id"),
                 "to_table": f"{right.get('schema_name')}.{right.get('table_name')}",
                 "to_column": relationship.get("to_column"),
+                "cardinality": relationship.get("cardinality"),
             })
         return required
 
