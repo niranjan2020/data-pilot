@@ -7,6 +7,7 @@ import pytest
 
 from datapilot.application.services.semantic_context import SemanticContextAssembler
 from datapilot.application.services.time_semantics import resolve_time_semantics
+from datapilot.application.services.query_correctness import assess_query_correctness
 
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "semantic" / "metadata.json"
@@ -330,3 +331,83 @@ def test_versioned_metadata_fixture_resolves_year_over_year_comparison():
             "end_exclusive": "2026-01-01",
         },
     ]
+
+
+def test_fixture_resolved_time_plan_aligns_with_generated_sql_correctness():
+    plan = resolve_time_semantics(
+        "Show monthly revenue this year",
+        _fixture_time_dimensions(),
+        now=A3_NOW,
+    )
+
+    checks = assess_query_correctness(
+        affected_tables=["public.orders"],
+        governed_tables=["public.orders"],
+        sql="""SELECT DATE_TRUNC('month', order_date), SUM(amount)
+               FROM public.orders
+               WHERE order_date >= DATE '2026-01-01'
+                 AND order_date < DATE '2027-01-01'
+               GROUP BY DATE_TRUNC('month', order_date)""",
+        required_time_plan=plan,
+    )
+
+    assert any(
+        check["code"] == "time_filter_alignment" and check["status"] == "passed"
+        for check in checks
+    )
+    assert any(
+        check["code"] == "time_grain_alignment" and check["status"] == "passed"
+        for check in checks
+    )
+
+
+def test_fixture_resolved_time_plan_rejects_wrong_column_boundary_and_grain():
+    plan = resolve_time_semantics(
+        "Show monthly revenue this year",
+        _fixture_time_dimensions(),
+        now=A3_NOW,
+    )
+
+    checks = assess_query_correctness(
+        affected_tables=["public.orders"],
+        governed_tables=["public.orders"],
+        sql="""SELECT DATE_TRUNC('year', created_at), SUM(amount)
+               FROM public.orders
+               WHERE created_at >= DATE '2026-02-01'
+                 AND created_at < DATE '2027-01-01'
+               GROUP BY DATE_TRUNC('year', created_at)""",
+        required_time_plan=plan,
+    )
+
+    filter_violation = next(
+        check for check in checks if check["code"] == "time_filter_violation"
+    )
+    grain_violation = next(
+        check for check in checks if check["code"] == "time_grain_violation"
+    )
+    assert filter_violation["status"] == "failed"
+    assert filter_violation["missing_lower_bound"] is True
+    assert grain_violation["status"] == "failed"
+
+
+def test_fixture_resolved_grouping_only_plan_aligns_without_time_filter():
+    plan = resolve_time_semantics(
+        "Show revenue by quarter",
+        _fixture_time_dimensions(),
+        now=A3_NOW,
+    )
+
+    checks = assess_query_correctness(
+        affected_tables=["public.orders"],
+        governed_tables=["public.orders"],
+        sql="""SELECT DATE_TRUNC('quarter', order_date), SUM(amount)
+               FROM public.orders
+               GROUP BY DATE_TRUNC('quarter', order_date)""",
+        required_time_plan=plan,
+    )
+
+    assert any(
+        check["code"] == "time_grain_alignment" and check["status"] == "passed"
+        for check in checks
+    )
+    assert not any(check["code"] == "time_filter_violation" for check in checks)
