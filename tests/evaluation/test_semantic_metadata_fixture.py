@@ -224,3 +224,57 @@ def test_versioned_metadata_fixture_resolves_governed_time_ranges(
     assert result["start"] == expected_start
     assert result["end_exclusive"] == expected_end
     assert result["comparison"] is False
+
+
+@pytest.mark.parametrize(
+    ("question", "expected_start", "expected_end", "expected_grain"),
+    [
+        (
+            "Show monthly revenue this year",
+            "2026-01-01",
+            "2027-01-01",
+            "month",
+        ),
+        (
+            "Show revenue by month for the last 12 months",
+            "2025-11-01",
+            "2026-10-06",
+            "month",
+        ),
+    ],
+)
+def test_versioned_metadata_fixture_resolves_governed_time_filter_and_grain(
+    question, expected_start, expected_end, expected_grain
+):
+    result = resolve_time_semantics(
+        question,
+        _fixture_time_dimensions(),
+        now=A3_NOW,
+    )
+
+    assert result is not None
+    assert result["status"] == "resolved"
+    assert result["time_dimension"] == "Order Date"
+    assert result["column_name"] == "order_date"
+    assert result["start"] == expected_start
+    assert result["end_exclusive"] == expected_end
+    assert result["grouping_grain"] == expected_grain
+    assert result["comparison"] is False
+
+
+def test_versioned_metadata_fixture_resolves_grouping_only_without_inventing_filter():
+    result = resolve_time_semantics(
+        "Show revenue by quarter",
+        _fixture_time_dimensions(),
+        now=A3_NOW,
+    )
+
+    assert result is not None
+    assert result["status"] == "resolved"
+    assert result["time_dimension"] == "Order Date"
+    assert result["column_name"] == "order_date"
+    assert result["grouping_grain"] == "quarter"
+    assert result["filter"] is None
+    assert "start" not in result
+    assert "end_exclusive" not in result
+    assert result["comparison"] is False
