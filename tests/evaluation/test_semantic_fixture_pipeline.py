@@ -104,3 +104,61 @@ async def test_versioned_fixture_stops_before_sql_for_non_executable_semantics(
 
     assert response.status == expected_status
     assert response.sql is None
+
+
+class ResumeGenerator:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.contexts = []
+
+    async def generate(self, question, schema, context=None, dialect=None):
+        self.calls += 1
+        self.contexts.append(context)
+        return "SELECT COUNT(*) AS count FROM customers"
+
+
+class PassValidation:
+    async def validate(self, sql, dialect=None, enforce_read_only=True):
+        from datapilot.domain.models import SQLValidationResult
+        return SQLValidationResult(
+            is_valid=True,
+            is_read_only=True,
+            sanitized_sql=sql,
+            warnings=[],
+        )
+
+
+class ResumeDatabase(NoExecutionDatabase):
+    async def execute_query(self, *args, **kwargs):
+        raise AssertionError("dry-run clarification resume must not execute SQL")
+
+
+@pytest.mark.asyncio
+async def test_versioned_fixture_entity_clarification_resumes_real_orchestrator():
+    generator = ResumeGenerator()
+    orchestrator = QueryOrchestrator(
+        ResumeDatabase(),
+        PassValidation(),
+        generator,
+        FixtureCatalog(load_catalog()),
+    )
+
+    response = await orchestrator.query(
+        QueryRequest(
+            question="Show account",
+            clarification_selections={"entity": "Customer"},
+            dry_run=True,
+        )
+    )
+
+    assert response.status == "dry_run"
+    assert response.clarification is None
+    assert response.resolved_intent is not None
+    assert response.resolved_intent.entity is not None
+    assert response.resolved_intent.entity.name == "Customer"
+    assert generator.calls == 1
+    assert generator.contexts[0]["clarification_selections"] == {
+        "entity": "Customer"
+    }
+    assert response.trace is not None
+    assert response.trace.clarification_selections == {"entity": "Customer"}
