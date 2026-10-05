@@ -59,6 +59,13 @@ class QueryTrace(BaseModel):
     resolved_parameters: Dict[str, Any] = Field(default_factory=dict)
     generated_sql: Optional[str] = None
     bound_sql: Optional[str] = None
+    correction_attempts: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "Bounded SQL-correction diagnostics. Each entry records the failed SQL, "
+            "structured failure feedback, and corrected SQL when a correction is attempted."
+        ),
+    )
     validated_sql: Optional[str] = None
     validation_affected_tables: List[str] = Field(default_factory=list)
     validation_warnings: List[str] = Field(default_factory=list)
