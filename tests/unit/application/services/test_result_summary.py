@@ -284,3 +284,55 @@ def test_ranking_does_not_invent_outlier_for_normal_distribution():
         {"kind": "ranking", "x_column": "product", "y_columns": ["revenue"]},
     )
     assert not any(item["type"] == "outlier" for item in summary["insights"])
+
+
+def test_trend_reports_largest_adjacent_period_movement():
+    result = _result(
+        ["month", "revenue"],
+        [["Jan", 100], ["Feb", 130], ["Mar", 90], ["Apr", 150]],
+    )
+    summary = summarize_result(
+        "monthly revenue trend",
+        result,
+        {"kind": "trend", "x_column": "month", "y_columns": ["revenue"]},
+    )
+    movement = next(item for item in summary["insights"] if item["type"] == "largest_period_change")
+    assert movement["from_label"] == "Mar"
+    assert movement["to_label"] == "Apr"
+    assert movement["delta"] == 60
+    assert movement["direction"] == "increase"
+    assert movement["scope"] == "returned_periods"
+
+
+def test_trend_reports_strongest_increase_and_decrease():
+    result = _result(
+        ["month", "revenue"],
+        [["Jan", 100], ["Feb", 130], ["Mar", 90], ["Apr", 150]],
+    )
+    summary = summarize_result(
+        "monthly revenue trend",
+        result,
+        {"kind": "trend", "x_column": "month", "y_columns": ["revenue"]},
+    )
+    increase = next(item for item in summary["insights"] if item["type"] == "strongest_period_increase")
+    decrease = next(item for item in summary["insights"] if item["type"] == "strongest_period_decrease")
+    assert (increase["from_label"], increase["to_label"], increase["delta"]) == ("Mar", "Apr", 60)
+    assert (decrease["from_label"], decrease["to_label"], decrease["delta"]) == ("Feb", "Mar", -40)
+
+
+def test_trend_zero_baseline_movement_does_not_invent_percent():
+    result = _result(
+        ["month", "revenue"],
+        [["Jan", 0], ["Feb", 25], ["Mar", 30]],
+    )
+    summary = summarize_result(
+        "monthly revenue trend",
+        result,
+        {"kind": "trend", "x_column": "month", "y_columns": ["revenue"]},
+    )
+    increase = next(
+        item for item in summary["insights"]
+        if item["type"] == "strongest_period_increase" and item["from_label"] == "Jan"
+    )
+    assert increase["delta"] == 25
+    assert increase["percent"] is None
