@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from datapilot.application.services.result_presentation import plan_result_presentation
 from datapilot.domain.models import QueryResult
 
@@ -54,3 +56,18 @@ def test_wide_non_numeric_result_stays_table():
     )
     assert plan["kind"] == "table"
     assert plan["recommended_visual"] == "table"
+
+
+def test_postgresql_decimal_measure_is_ranked_not_plain_table():
+    plan = plan_result_presentation(
+        "show top 10 products by revenue",
+        _result(
+            ["Name", "revenue"],
+            [["Mountain-200 Black, 38", Decimal("4400992.80040000")],
+             ["Mountain-200 Black, 42", Decimal("4009494.76184100")]],
+        ),
+    )
+    assert plan["kind"] == "ranking"
+    assert plan["recommended_visual"] == "bar"
+    assert plan["x_column"] == "Name"
+    assert plan["y_columns"] == ["revenue"]
