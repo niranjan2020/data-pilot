@@ -332,7 +332,9 @@ class QueryOrchestrator:
             intent.filters,
         )
         governed_grouping_columns = self._required_grouping_columns(
-            contextual_question, governed_context.get("entities", [])
+            contextual_question,
+            governed_context.get("entities", []),
+            selected_attribute=governed_context.get("resolved_attribute_selection"),
         )
         if governed_filters:
             governed_context["resolved_filters"] = governed_filters
@@ -925,34 +927,66 @@ class QueryOrchestrator:
 
     @staticmethod
     def _required_grouping_columns(
-        question: str, entities: list[dict[str, Any]]
+        question: str,
+        entities: list[dict[str, Any]],
+        *,
+        selected_attribute: Optional[dict[str, Any]] = None,
     ) -> list[str]:
-        """Resolve explicit 'by <entity/attribute>' dimensions to governed columns."""
-        normalized = " ".join(re.findall(r"[a-z0-9]+", question.casefold()))
-        required: list[str] = []
-        seen: set[str] = set()
+        """Resolve explicit grouping to the most specific governed dimension."""
+        if selected_attribute:
+            selected_column = str(
+                selected_attribute.get("column_name")
+                or selected_attribute.get("column")
+                or ""
+            ).strip()
+            if selected_column:
+                return [selected_column]
 
-        def add(column: Any) -> None:
-            value = str(column or "").strip()
-            if value and value.casefold() not in seen:
-                seen.add(value.casefold())
-                required.append(value)
+        normalized = " ".join(re.findall(r"[a-z0-9]+", question.casefold()))
+        attribute_matches: list[tuple[int, str]] = []
+        entity_matches: list[tuple[int, str]] = []
 
         for entity in entities:
-            entity_terms = [entity.get("name"), *(entity.get("synonyms") or [])]
-            for term in entity_terms:
-                semantic = " ".join(re.findall(r"[a-z0-9]+", str(term or "").casefold()))
-                if semantic and re.search(rf"\bby\s+(?:each\s+)?{re.escape(semantic)}(?:s)?\b", normalized):
-                    add(entity.get("display_column") or entity.get("key_column"))
-                    break
             for attribute in entity.get("attributes") or []:
-                terms = [attribute.get("name"), *(attribute.get("synonyms") or [])]
-                for term in terms:
-                    semantic = " ".join(re.findall(r"[a-z0-9]+", str(term or "").casefold()))
-                    if semantic and re.search(rf"\bby\s+(?:each\s+)?{re.escape(semantic)}(?:s)?\b", normalized):
-                        add(attribute.get("column_name"))
-                        break
-        return required
+                column = str(attribute.get("column_name") or "").strip()
+                if not column:
+                    continue
+                for term in [attribute.get("name"), *(attribute.get("synonyms") or [])]:
+                    semantic = " ".join(
+                        re.findall(r"[a-z0-9]+", str(term or "").casefold())
+                    )
+                    if semantic and re.search(
+                        rf"\bby\s+(?:each\s+)?{re.escape(semantic)}(?:s)?\b",
+                        normalized,
+                    ):
+                        attribute_matches.append((len(semantic.split()), column))
+
+            entity_column = str(
+                entity.get("display_column") or entity.get("key_column") or ""
+            ).strip()
+            if entity_column:
+                for term in [entity.get("name"), *(entity.get("synonyms") or [])]:
+                    semantic = " ".join(
+                        re.findall(r"[a-z0-9]+", str(term or "").casefold())
+                    )
+                    if semantic and re.search(
+                        rf"\bby\s+(?:each\s+)?{re.escape(semantic)}(?:s)?\b",
+                        normalized,
+                    ):
+                        entity_matches.append((len(semantic.split()), entity_column))
+
+        matches = attribute_matches or entity_matches
+        if not matches:
+            return []
+        max_specificity = max(score for score, _ in matches)
+        result: list[str] = []
+        seen: set[str] = set()
+        for score, column in matches:
+            key = column.casefold()
+            if score == max_specificity and key not in seen:
+                seen.add(key)
+                result.append(column)
+        return result
 
     @staticmethod
     def _merge_resolved_parameters(
