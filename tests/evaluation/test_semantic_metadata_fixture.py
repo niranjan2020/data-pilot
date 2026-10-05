@@ -278,3 +278,55 @@ def test_versioned_metadata_fixture_resolves_grouping_only_without_inventing_fil
     assert "start" not in result
     assert "end_exclusive" not in result
     assert result["comparison"] is False
+
+
+def test_versioned_metadata_fixture_resolves_month_over_month_comparison():
+    result = resolve_time_semantics(
+        "Compare revenue this month vs last month",
+        _fixture_time_dimensions(),
+        now=A3_NOW,
+    )
+
+    assert result is not None
+    assert result["status"] == "resolved"
+    assert result["time_dimension"] == "Order Date"
+    assert result["column_name"] == "order_date"
+    assert result["comparison"] is True
+    assert result["periods"] == [
+        {
+            "label": "this month",
+            "start": "2026-10-01",
+            "end_exclusive": "2026-11-01",
+        },
+        {
+            "label": "last month",
+            "start": "2026-09-01",
+            "end_exclusive": "2026-10-01",
+        },
+    ]
+
+
+def test_versioned_metadata_fixture_resolves_year_over_year_comparison():
+    result = resolve_time_semantics(
+        "Compare revenue this year vs last year",
+        _fixture_time_dimensions(),
+        now=A3_NOW,
+    )
+
+    assert result is not None
+    assert result["status"] == "resolved"
+    assert result["time_dimension"] == "Order Date"
+    assert result["column_name"] == "order_date"
+    assert result["comparison"] is True
+    assert result["periods"] == [
+        {
+            "label": "current period",
+            "start": "2026-01-01",
+            "end_exclusive": "2027-01-01",
+        },
+        {
+            "label": "prior-year period",
+            "start": "2025-01-01",
+            "end_exclusive": "2026-01-01",
+        },
+    ]
