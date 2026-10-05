@@ -310,6 +310,94 @@ def test_correctness_accepts_reversed_governed_relationship_equality():
 
 
 
+def _generic_order_dimension_relationships():
+    return [
+        {
+            "name": "Order to Customer",
+            "from_entity_id": 203,
+            "from_table": "public.orders",
+            "from_column": "customer_id",
+            "to_entity_id": 201,
+            "to_table": "public.customers",
+            "to_column": "customer_id",
+            "cardinality": "many-to-one",
+        },
+        {
+            "name": "Order to Product",
+            "from_entity_id": 203,
+            "from_table": "public.orders",
+            "from_column": "product_id",
+            "to_entity_id": 202,
+            "to_table": "public.products",
+            "to_column": "product_id",
+            "cardinality": "many-to-one",
+        },
+    ]
+
+
+def test_correctness_accepts_complete_cross_entity_relationship_path():
+    checks = assess_query_correctness(
+        affected_tables=["public.customers", "public.orders", "public.products"],
+        governed_tables=["public.customers", "public.orders", "public.products"],
+        sql=(
+            'SELECT "c"."country", "p"."category", SUM("o"."amount") '
+            'FROM "public"."orders" o '
+            'JOIN "public"."customers" c ON "o"."customer_id" = "c"."customer_id" '
+            'JOIN "public"."products" p ON "o"."product_id" = "p"."product_id" '
+            'GROUP BY "c"."country", "p"."category"'
+        ),
+        required_relationships=_generic_order_dimension_relationships(),
+    )
+
+    alignment = next(
+        check for check in checks
+        if check["code"] == "relationship_alignment"
+    )
+    assert alignment["status"] == "passed"
+
+
+def test_correctness_rejects_partial_cross_entity_relationship_path():
+    checks = assess_query_correctness(
+        affected_tables=["public.customers", "public.orders", "public.products"],
+        governed_tables=["public.customers", "public.orders", "public.products"],
+        sql=(
+            'SELECT "c"."country", "p"."category", SUM("o"."amount") '
+            'FROM "public"."orders" o '
+            'JOIN "public"."customers" c ON "o"."customer_id" = "c"."customer_id" '
+            'CROSS JOIN "public"."products" p '
+            'GROUP BY "c"."country", "p"."category"'
+        ),
+        required_relationships=_generic_order_dimension_relationships(),
+    )
+
+    violation = next(
+        check for check in checks
+        if check["code"] == "relationship_violation"
+    )
+    assert violation["status"] == "failed"
+
+
+def test_correctness_rejects_wrong_second_cross_entity_join():
+    checks = assess_query_correctness(
+        affected_tables=["public.customers", "public.orders", "public.products"],
+        governed_tables=["public.customers", "public.orders", "public.products"],
+        sql=(
+            'SELECT "c"."country", "p"."category", SUM("o"."amount") '
+            'FROM "public"."orders" o '
+            'JOIN "public"."customers" c ON "o"."customer_id" = "c"."customer_id" '
+            'JOIN "public"."products" p ON "o"."customer_id" = "p"."product_id" '
+            'GROUP BY "c"."country", "p"."category"'
+        ),
+        required_relationships=_generic_order_dimension_relationships(),
+    )
+
+    violation = next(
+        check for check in checks
+        if check["code"] == "relationship_violation"
+    )
+    assert violation["status"] == "failed"
+
+
 def test_correctness_allows_metric_on_many_side_joining_one_side():
     checks = assess_query_correctness(
         affected_tables=["Production.Product", "Sales.SalesOrderDetail"],
