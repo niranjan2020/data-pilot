@@ -630,3 +630,24 @@ def test_required_grouping_columns_treats_by_metric_as_ranking():
     assert QueryOrchestrator._required_grouping_columns(
         "Show top 10 buyers by order count", entities, metrics=metrics
     ) == ["CustomerID"]
+
+
+def test_required_grouping_columns_composes_entity_and_attribute_terms():
+    entities = [{
+        "name": "Product",
+        "synonyms": ["item"],
+        "display_column": "Name",
+        "key_column": "ProductID",
+        "attributes": [{
+            "name": "Color",
+            "column_name": "Color",
+            "synonyms": ["colour"],
+        }],
+    }]
+
+    assert QueryOrchestrator._required_grouping_columns(
+        "Show top 10 products by product colour", entities
+    ) == ["Color"]
+    assert QueryOrchestrator._required_grouping_columns(
+        "Show top 10 items by item colour", entities
+    ) == ["Color"]
