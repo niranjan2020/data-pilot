@@ -288,6 +288,7 @@ class FakeAttributeSemanticContextAssembler:
             "datasets": [],
             "entities": [
                 {
+                    "id": 101,
                     "name": "Customer",
                     "schema_name": "Sales",
                     "table_name": "Customer",
@@ -365,6 +366,7 @@ class FakeLocationFilterSemanticContextAssembler:
             "datasets": [],
             "entities": [
                 {
+                    "id": 102,
                     "name": "Customer",
                     "schema_name": "Sales",
                     "table_name": "Customer",
