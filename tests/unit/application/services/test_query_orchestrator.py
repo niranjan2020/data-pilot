@@ -12,7 +12,7 @@ from datapilot.domain.semantic import SemanticCatalog
 
 
 class FakeDatabase:
-    dialect = "generic"
+    dialect = "postgresql"
 
     def __init__(self) -> None:
         self.executed: list[str] = []
@@ -47,7 +47,7 @@ class FakeSQLGenerator:
 
     async def generate(self, question, schema, context=None, dialect=None):
         self.calls += 1
-        assert dialect == "generic"
+        assert dialect == "postgresql"
         assert context is not None
         assert "semantic_catalog" in context
         assert "query_intent" in context
