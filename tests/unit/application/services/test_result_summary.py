@@ -370,3 +370,30 @@ def test_trend_reports_deceleration_by_movement_magnitude():
     momentum = next(item for item in summary["insights"] if item["type"] == "strongest_momentum_change")
     assert momentum["momentum"] == "decelerating"
     assert momentum["magnitude_change"] < 0
+
+
+def test_trend_answer_presents_turning_points_and_momentum():
+    result = _result(
+        ["month", "revenue"],
+        [["Jan", 100], ["Feb", 140], ["Mar", 110], ["Apr", 170]],
+    )
+    summary = summarize_result(
+        "monthly revenue trend",
+        result,
+        {"kind": "trend", "x_column": "month", "y_columns": ["revenue"]},
+    )
+    assert "Turning points in the returned periods: peak at Feb, trough at Mar." in summary["text"]
+    assert "strongest momentum change was accelerating from Mar to Apr" in summary["text"]
+
+
+def test_trend_answer_does_not_claim_turning_point_for_monotonic_series():
+    result = _result(
+        ["month", "revenue"],
+        [["Jan", 100], ["Feb", 120], ["Mar", 150], ["Apr", 190]],
+    )
+    summary = summarize_result(
+        "monthly revenue trend",
+        result,
+        {"kind": "trend", "x_column": "month", "y_columns": ["revenue"]},
+    )
+    assert "Turning points" not in summary["text"]
