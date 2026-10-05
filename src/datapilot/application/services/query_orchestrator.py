@@ -954,19 +954,29 @@ class QueryOrchestrator:
         metric_terms = []
         for metric in metrics or []:
             metric_terms.extend([metric.get("name"), *(metric.get("synonyms") or [])])
-        ranking_by_metric = any(
-            semantic
-            and re.search(
-                rf"\bby\s+{re.escape(semantic)}\b",
-                normalized,
+        ranking_metric_matches: list[re.Match[str]] = []
+        for term in metric_terms:
+            semantic = " ".join(
+                re.findall(r"[a-z0-9]+", str(term or "").casefold())
             )
-            for term in metric_terms
-            for semantic in [
-                " ".join(re.findall(r"[a-z0-9]+", str(term or "").casefold()))
-            ]
-        )
-        if ranking_by_metric:
-            prefix = normalized.split(" by ", 1)[0]
+            if not semantic:
+                continue
+            ranking_metric_matches.extend(
+                re.finditer(
+                    rf"\bby\s+{re.escape(semantic)}\b",
+                    normalized,
+                )
+            )
+
+        if ranking_metric_matches:
+            # Resolve the entity from the text before the actual governed
+            # "by <metric>" ranking clause. Prefer the right-most match so
+            # earlier language cannot accidentally define the grouping grain.
+            ranking_match = max(
+                ranking_metric_matches,
+                key=lambda match: match.start(),
+            )
+            prefix = normalized[:ranking_match.start()].strip()
             entity_candidates: list[tuple[int, str]] = []
             for entity in entities:
                 column = str(
