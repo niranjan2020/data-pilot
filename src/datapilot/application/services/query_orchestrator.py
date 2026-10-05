@@ -212,7 +212,6 @@ class QueryOrchestrator:
             catalog.entities
             and intent.entity is None
             and not intent.ambiguities
-            and not effective_clarifications.get("entity")
         ):
             return QueryResponse(
                 question=request.question,
