@@ -977,6 +977,32 @@ class QueryOrchestrator:
                 key=lambda match: match.start(),
             )
             prefix = normalized[:ranking_match.start()].strip()
+
+            # Metric names can contain entity terms (for example "order count"
+            # contains the Sales Order synonym "order"). Remove complete
+            # governed metric phrases before resolving the ranked entity so
+            # metric vocabulary cannot leak into dimensional grouping.
+            entity_prefix = prefix
+            normalized_metric_terms = sorted(
+                {
+                    " ".join(
+                        re.findall(r"[a-z0-9]+", str(term or "").casefold())
+                    )
+                    for term in metric_terms
+                    if str(term or "").strip()
+                },
+                key=lambda value: len(value.split()),
+                reverse=True,
+            )
+            for metric_semantic in normalized_metric_terms:
+                if metric_semantic:
+                    entity_prefix = re.sub(
+                        rf"\b{re.escape(metric_semantic)}\b",
+                        " ",
+                        entity_prefix,
+                    )
+            entity_prefix = " ".join(entity_prefix.split())
+
             entity_candidates: list[tuple[int, str]] = []
             for entity in entities:
                 column = str(
@@ -990,7 +1016,7 @@ class QueryOrchestrator:
                     )
                     if semantic and re.search(
                         rf"\b{re.escape(semantic)}(?:s)?\b",
-                        prefix,
+                        entity_prefix,
                     ):
                         entity_candidates.append((len(semantic.split()), column))
             if entity_candidates:
