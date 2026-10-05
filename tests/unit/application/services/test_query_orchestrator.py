@@ -206,3 +206,77 @@ async def test_entity_clarification_selection_resumes_query_generation():
     assert response.resolved_intent.entity.name == "Customer Account"
     assert generator.calls == 1
     assert generator.contexts[0]["clarification_selections"] == {"entity": "Customer Account"}
+
+
+class FakeSemanticContextAssembler:
+    async def assemble(self, source_name, retrieved_context, question):
+        return {
+            "datasets": [],
+            "entities": [],
+            "relationships": [],
+            "metrics": [
+                {"name": "Revenue", "description": "Total sales revenue", "synonyms": ["sales"]},
+                {"name": "Units Sold", "description": "Total units sold", "synonyms": ["sales"]},
+            ],
+            "business_rules": [],
+            "time_dimensions": [],
+        }
+
+    async def carry_forward(self, source_name, governed_context, conversation_context):
+        return governed_context
+
+
+class FakeSemanticRetriever:
+    async def search(self, source_name, question, limit):
+        return []
+
+
+@pytest.mark.asyncio
+async def test_metric_ambiguity_returns_structured_clarification_before_sql_generation():
+    generator = FakeSQLGenerator()
+    orchestrator = QueryOrchestrator(
+        FakeDatabase(),
+        FakeValidator(),
+        generator,
+        FakeCatalog(SemanticCatalog()),
+        semantic_retriever=FakeSemanticRetriever(),
+        semantic_context_assembler=FakeSemanticContextAssembler(),
+    )
+
+    response = await orchestrator.query(
+        QueryRequest(question="Show sales", source_name="AdventureWorks")
+    )
+
+    assert response.status == "ambiguous"
+    assert response.clarification is not None
+    assert response.clarification.kind == "metric"
+    assert response.clarification.key == "metric"
+    assert {option.value for option in response.clarification.options} == {
+        "Revenue", "Units Sold"
+    }
+    assert generator.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_metric_clarification_selection_resumes_with_only_selected_metric():
+    generator = FakeSQLGenerator()
+    orchestrator = QueryOrchestrator(
+        FakeDatabase(),
+        FakeValidator(),
+        generator,
+        FakeCatalog(SemanticCatalog()),
+        semantic_retriever=FakeSemanticRetriever(),
+        semantic_context_assembler=FakeSemanticContextAssembler(),
+    )
+
+    response = await orchestrator.query(QueryRequest(
+        question="Show sales",
+        source_name="AdventureWorks",
+        clarification_selections={"metric": "Revenue"},
+    ))
+
+    assert response.status == "completed"
+    assert generator.calls == 1
+    metrics = generator.contexts[0]["governed_semantic_context"]["metrics"]
+    assert [metric["name"] for metric in metrics] == ["Revenue"]
+    assert generator.contexts[0]["clarification_selections"] == {"metric": "Revenue"}
