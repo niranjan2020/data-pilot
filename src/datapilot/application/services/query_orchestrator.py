@@ -426,10 +426,6 @@ class QueryOrchestrator:
             governed_tables=trace.physical_tables,
             governed_metrics=governed_context.get("metrics", []),
             required_grouping_columns=governed_grouping_columns,
-            forbidden_grouping_columns=self._forbidden_grouping_columns(
-                governed_grouping_columns,
-                governed_context.get("entities", []),
-            ),
             required_filters=governed_filters,
             required_relationships=self._required_relationships(governed_context),
             required_time_plan=time_interpretation,
@@ -449,7 +445,6 @@ class QueryOrchestrator:
         governed_tables: Optional[list[str]] = None,
         governed_metrics: Optional[list[dict[str, Any]]] = None,
         required_grouping_columns: Optional[list[str]] = None,
-        forbidden_grouping_columns: Optional[list[str]] = None,
         required_filters: Optional[list[dict[str, Any]]] = None,
         required_relationships: Optional[list[dict[str, Any]]] = None,
         required_time_plan: Optional[dict[str, Any]] = None,
@@ -481,7 +476,6 @@ class QueryOrchestrator:
             sql=executable_sql,
             governed_metrics=governed_metrics or [],
             required_grouping_columns=required_grouping_columns or [],
-            forbidden_grouping_columns=forbidden_grouping_columns or [],
             required_filters=required_filters or [],
             required_relationships=required_relationships or [],
             required_time_plan=required_time_plan,
@@ -1066,45 +1060,6 @@ class QueryOrchestrator:
                 seen.add(key)
                 result.append(column)
         return result
-
-    @staticmethod
-    def _forbidden_grouping_columns(
-        required_grouping_columns: list[str],
-        entities: list[dict[str, Any]],
-    ) -> list[str]:
-        """Return governed entity identifiers that would refine the requested grain."""
-        required = {
-            str(column or "").strip().casefold()
-            for column in required_grouping_columns
-            if str(column or "").strip()
-        }
-        if not required:
-            return []
-
-        target_entities: set[str] = set()
-        for entity in entities:
-            identity_columns = {
-                str(entity.get("key_column") or "").strip().casefold(),
-                str(entity.get("display_column") or "").strip().casefold(),
-            }
-            if required & identity_columns:
-                entity_id = str(entity.get("id") or entity.get("name") or "").strip()
-                if entity_id:
-                    target_entities.add(entity_id.casefold())
-
-        forbidden: list[str] = []
-        seen: set[str] = set()
-        for entity in entities:
-            entity_id = str(entity.get("id") or entity.get("name") or "").strip().casefold()
-            if entity_id in target_entities:
-                continue
-            for column in (entity.get("key_column"), entity.get("display_column")):
-                value = str(column or "").strip()
-                key = value.casefold()
-                if value and key not in required and key not in seen:
-                    seen.add(key)
-                    forbidden.append(value)
-        return forbidden
 
     @staticmethod
     def _merge_resolved_parameters(
