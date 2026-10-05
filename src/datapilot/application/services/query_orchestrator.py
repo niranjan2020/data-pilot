@@ -12,6 +12,7 @@ from datapilot.application.services.semantic_context import SemanticContextAssem
 from datapilot.application.services.time_semantics import resolve_time_semantics
 from datapilot.application.services.result_presentation import plan_result_presentation
 from datapilot.application.services.result_summary import summarize_result
+from datapilot.application.services.query_correctness import assess_query_correctness
 from datapilot.core.exceptions import SQLValidationError
 from datapilot.core.logging import get_logger
 from datapilot.domain.interfaces.database import DatabaseProvider
@@ -406,6 +407,7 @@ class QueryOrchestrator:
             retrieved_context=retrieved_context,
             trace=trace,
             execute=not request.dry_run,
+            governed_tables=trace.physical_tables,
         )
 
     async def _validate_and_execute(
@@ -419,6 +421,7 @@ class QueryOrchestrator:
         retrieved_context: Optional[list[dict[str, Any]]] = None,
         trace: Optional[QueryTrace] = None,
         execute: bool = True,
+        governed_tables: Optional[list[str]] = None,
     ) -> QueryResponse:
         validation = await self._validator.validate(
             sql,
@@ -440,6 +443,22 @@ class QueryOrchestrator:
             "query validated_sql=%s affected_tables=%s warnings=%s",
             executable_sql, validation.affected_tables, validation.warnings,
         )
+
+        correctness_checks = assess_query_correctness(
+            affected_tables=validation.affected_tables,
+            governed_tables=governed_tables or [],
+        )
+        if trace is not None:
+            trace.correctness_checks = correctness_checks
+        failed_correctness = [
+            check for check in correctness_checks if check.get("status") == "failed"
+        ]
+        if failed_correctness:
+            raise SQLValidationError(
+                "Generated SQL failed governed correctness checks",
+                details={"checks": failed_correctness},
+            )
+
         policy_result = self._query_policy_enforcer.enforce(
             executable_sql,
             self._database.dialect,
