@@ -8,6 +8,8 @@ import pytest
 from datapilot.application.services.semantic_context import SemanticContextAssembler
 from datapilot.application.services.time_semantics import resolve_time_semantics
 from datapilot.application.services.query_correctness import assess_query_correctness
+from datapilot.domain.query import QueryResponse, QueryTrace
+from tests.evaluation.harness import EvaluationCase, EvaluationExpectation, evaluate_query_response
 
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "semantic" / "metadata.json"
@@ -411,3 +413,115 @@ def test_fixture_resolved_grouping_only_plan_aligns_without_time_filter():
         for check in checks
     )
     assert not any(check["code"] == "time_filter_violation" for check in checks)
+
+
+@pytest.mark.parametrize(
+    ("case_id", "question", "sql", "required_codes"),
+    [
+        (
+            "a3-monthly-revenue-this-year",
+            "Show monthly revenue this year",
+            """SELECT DATE_TRUNC('month', order_date), SUM(amount)
+               FROM public.orders
+               WHERE order_date >= DATE '2026-01-01'
+                 AND order_date < DATE '2027-01-01'
+               GROUP BY DATE_TRUNC('month', order_date)""",
+            ("time_filter_alignment", "time_grain_alignment"),
+        ),
+        (
+            "a3-revenue-last-month",
+            "Show revenue last month",
+            """SELECT SUM(amount)
+               FROM public.orders
+               WHERE order_date >= DATE '2026-09-01'
+                 AND order_date < DATE '2026-10-01'""",
+            ("time_filter_alignment",),
+        ),
+        (
+            "a3-revenue-by-quarter",
+            "Show revenue by quarter",
+            """SELECT DATE_TRUNC('quarter', order_date), SUM(amount)
+               FROM public.orders
+               GROUP BY DATE_TRUNC('quarter', order_date)""",
+            ("time_grain_alignment",),
+        ),
+    ],
+)
+def test_versioned_time_cases_are_scored_by_evaluation_harness(
+    case_id, question, sql, required_codes
+):
+    plan = resolve_time_semantics(
+        question,
+        _fixture_time_dimensions(),
+        now=A3_NOW,
+    )
+    checks = assess_query_correctness(
+        affected_tables=["public.orders"],
+        governed_tables=["public.orders"],
+        sql=sql,
+        required_time_plan=plan,
+    )
+    case = EvaluationCase(
+        id=case_id,
+        question=question,
+        expected=EvaluationExpectation(
+            required_correctness_codes=required_codes,
+            forbidden_correctness_codes=(
+                "time_filter_violation",
+                "time_grain_violation",
+            ),
+        ),
+    )
+    response = QueryResponse(
+        question=question,
+        status="completed",
+        trace=QueryTrace(correctness_checks=checks),
+    )
+
+    result = evaluate_query_response(case, response)
+
+    assert result.passed, result.failures
+
+
+def test_versioned_time_case_fails_evaluation_harness_on_wrong_grain():
+    question = "Show monthly revenue this year"
+    plan = resolve_time_semantics(
+        question,
+        _fixture_time_dimensions(),
+        now=A3_NOW,
+    )
+    checks = assess_query_correctness(
+        affected_tables=["public.orders"],
+        governed_tables=["public.orders"],
+        sql="""SELECT DATE_TRUNC('year', order_date), SUM(amount)
+               FROM public.orders
+               WHERE order_date >= DATE '2026-01-01'
+                 AND order_date < DATE '2027-01-01'
+               GROUP BY DATE_TRUNC('year', order_date)""",
+        required_time_plan=plan,
+    )
+    case = EvaluationCase(
+        id="a3-wrong-time-grain",
+        question=question,
+        expected=EvaluationExpectation(
+            required_correctness_codes=(
+                "time_filter_alignment",
+                "time_grain_alignment",
+            ),
+            forbidden_correctness_codes=(
+                "time_filter_violation",
+                "time_grain_violation",
+            ),
+        ),
+    )
+    response = QueryResponse(
+        question=question,
+        status="completed",
+        trace=QueryTrace(correctness_checks=checks),
+    )
+
+    result = evaluate_query_response(case, response)
+
+    assert not result.passed
+    assert "missing expected correctness checks: time_grain_alignment" in result.failures
+    assert "unexpected correctness checks: time_grain_violation" in result.failures
