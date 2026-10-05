@@ -8,7 +8,7 @@ from datapilot.application.services.query_orchestrator import QueryOrchestrator
 from datapilot.domain.models import SchemaMetadata
 from datapilot.domain.policies import QueryExecutionPolicy
 from datapilot.domain.query import QueryRequest
-from datapilot.domain.semantic import SemanticCatalog
+from datapilot.domain.semantic import EntityDefinition, SemanticCatalog
 
 
 class FakeDatabase:
@@ -159,3 +159,50 @@ def test_chained_follow_up_contextualization_uses_full_analytical_lineage():
     assert "Top 5 only" in text
     assert text.index("Show top 10 products by revenue") < text.index("Only red products")
     assert text.index("Only red products") < text.index("Top 5 only")
+
+
+@pytest.mark.asyncio
+async def test_entity_ambiguity_returns_structured_clarification_before_sql_generation():
+    generator = FakeSQLGenerator()
+    catalog = SemanticCatalog(entities=[
+        EntityDefinition(name="Customer Account", description="A customer account", synonyms=["account"], table_name="customers", key_column="id"),
+        EntityDefinition(name="Supplier Account", description="A supplier account", synonyms=["account"], table_name="suppliers", key_column="id"),
+    ])
+    orchestrator = QueryOrchestrator(
+        FakeDatabase(), FakeValidator(), generator, FakeCatalog(catalog)
+    )
+
+    response = await orchestrator.query(QueryRequest(question="Show account"))
+
+    assert response.status == "ambiguous"
+    assert response.clarification is not None
+    assert response.clarification.kind == "entity"
+    assert response.clarification.key == "entity"
+    assert {option.value for option in response.clarification.options} == {
+        "Customer Account", "Supplier Account"
+    }
+    assert generator.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_entity_clarification_selection_resumes_query_generation():
+    generator = FakeSQLGenerator()
+    catalog = SemanticCatalog(entities=[
+        EntityDefinition(name="Customer Account", description="A customer account", synonyms=["account"], table_name="customers", key_column="id"),
+        EntityDefinition(name="Supplier Account", description="A supplier account", synonyms=["account"], table_name="suppliers", key_column="id"),
+    ])
+    orchestrator = QueryOrchestrator(
+        FakeDatabase(), FakeValidator(), generator, FakeCatalog(catalog)
+    )
+
+    response = await orchestrator.query(QueryRequest(
+        question="Show account",
+        clarification_selections={"entity": "Customer Account"},
+    ))
+
+    assert response.status == "completed"
+    assert response.resolved_intent is not None
+    assert response.resolved_intent.entity is not None
+    assert response.resolved_intent.entity.name == "Customer Account"
+    assert generator.calls == 1
+    assert generator.contexts[0]["clarification_selections"] == {"entity": "Customer Account"}
