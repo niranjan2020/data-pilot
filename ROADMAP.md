@@ -148,6 +148,11 @@ A1 defects fixed without weakening benchmark expectations:
 First expansion checkpoint:
 - Semantic suite expanded from **20 to 25 cases** without production feature changes.
 - **Second expansion checkpoint: 30/30 semantic cases passed (100.0%) with 52/52 targeted correctness/orchestrator unit tests passing.**
+- **Third expansion checkpoint: 35/35 live semantic cases passed (100.0%); targeted orchestrator/fixture/ambiguity suite is 29/29.**
+- Added high-composition coverage for multi-metric output, ranking, governed filters, synonyms, attribute grouping, and relationship traversal.
+- Added a versioned generic `SemanticCatalog` fixture so ambiguity/negative evaluation can be reproduced without relying on local AdventureWorks metadata state.
+- Added deterministic fail-closed behavior for questions that cannot map to any governed entity when a semantic catalog is populated; these queries are rejected before SQL generation, validation, or database execution.
+
 - The 26–30 slice added composed multi-metric ranking, governed filters, entity/metric synonyms, and relationship traversal.
 - This slice exposed and fixed metric-vocabulary leakage into grouping resolution: entity terms embedded inside governed metric phrases (for example an entity synonym occurring inside a metric name) no longer become accidental grouping dimensions.
 - Evaluation diagnostics now support focused `--case` execution and include SQL/correctness context on result-row policy failures.
