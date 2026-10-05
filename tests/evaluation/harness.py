@@ -101,6 +101,15 @@ class EvaluationSummary:
         }
 
     @property
+    def category_pass_rates(self) -> dict[str, float]:
+        if not self.total:
+            return {category: 0.0 for category in FAILURE_CATEGORIES}
+        return {
+            category: (self.total - count) / self.total
+            for category, count in self.failure_category_counts.items()
+        }
+
+    @property
     def durations_ms(self) -> list[float]:
         return [result.duration_ms for result in self.results if result.duration_ms is not None]
 
