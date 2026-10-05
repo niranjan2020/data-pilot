@@ -12,6 +12,23 @@ def test_correctness_passes_when_affected_tables_are_governed():
     assert checks[0]["code"] == "physical_scope_alignment"
 
 
+def test_correctness_accepts_quoted_aliased_validator_table_name():
+    checks = assess_query_correctness(
+        affected_tables=['"Production"."Product" AS "T1"', '"Sales"."SalesOrderDetail" AS "T2"'],
+        governed_tables=["Production.Product", "Sales.SalesOrderDetail"],
+    )
+    assert checks[0]["status"] == "passed"
+    assert checks[0]["code"] == "physical_scope_alignment"
+
+
+def test_correctness_accepts_quoted_table_without_alias():
+    checks = assess_query_correctness(
+        affected_tables=['"Production"."Product"'],
+        governed_tables=["Production.Product"],
+    )
+    assert checks[0]["status"] == "passed"
+
+
 def test_correctness_accepts_unqualified_validator_table_name():
     checks = assess_query_correctness(
         affected_tables=["Product"],
@@ -53,6 +70,21 @@ def test_correctness_passes_governed_derived_metric_expression():
     metric = next(check for check in checks if check["code"] == "metric_expression_alignment")
     assert metric["status"] == "passed"
     assert metric["metric"] == "Revenue"
+
+
+def test_correctness_accepts_unquoted_governed_expression_against_quoted_sql():
+    checks = assess_query_correctness(
+        affected_tables=['"Sales"."SalesOrderDetail" AS "T1"'],
+        governed_tables=["Sales.SalesOrderDetail"],
+        sql='SELECT SUM("T1"."OrderQty" * "T1"."UnitPrice" * (1 - "T1"."UnitPriceDiscount")) AS revenue FROM "Sales"."SalesOrderDetail" AS "T1"',
+        governed_metrics=[{
+            "name": "Revenue",
+            "aggregation": "sum",
+            "calculation_expression": "OrderQty * UnitPrice * (1 - UnitPriceDiscount)",
+        }],
+    )
+    metric = next(check for check in checks if check["code"] == "metric_expression_alignment")
+    assert metric["status"] == "passed"
 
 
 def test_correctness_rejects_wrong_derived_metric_expression():
