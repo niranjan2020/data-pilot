@@ -21,7 +21,7 @@ from datapilot.domain.interfaces.sql_generator import SQLGenerator
 from datapilot.domain.interfaces.sql_validator import SQLValidator
 from datapilot.domain.models import SchemaMetadata
 from datapilot.domain.policies import QueryExecutionPolicy
-from datapilot.domain.query import QueryRequest, QueryResponse, QueryTrace
+from datapilot.domain.query import ClarificationOption, ClarificationRequest, QueryRequest, QueryResponse, QueryTrace
 from datapilot.domain.semantic import QueryIntent, SemanticCatalog
 from datapilot.infrastructure.sql.query_policy import SQLQueryPolicyEnforcer
 from datapilot.infrastructure.sql.identifier_binding import bind_physical_identifiers
@@ -182,22 +182,54 @@ class QueryOrchestrator:
         )
         catalog = catalog or await self._semantic_catalog_provider.get_catalog()
 
-        intent = self._entity_resolver.resolve(contextual_question, catalog, schema)
+        resolver_catalog = catalog
+        selected_entity = request.clarification_selections.get("entity")
+        if selected_entity:
+            selected_entities = [
+                entity for entity in catalog.entities
+                if entity.name.casefold() == selected_entity.casefold()
+            ]
+            if selected_entities:
+                resolver_catalog = catalog.model_copy(update={"entities": selected_entities})
+
+        intent = self._entity_resolver.resolve(contextual_question, resolver_catalog, schema)
         if intent.ambiguities:
+            entity_by_name = {entity.name: entity for entity in catalog.entities}
+            options = [
+                ClarificationOption(
+                    value=name,
+                    label=name,
+                    description=entity_by_name[name].description if name in entity_by_name else None,
+                )
+                for name in intent.ambiguities
+            ]
             return QueryResponse(
                 question=request.question,
                 status="ambiguous",
                 confidence=intent.confidence,
                 semantic_ambiguities=intent.ambiguities,
+                clarification=ClarificationRequest(
+                    kind="entity",
+                    key="entity",
+                    question="Which business entity do you mean?",
+                    options=options,
+                ),
                 resolved_intent=intent,
                 trace=trace,
-                message="The question matches more than one semantic entity. Refine the entity name or add an explicit attribute.",
+                message="I found more than one governed entity that could match this question.",
             )
 
         parameters = self._merge_resolved_parameters(request.parameters, intent)
         trace.resolved_parameters = parameters
+        governed_time_dimensions = governed_context.get("time_dimensions", [])
+        selected_time_dimension = request.clarification_selections.get("time_dimension")
+        if selected_time_dimension:
+            governed_time_dimensions = [
+                dimension for dimension in governed_time_dimensions
+                if str(dimension.get("name") or "").casefold() == selected_time_dimension.casefold()
+            ]
         time_interpretation = resolve_time_semantics(
-            contextual_question, governed_context.get("time_dimensions", [])
+            contextual_question, governed_time_dimensions
         )
         if time_interpretation:
             trace.time_interpretation = time_interpretation
@@ -210,9 +242,18 @@ class QueryOrchestrator:
                         "Time reference matches multiple governed time dimensions: "
                         + ", ".join(time_interpretation.get("candidates", []))
                     ],
+                    clarification=ClarificationRequest(
+                        kind="time_dimension",
+                        key="time_dimension",
+                        question="Which governed date/time role should be used?",
+                        options=[
+                            ClarificationOption(value=name, label=name)
+                            for name in time_interpretation.get("candidates", [])
+                        ],
+                    ),
                     resolved_intent=intent,
                     trace=trace,
-                    message="Clarify which governed date/time role should be used.",
+                    message="The time reference matches more than one governed date/time role.",
                 )
             governed_context["resolved_time_filter"] = time_interpretation
         generation_context = {
@@ -221,6 +262,7 @@ class QueryOrchestrator:
             "semantic_catalog": catalog.model_dump(mode="json"),
             "query_intent": intent.model_dump(mode="json"),
             "parameters": parameters,
+            "clarification_selections": request.clarification_selections,
             "conversation_context": conversation_context,
         }
         generation_context, budget = self._context_budgeter.apply(generation_context)
