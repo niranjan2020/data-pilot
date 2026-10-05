@@ -43,6 +43,7 @@ class EvaluationResult:
     case_id: str
     passed: bool
     failures: tuple[str, ...] = ()
+    duration_ms: float | None = None
 
 
 @dataclass
@@ -64,6 +65,30 @@ class EvaluationSummary:
     @property
     def accuracy(self) -> float:
         return self.passed / self.total if self.total else 0.0
+
+    @property
+    def durations_ms(self) -> list[float]:
+        return [result.duration_ms for result in self.results if result.duration_ms is not None]
+
+    def percentile_ms(self, percentile: float) -> float | None:
+        values = sorted(self.durations_ms)
+        if not values:
+            return None
+        if len(values) == 1:
+            return values[0]
+        position = (len(values) - 1) * percentile
+        lower = int(position)
+        upper = min(lower + 1, len(values) - 1)
+        fraction = position - lower
+        return values[lower] + (values[upper] - values[lower]) * fraction
+
+    @property
+    def p50_ms(self) -> float | None:
+        return self.percentile_ms(0.50)
+
+    @property
+    def p95_ms(self) -> float | None:
+        return self.percentile_ms(0.95)
 
 
 def normalize_value(value: Any) -> Any:
