@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from datapilot.application.services.result_summary import summarize_result
 from datapilot.domain.models import QueryResult
 
@@ -202,3 +204,22 @@ def test_distribution_insights_ignore_null_measure_rows():
     assert by_type["maximum"]["label"] == "A"
     assert by_type["minimum"]["label"] == "C"
     assert round(by_type["leader_share"]["share_percent"], 1) == 66.7
+
+
+def test_postgresql_decimal_ranking_produces_grounded_insights():
+    result = _result(
+        ["Name", "revenue"],
+        [["Mountain-200 Black, 38", Decimal("4400992.80040000")],
+         ["Mountain-200 Black, 42", Decimal("4009494.76184100")],
+         ["Road-250 Black, 44", Decimal("2516857.31491800")]],
+    )
+    summary = summarize_result(
+        "show top 10 products by revenue",
+        result,
+        {"kind": "ranking", "x_column": "Name", "y_columns": ["revenue"]},
+    )
+    by_type = {item["type"]: item for item in summary["insights"]}
+    assert summary["text"].startswith("Top result: Mountain-200 Black, 38")
+    assert by_type["maximum"]["label"] == "Mountain-200 Black, 38"
+    assert by_type["minimum"]["label"] == "Road-250 Black, 44"
+    assert by_type["leader_share"]["share_percent"] > 0
