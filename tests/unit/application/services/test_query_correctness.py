@@ -434,6 +434,22 @@ def test_correctness_allows_count_distinct_on_one_side_across_many_join():
     assert any(item["code"] == "join_fanout_alignment" for item in checks)
 
 
+def test_correctness_rejects_fanout_even_with_unrelated_scalar_subquery():
+    checks = assess_query_correctness(
+        affected_tables=["Production.Product", "Sales.SalesOrderDetail"],
+        governed_tables=["Production.Product", "Sales.SalesOrderDetail"],
+        sql=(
+            'SELECT SUM("p"."ListPrice"), (SELECT 1) AS marker '
+            'FROM "Production"."Product" p '
+            'JOIN "Sales"."SalesOrderDetail" d ON "p"."ProductID" = "d"."ProductID"'
+        ),
+        governed_metrics=[{"name": "Catalog Value", "entity_id": 10, "aggregation": "sum"}],
+        required_relationships=_product_line_relationship(),
+    )
+    assert any(item["code"] == "join_fanout_violation" for item in checks)
+    assert not any(item["code"] == "fanout_verification_unavailable" for item in checks)
+
+
 def test_correctness_skips_fanout_judgement_for_preaggregated_subquery():
     checks = assess_query_correctness(
         affected_tables=["Production.Product", "Sales.SalesOrderDetail"],
