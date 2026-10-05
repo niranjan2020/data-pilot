@@ -37,3 +37,49 @@ def test_correctness_skips_when_no_governed_boundary_exists():
     )
     assert checks[0]["status"] == "skipped"
     assert checks[0]["code"] == "governed_scope_unavailable"
+
+
+def test_correctness_passes_governed_derived_metric_expression():
+    checks = assess_query_correctness(
+        affected_tables=["Sales.SalesOrderDetail"],
+        governed_tables=["Sales.SalesOrderDetail"],
+        sql='SELECT SUM("d"."OrderQty" * "d"."UnitPrice" * (1 - "d"."UnitPriceDiscount")) AS revenue FROM "Sales"."SalesOrderDetail" AS "d"',
+        governed_metrics=[{
+            "name": "Revenue",
+            "aggregation": "sum",
+            "calculation_expression": '"OrderQty" * "UnitPrice" * (1 - "UnitPriceDiscount")',
+        }],
+    )
+    metric = next(check for check in checks if check["code"] == "metric_expression_alignment")
+    assert metric["status"] == "passed"
+    assert metric["metric"] == "Revenue"
+
+
+def test_correctness_rejects_wrong_derived_metric_expression():
+    checks = assess_query_correctness(
+        affected_tables=["Sales.SalesOrderDetail"],
+        governed_tables=["Sales.SalesOrderDetail"],
+        sql='SELECT SUM("d"."LineTotal") AS revenue FROM "Sales"."SalesOrderDetail" AS "d"',
+        governed_metrics=[{
+            "name": "Revenue",
+            "aggregation": "sum",
+            "calculation_expression": '"OrderQty" * "UnitPrice" * (1 - "UnitPriceDiscount")',
+        }],
+    )
+    metric = next(check for check in checks if check["code"] == "metric_expression_violation")
+    assert metric["status"] == "failed"
+    assert metric["metric"] == "Revenue"
+
+
+def test_correctness_rejects_wrong_aggregation_for_derived_metric():
+    checks = assess_query_correctness(
+        affected_tables=["Sales.SalesOrderDetail"],
+        governed_tables=["Sales.SalesOrderDetail"],
+        sql='SELECT AVG("OrderQty" * "UnitPrice" * (1 - "UnitPriceDiscount")) AS revenue FROM "Sales"."SalesOrderDetail"',
+        governed_metrics=[{
+            "name": "Revenue",
+            "aggregation": "sum",
+            "calculation_expression": '"OrderQty" * "UnitPrice" * (1 - "UnitPriceDiscount")',
+        }],
+    )
+    assert any(check["code"] == "metric_expression_violation" for check in checks)
