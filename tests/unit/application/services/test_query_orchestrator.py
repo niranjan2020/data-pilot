@@ -736,3 +736,61 @@ async def test_invalid_attribute_clarification_selection_is_rejected_before_gene
     assert response.status == "rejected"
     assert response.sql is None
     assert generator.calls == 0
+
+
+def test_required_grouping_columns_resolves_multiple_attributes_on_same_entity():
+    entities = [{
+        "name": "Customer",
+        "synonyms": ["buyer"],
+        "display_column": "customer_name",
+        "key_column": "customer_id",
+        "attributes": [
+            {
+                "name": "Country",
+                "column_name": "country",
+                "synonyms": ["nation"],
+            },
+            {
+                "name": "Segment",
+                "column_name": "segment",
+                "synonyms": ["customer segment"],
+            },
+        ],
+    }]
+
+    assert QueryOrchestrator._required_grouping_columns(
+        "Show revenue by customer country and customer segment",
+        entities,
+    ) == ["country", "segment"]
+
+
+def test_required_grouping_columns_resolves_attributes_across_entities():
+    entities = [
+        {
+            "name": "Customer",
+            "synonyms": ["buyer"],
+            "display_column": "customer_name",
+            "key_column": "customer_id",
+            "attributes": [{
+                "name": "Country",
+                "column_name": "country",
+                "synonyms": ["nation"],
+            }],
+        },
+        {
+            "name": "Product",
+            "synonyms": ["item"],
+            "display_column": "product_name",
+            "key_column": "product_id",
+            "attributes": [{
+                "name": "Category",
+                "column_name": "category",
+                "synonyms": ["product category"],
+            }],
+        },
+    ]
+
+    assert QueryOrchestrator._required_grouping_columns(
+        "Show revenue by product category and customer country",
+        entities,
+    ) == ["country", "category"]
