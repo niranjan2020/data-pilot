@@ -18,8 +18,8 @@ class FakeDatabase:
         self.executed: list[str] = []
         self.timeouts: list[float | None] = []
 
-    async def introspect_schema(self):
-        return SchemaMetadata(dialect=self.dialect)
+    async def introspect_schema(self, schema_name=None):
+        return SchemaMetadata(schema_name=schema_name, dialect=self.dialect)
 
     async def execute_query(self, sql: str, params=None, timeout_seconds=None):
         from datapilot.domain.models import QueryResult
