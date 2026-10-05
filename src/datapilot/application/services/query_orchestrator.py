@@ -551,6 +551,8 @@ class QueryOrchestrator:
                 details={
                     "row_count": result.row_count,
                     "max_result_rows": self._query_policy.max_result_rows,
+                    "sql": policy_result.sql,
+                    "correctness_checks": correctness_checks,
                 },
             )
 
