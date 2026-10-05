@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -126,7 +127,8 @@ async def close_resources(resources: list[Any]) -> None:
 
 def print_result(result: EvaluationResult, question: str) -> None:
     marker = "PASS" if result.passed else "FAIL"
-    print(f"[{marker}] {result.case_id}: {question}")
+    timing = f" ({result.duration_ms:.0f} ms)" if result.duration_ms is not None else ""
+    print(f"[{marker}] {result.case_id}: {question}{timing}")
     for failure in result.failures:
         print(f"       - {failure}")
 
@@ -139,16 +141,24 @@ async def run(path: Path) -> int:
 
     try:
         for case, source_name in cases:
+            started = time.perf_counter()
             try:
                 response = await orchestrator.query(
                     QueryRequest(question=case.question, source_name=source_name or None)
                 )
-                result = evaluate_query_response(case, response)
+                evaluated = evaluate_query_response(case, response)
+                result = EvaluationResult(
+                    case_id=evaluated.case_id,
+                    passed=evaluated.passed,
+                    failures=evaluated.failures,
+                    duration_ms=(time.perf_counter() - started) * 1000,
+                )
             except Exception as exc:
                 result = EvaluationResult(
                     case_id=case.id,
                     passed=False,
                     failures=(f"{type(exc).__name__}: {exc}",),
+                    duration_ms=(time.perf_counter() - started) * 1000,
                 )
             summary.results.append(result)
             print_result(result, case.question)
@@ -160,6 +170,8 @@ async def run(path: Path) -> int:
         f"Semantic evaluation: {summary.passed}/{summary.total} passed "
         f"({summary.accuracy:.1%}), {summary.failed} failed"
     )
+    if summary.p50_ms is not None:
+        print(f"Latency: p50 {summary.p50_ms:.0f} ms | p95 {summary.p95_ms:.0f} ms")
     return 0 if summary.failed == 0 else 1
 
 
