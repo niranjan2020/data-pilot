@@ -81,3 +81,50 @@ async def test_versioned_metadata_fixture_keeps_explicit_entity_query_metric_fre
         f'{dataset["schema_name"]}.{dataset["table_name"]}'
         for dataset in context["datasets"]
     } == {"public.products"}
+
+
+@pytest.mark.asyncio
+async def test_versioned_metadata_fixture_preserves_independent_explicit_entities():
+    assembler = SemanticContextAssembler(FixtureMetadataProvider())
+
+    context = await assembler.assemble(
+        "Generic Commerce",
+        [
+            {"kind": "entity", "name": "Product", "metadata": {"id": 202}},
+            {"kind": "entity", "name": "Customer", "metadata": {"id": 201}},
+            {"kind": "metric", "name": "Revenue", "metadata": {"id": 401}},
+        ],
+        "Show revenue by product category and customer country",
+    )
+
+    assert {entity["name"] for entity in context["entities"]} == {
+        "Customer", "Product", "Order"
+    }
+    assert {metric["name"] for metric in context["metrics"]} == {"Revenue"}
+    assert {relationship["name"] for relationship in context["relationships"]} == {
+        "Order to Customer", "Order to Product"
+    }
+    assert {
+        f'{dataset["schema_name"]}.{dataset["table_name"]}'
+        for dataset in context["datasets"]
+    } == {"public.customers", "public.products", "public.orders"}
+
+
+@pytest.mark.asyncio
+async def test_versioned_metadata_fixture_keeps_same_entity_multi_dimension_context():
+    assembler = SemanticContextAssembler(FixtureMetadataProvider())
+
+    context = await assembler.assemble(
+        "Generic Commerce",
+        [
+            {"kind": "entity", "name": "Customer", "metadata": {"id": 201}},
+            {"kind": "metric", "name": "Revenue", "metadata": {"id": 401}},
+        ],
+        "Show revenue by customer country and customer segment",
+    )
+
+    assert {entity["name"] for entity in context["entities"]} == {"Customer", "Order"}
+    assert {metric["name"] for metric in context["metrics"]} == {"Revenue"}
+    assert {relationship["name"] for relationship in context["relationships"]} == {
+        "Order to Customer"
+    }
