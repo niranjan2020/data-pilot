@@ -205,23 +205,25 @@ Prefer semantic assertions and correctness trace codes over exact SQL-string com
 - A4 full regression checkpoint: **127/127 passed**.
 - Live production-pipeline semantic benchmark: **39/39 passed**.
 
-#### A5. Stage A exit criteria — CURRENT
-Stage A is complete when:
-- Core correctness unit suites remain green.
-- Evaluation contains broad realistic coverage rather than a small happy-path set.
-- No known systematic false positives/false negatives exist in deterministic correctness checks.
-- Clarification/follow-up/time/join/fan-out paths have benchmark coverage.
-- Unsupported questions fail safely rather than hallucinating.
-- Benchmark failures are isolated product gaps, not missing evaluation plumbing.
-- We have a stable measured baseline suitable for an OSS alpha.
+#### A5. Stage A exit criteria — COMPLETE
+- Core correctness and evaluation suites are green.
+- Final comprehensive Stage A regression checkpoint: **133/133 passed**.
+- Latest verified live production-pipeline semantic benchmark baseline: **39/39 passed**.
+- Machine-checkable coverage gates preserve broad semantic composition, clarification, unsupported-question, follow-up, governed-time, join, and fan-out coverage.
+- Unsupported and ambiguous questions fail safely before SQL execution; clarification resume and stale/invalid selections are regression-covered.
+- Required governed correctness fails closed when verification is unavailable rather than treating unknown as safe.
+- The A5 audit closed an unrelated-subquery fan-out bypass.
+- Failure taxonomy/reporting isolates semantic retrieval/resolution, clarification, time interpretation, SQL generation, validation, governed correctness, execution, and result correctness.
+- Known limitation carried deliberately into Stage B: complex subquery/pre-aggregation fan-out analysis can report `fanout_verification_unavailable`; it is not falsely reported as aligned.
+- Stage A is complete with a stable measured baseline suitable for the robustness phase.
 
-Do **not** choose an arbitrary 100% benchmark target by weakening expectations. Correctness and explainability matter more than the headline score.
+Do **not** weaken expectations to preserve a headline benchmark score. Correctness and explainability remain the priority.
 
 ---
 
-## Next — Stage B: Robustness and query-engine hardening
+## Stage B: Robustness and query-engine hardening — CURRENT
 
-Begin only after Stage A is strong.
+Stage A is complete. Stage B hardens recovery, provider isolation, resource safety, and diagnostics without weakening deterministic correctness.
 
 Planned:
 - Bounded SQL correction/retry using structured validator feedback.
