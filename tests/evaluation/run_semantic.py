@@ -135,8 +135,12 @@ def print_result(result: EvaluationResult, question: str) -> None:
         print(f"       - {failure}")
 
 
-async def run(path: Path) -> int:
+async def run(path: Path, case_id: str | None = None) -> int:
     cases = load_cases(path)
+    if case_id is not None:
+        cases = [item for item in cases if item[0].id == case_id]
+        if not cases:
+            raise ValueError(f"Unknown evaluation case: {case_id}")
     settings = Settings()
     orchestrator, resources = await build_orchestrator(settings)
     summary = EvaluationSummary()
@@ -184,6 +188,11 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=DEFAULT_CASES,
         help=f"Evaluation JSON file (default: {DEFAULT_CASES})",
+    )
+    parser.add_argument(
+        "--case",
+        dest="case_id",
+        help="Run only one evaluation case by id.",
     )
     return parser.parse_args()
 
