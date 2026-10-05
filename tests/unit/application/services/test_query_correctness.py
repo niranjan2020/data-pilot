@@ -184,10 +184,13 @@ def test_correctness_accepts_qualified_governed_filter():
 def _product_line_relationship():
     return [{
         "name": "Sales Order Line to Product",
+        "from_entity_id": 20,
         "from_table": "Sales.SalesOrderDetail",
         "from_column": "ProductID",
+        "to_entity_id": 10,
         "to_table": "Production.Product",
         "to_column": "ProductID",
+        "cardinality": "many-to-one",
     }]
 
 
@@ -231,3 +234,52 @@ def test_correctness_accepts_reversed_governed_relationship_equality():
         required_relationships=_product_line_relationship(),
     )
     assert any(item["code"] == "relationship_alignment" for item in checks)
+
+
+
+def test_correctness_allows_metric_on_many_side_joining_one_side():
+    checks = assess_query_correctness(
+        affected_tables=["Production.Product", "Sales.SalesOrderDetail"],
+        governed_tables=["Production.Product", "Sales.SalesOrderDetail"],
+        sql='SELECT "p"."Name", SUM("d"."LineTotal") FROM "Sales"."SalesOrderDetail" d JOIN "Production"."Product" p ON "d"."ProductID" = "p"."ProductID" GROUP BY "p"."Name"',
+        governed_metrics=[{"name": "Revenue", "entity_id": 20, "aggregation": "sum"}],
+        required_relationships=_product_line_relationship(),
+    )
+    assert any(item["code"] == "join_fanout_alignment" for item in checks)
+    assert not any(item["code"] == "join_fanout_violation" for item in checks)
+
+
+def test_correctness_rejects_sum_metric_on_one_side_joining_many_side():
+    checks = assess_query_correctness(
+        affected_tables=["Production.Product", "Sales.SalesOrderDetail"],
+        governed_tables=["Production.Product", "Sales.SalesOrderDetail"],
+        sql='SELECT SUM("p"."ListPrice") FROM "Production"."Product" p JOIN "Sales"."SalesOrderDetail" d ON "p"."ProductID" = "d"."ProductID"',
+        governed_metrics=[{"name": "Catalog Value", "entity_id": 10, "aggregation": "sum"}],
+        required_relationships=_product_line_relationship(),
+    )
+    violation = next(item for item in checks if item["code"] == "join_fanout_violation")
+    assert violation["status"] == "failed"
+    assert violation["metric"] == "Catalog Value"
+
+
+def test_correctness_allows_count_distinct_on_one_side_across_many_join():
+    checks = assess_query_correctness(
+        affected_tables=["Production.Product", "Sales.SalesOrderDetail"],
+        governed_tables=["Production.Product", "Sales.SalesOrderDetail"],
+        sql='SELECT COUNT(DISTINCT "p"."ProductID") FROM "Production"."Product" p JOIN "Sales"."SalesOrderDetail" d ON "p"."ProductID" = "d"."ProductID"',
+        governed_metrics=[{"name": "Product Count", "entity_id": 10, "aggregation": "count_distinct"}],
+        required_relationships=_product_line_relationship(),
+    )
+    assert any(item["code"] == "join_fanout_alignment" for item in checks)
+
+
+def test_correctness_skips_fanout_judgement_for_preaggregated_subquery():
+    checks = assess_query_correctness(
+        affected_tables=["Production.Product", "Sales.SalesOrderDetail"],
+        governed_tables=["Production.Product", "Sales.SalesOrderDetail"],
+        sql='SELECT SUM(x.total) FROM (SELECT "p"."ProductID", MAX("p"."ListPrice") AS total FROM "Production"."Product" p JOIN "Sales"."SalesOrderDetail" d ON "p"."ProductID" = "d"."ProductID" GROUP BY "p"."ProductID") x',
+        governed_metrics=[{"name": "Catalog Value", "entity_id": 10, "aggregation": "sum"}],
+        required_relationships=_product_line_relationship(),
+    )
+    assert any(item["code"] == "fanout_verification_unavailable" for item in checks)
+    assert not any(item["code"] == "join_fanout_violation" for item in checks)
