@@ -259,6 +259,47 @@ class QueryOrchestrator:
                     message="The metric wording matches more than one governed business metric.",
                 )
 
+        selected_attribute = request.clarification_selections.get("attribute")
+        attribute_candidates = self._ambiguous_attribute_matches(
+            contextual_question, governed_context.get("entities", [])
+        )
+        if selected_attribute:
+            selected = next(
+                (
+                    candidate for candidate in attribute_candidates
+                    if candidate["value"].casefold() == selected_attribute.casefold()
+                ),
+                None,
+            )
+            if selected is not None:
+                governed_context["resolved_attribute_selection"] = selected
+        elif len(attribute_candidates) > 1:
+            return QueryResponse(
+                question=request.question,
+                status="ambiguous",
+                confidence=intent.confidence,
+                semantic_ambiguities=[
+                    "Attribute/filter reference matches multiple governed attributes: "
+                    + ", ".join(candidate["label"] for candidate in attribute_candidates)
+                ],
+                clarification=ClarificationRequest(
+                    kind="attribute",
+                    key="attribute",
+                    question="Which governed attribute should this filter use?",
+                    options=[
+                        ClarificationOption(
+                            value=candidate["value"],
+                            label=candidate["label"],
+                            description=candidate.get("description"),
+                        )
+                        for candidate in attribute_candidates
+                    ],
+                ),
+                resolved_intent=intent,
+                trace=trace,
+                message="The filter wording can refer to more than one governed attribute.",
+            )
+
         parameters = self._merge_resolved_parameters(request.parameters, intent)
         trace.resolved_parameters = parameters
         governed_time_dimensions = governed_context.get("time_dimensions", [])
@@ -634,6 +675,70 @@ class QueryOrchestrator:
                     matches.append(metric)
                     break
         return matches
+
+    @staticmethod
+    def _ambiguous_attribute_matches(
+        question: str, entities: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Find genuinely ambiguous governed attribute/filter references.
+
+        Only governed entity attributes participate. Explicit attribute
+        names/synonyms take precedence. For value-only location phrasing such
+        as "in London", clarification is requested only when multiple governed
+        location-like attributes could legally own that filter.
+        """
+        normalized = " " + " ".join(re.findall(r"[a-z0-9]+", question.casefold())) + " "
+        candidates: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        def add(entity: dict[str, Any], attribute: dict[str, Any]) -> None:
+            entity_name = str(entity.get("name") or "")
+            attribute_name = str(attribute.get("name") or "")
+            if not entity_name or not attribute_name:
+                return
+            value = f"{entity_name}.{attribute_name}"
+            if value.casefold() in seen:
+                return
+            seen.add(value.casefold())
+            candidates.append({
+                "value": value,
+                "label": f"{entity_name} · {attribute_name}",
+                "entity": entity_name,
+                "attribute": attribute_name,
+                "column_name": attribute.get("column_name"),
+                "description": attribute.get("description"),
+            })
+
+        for entity in entities:
+            for attribute in entity.get("attributes") or []:
+                terms = [attribute.get("name"), *(attribute.get("synonyms") or [])]
+                if any(
+                    (semantic_term := " ".join(re.findall(r"[a-z0-9]+", str(term).casefold())))
+                    and f" {semantic_term} " in normalized
+                    for term in terms if term
+                ):
+                    add(entity, attribute)
+
+        # An explicit semantic attribute reference is stronger than generic
+        # "in/within" phrasing and must not be mixed with fallback candidates.
+        if candidates:
+            return candidates if len(candidates) > 1 else []
+
+        if not re.search(r"\b(?:in|within)\s+[^\s]+", question, flags=re.IGNORECASE):
+            return []
+
+        location_terms = {"country", "region", "state", "city", "location"}
+        for entity in entities:
+            for attribute in entity.get("attributes") or []:
+                terms = [attribute.get("name"), *(attribute.get("synonyms") or [])]
+                tokens = {
+                    token
+                    for term in terms if term
+                    for token in re.findall(r"[a-z0-9]+", str(term).casefold())
+                }
+                if tokens.intersection(location_terms):
+                    add(entity, attribute)
+        return candidates if len(candidates) > 1 else []
 
     @staticmethod
     def _merge_resolved_parameters(
