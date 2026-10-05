@@ -37,6 +37,19 @@
       "sql_excludes": [
         "SUM(\"T2\".\"LineTotal\")",
         "SUM(T2.LineTotal)"
+      ],
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "metric_expression_alignment",
+        "relationship_alignment",
+        "grouping_dimension_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "metric_expression_violation",
+        "relationship_violation",
+        "grouping_dimension_violation",
+        "join_fanout_violation"
       ]
     },
     "notes": "Derived Revenue must use the governed calculation expression rather than LineTotal."
@@ -70,7 +83,18 @@
         "Average Order Value"
       ],
       "require_completed": true,
-      "require_sql": true
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "relationship_alignment",
+        "grouping_dimension_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "relationship_violation",
+        "grouping_dimension_violation",
+        "join_fanout_violation"
+      ]
     }
   },
   {
@@ -102,7 +126,20 @@
         "Average Order Value"
       ],
       "require_completed": true,
-      "require_sql": true
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "metric_expression_alignment",
+        "relationship_alignment",
+        "grouping_dimension_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "metric_expression_violation",
+        "relationship_violation",
+        "grouping_dimension_violation",
+        "join_fanout_violation"
+      ]
     }
   },
   {
@@ -133,7 +170,13 @@
         "Average Order Value"
       ],
       "require_completed": true,
-      "require_sql": true
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation"
+      ]
     }
   },
   {
@@ -164,7 +207,15 @@
         "Average Order Value"
       ],
       "require_completed": true,
-      "require_sql": true
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "filter_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "filter_violation"
+      ]
     }
   },
   {
@@ -200,7 +251,16 @@
         "Average Order Value"
       ],
       "require_completed": true,
-      "require_sql": true
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "relationship_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "relationship_violation",
+        "join_fanout_violation"
+      ]
     }
   },
   {
@@ -232,7 +292,18 @@
         "Average Order Value"
       ],
       "require_completed": true,
-      "require_sql": true
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "relationship_alignment",
+        "filter_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "relationship_violation",
+        "filter_violation",
+        "join_fanout_violation"
+      ]
     }
   },
   {
@@ -264,7 +335,16 @@
         "Average Order Value"
       ],
       "require_completed": true,
-      "require_sql": true
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "relationship_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "relationship_violation",
+        "join_fanout_violation"
+      ]
     }
   },
   {
@@ -290,7 +370,13 @@
         "Average Order Value"
       ],
       "require_completed": true,
-      "require_sql": true
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation"
+      ]
     },
     "notes": "Exercises configured entity synonym: item -> Product."
   },
@@ -323,7 +409,20 @@
         "Average Order Value"
       ],
       "require_completed": true,
-      "require_sql": true
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "metric_expression_alignment",
+        "relationship_alignment",
+        "grouping_dimension_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "metric_expression_violation",
+        "relationship_violation",
+        "grouping_dimension_violation",
+        "join_fanout_violation"
+      ]
     },
     "notes": "Exercises configured Revenue synonym: sales."
   },
@@ -352,7 +451,20 @@
         "Average Order Value"
       ],
       "require_completed": true,
-      "require_sql": true
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "metric_expression_alignment",
+        "relationship_alignment",
+        "grouping_dimension_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "metric_expression_violation",
+        "relationship_violation",
+        "grouping_dimension_violation",
+        "join_fanout_violation"
+      ]
     },
     "notes": "Exercises a multi-word metric synonym."
   },
@@ -385,7 +497,16 @@
         "Average Order Value"
       ],
       "require_completed": true,
-      "require_sql": true
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "relationship_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "relationship_violation",
+        "join_fanout_violation"
+      ]
     },
     "notes": "Exercises configured Customer synonym: buyer."
   },
@@ -414,7 +535,13 @@
         "Order Count"
       ],
       "require_completed": true,
-      "require_sql": true
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation"
+      ]
     }
   },
   {
@@ -446,7 +573,16 @@
         "Order Count"
       ],
       "require_completed": true,
-      "require_sql": true
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "relationship_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "relationship_violation",
+        "join_fanout_violation"
+      ]
     }
   },
   {
@@ -472,7 +608,13 @@
         "Average Order Value"
       ],
       "require_completed": true,
-      "require_sql": true
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation"
+      ]
     },
     "notes": "Exercises multi-word entity matching without metric intent."
   },
@@ -499,7 +641,13 @@
         "Average Order Value"
       ],
       "require_completed": true,
-      "require_sql": true
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation"
+      ]
     }
   },
   {
@@ -525,7 +673,15 @@
         "Average Order Value"
       ],
       "require_completed": true,
-      "require_sql": true
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "grouping_dimension_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "grouping_dimension_violation"
+      ]
     },
     "notes": "Exercises configured attribute synonym colour while asserting entity isolation."
   },
@@ -558,7 +714,20 @@
         "Average Order Value"
       ],
       "require_completed": true,
-      "require_sql": true
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "metric_expression_alignment",
+        "relationship_alignment",
+        "filter_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "metric_expression_violation",
+        "relationship_violation",
+        "filter_violation",
+        "join_fanout_violation"
+      ]
     },
     "notes": "Combines entity synonym, metric synonym, relationship traversal and value filter."
   },
@@ -602,6 +771,19 @@
         "SUM(T1.LineTotal)",
         "SUM(\"T2\".\"LineTotal\")",
         "SUM(T2.LineTotal)"
+      ],
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "metric_expression_alignment",
+        "relationship_alignment",
+        "filter_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "metric_expression_violation",
+        "relationship_violation",
+        "filter_violation",
+        "join_fanout_violation"
       ]
     },
     "notes": "Regression guard for derived Revenue together with a simple Units Sold metric and Product filter."
@@ -631,7 +813,13 @@
         "Average Order Value"
       ],
       "require_completed": true,
-      "require_sql": true
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation"
+      ]
     },
     "notes": "Metric-only question must use the metric owner as the structural anchor."
   }
