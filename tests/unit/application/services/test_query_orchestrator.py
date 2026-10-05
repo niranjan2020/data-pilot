@@ -280,3 +280,130 @@ async def test_metric_clarification_selection_resumes_with_only_selected_metric(
     metrics = generator.contexts[0]["governed_semantic_context"]["metrics"]
     assert [metric["name"] for metric in metrics] == ["Revenue"]
     assert generator.contexts[0]["clarification_selections"] == {"metric": "Revenue"}
+
+
+class FakeAttributeSemanticContextAssembler:
+    async def assemble(self, source_name, retrieved_context, question):
+        return {
+            "datasets": [],
+            "entities": [
+                {
+                    "name": "Customer",
+                    "schema_name": "Sales",
+                    "table_name": "Customer",
+                    "attributes": [
+                        {"name": "Billing Region", "column_name": "BillingRegion", "synonyms": ["region"], "description": "Customer billing region"},
+                        {"name": "Shipping Region", "column_name": "ShippingRegion", "synonyms": ["region"], "description": "Customer shipping region"},
+                    ],
+                }
+            ],
+            "relationships": [],
+            "metrics": [],
+            "business_rules": [],
+            "time_dimensions": [],
+        }
+
+    async def carry_forward(self, source_name, governed_context, conversation_context):
+        return governed_context
+
+
+@pytest.mark.asyncio
+async def test_attribute_ambiguity_returns_structured_clarification_before_sql_generation():
+    generator = FakeSQLGenerator()
+    orchestrator = QueryOrchestrator(
+        FakeDatabase(),
+        FakeValidator(),
+        generator,
+        FakeCatalog(SemanticCatalog()),
+        semantic_retriever=FakeSemanticRetriever(),
+        semantic_context_assembler=FakeAttributeSemanticContextAssembler(),
+    )
+
+    response = await orchestrator.query(
+        QueryRequest(question="Show customers by region", source_name="AdventureWorks")
+    )
+
+    assert response.status == "ambiguous"
+    assert response.clarification is not None
+    assert response.clarification.kind == "attribute"
+    assert response.clarification.key == "attribute"
+    assert {option.value for option in response.clarification.options} == {
+        "Customer.Billing Region", "Customer.Shipping Region"
+    }
+    assert generator.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_attribute_clarification_selection_resumes_with_selected_attribute_hint():
+    generator = FakeSQLGenerator()
+    orchestrator = QueryOrchestrator(
+        FakeDatabase(),
+        FakeValidator(),
+        generator,
+        FakeCatalog(SemanticCatalog()),
+        semantic_retriever=FakeSemanticRetriever(),
+        semantic_context_assembler=FakeAttributeSemanticContextAssembler(),
+    )
+
+    response = await orchestrator.query(QueryRequest(
+        question="Show customers by region",
+        source_name="AdventureWorks",
+        clarification_selections={"attribute": "Customer.Shipping Region"},
+    ))
+
+    assert response.status == "completed"
+    assert generator.calls == 1
+    selection = generator.contexts[0]["governed_semantic_context"]["resolved_attribute_selection"]
+    assert selection["entity"] == "Customer"
+    assert selection["attribute"] == "Shipping Region"
+    assert selection["column_name"] == "ShippingRegion"
+
+
+class FakeLocationFilterSemanticContextAssembler:
+    async def assemble(self, source_name, retrieved_context, question):
+        return {
+            "datasets": [],
+            "entities": [
+                {
+                    "name": "Customer",
+                    "schema_name": "Sales",
+                    "table_name": "Customer",
+                    "attributes": [
+                        {"name": "City", "column_name": "City", "synonyms": []},
+                        {"name": "Country", "column_name": "Country", "synonyms": []},
+                    ],
+                }
+            ],
+            "relationships": [],
+            "metrics": [],
+            "business_rules": [],
+            "time_dimensions": [],
+        }
+
+    async def carry_forward(self, source_name, governed_context, conversation_context):
+        return governed_context
+
+
+@pytest.mark.asyncio
+async def test_value_only_location_filter_ambiguity_uses_only_governed_attributes():
+    generator = FakeSQLGenerator()
+    orchestrator = QueryOrchestrator(
+        FakeDatabase(),
+        FakeValidator(),
+        generator,
+        FakeCatalog(SemanticCatalog()),
+        semantic_retriever=FakeSemanticRetriever(),
+        semantic_context_assembler=FakeLocationFilterSemanticContextAssembler(),
+    )
+
+    response = await orchestrator.query(
+        QueryRequest(question="Show customers in London", source_name="AdventureWorks")
+    )
+
+    assert response.status == "ambiguous"
+    assert response.clarification is not None
+    assert response.clarification.kind == "attribute"
+    assert {option.value for option in response.clarification.options} == {
+        "Customer.City", "Customer.Country"
+    }
+    assert generator.calls == 0
