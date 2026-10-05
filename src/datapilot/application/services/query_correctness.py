@@ -131,6 +131,7 @@ def _grouping_checks(
     *,
     required_grouping_columns: Iterable[str],
     enforce_exact_grain: bool = False,
+    forbidden_grouping_columns: Iterable[str] = (),
 ) -> list[dict[str, Any]]:
     required = {
         _normalise(column).rsplit(".", 1)[-1]
@@ -158,7 +159,14 @@ def _grouping_checks(
                 actual.add(_normalise(column.name))
 
     missing = sorted(required - actual)
-    extra = sorted(actual - required) if enforce_exact_grain else []
+    forbidden = {
+        _normalise(column).rsplit(".", 1)[-1]
+        for column in forbidden_grouping_columns
+        if str(column or "").strip()
+    }
+    extra = sorted(actual & forbidden)
+    if enforce_exact_grain:
+        extra = sorted(set(extra) | (actual - required))
     if missing or extra:
         message_parts: list[str] = []
         if missing:
@@ -611,6 +619,7 @@ def assess_query_correctness(
     governed_metrics: Iterable[dict[str, Any]] = (),
     required_grouping_columns: Iterable[str] = (),
     enforce_exact_grouping_grain: bool = False,
+    forbidden_grouping_columns: Iterable[str] = (),
     required_filters: Iterable[dict[str, Any]] = (),
     required_relationships: Iterable[dict[str, Any]] = (),
     required_time_plan: dict[str, Any] | None = None,
@@ -629,6 +638,7 @@ def assess_query_correctness(
         sql,
         required_grouping_columns=required_grouping_columns,
         enforce_exact_grain=enforce_exact_grouping_grain,
+        forbidden_grouping_columns=forbidden_grouping_columns,
     ) if sql else []
     filter_checks = _filter_checks(sql, required_filters=required_filters) if sql else []
     relationship_checks = _relationship_checks(sql, required_relationships=required_relationships) if sql else []
