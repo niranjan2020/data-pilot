@@ -6,7 +6,7 @@
 
 **Last updated:** 2026-10-05  
 **Current focus:** Core OSS — Stage A: NL-to-SQL correctness and evaluation  
-**Current semantic evaluation baseline:** 20/20 passed (100.0%) after correctness requirement propagation and grouping-resolution fixes.  
+**Current semantic evaluation baseline:** 25/25 passed (100.0%) after the first A2 coverage-expansion slice.  
 **Current targeted correctness/orchestrator unit baseline:** 51/51 expected after the latest composed-grouping regression addition; prior run 50/50 passing.
 
 ---
@@ -144,7 +144,14 @@ A1 defects fixed without weakening benchmark expectations:
 - All previously observed grouping/filter propagation defects have regression coverage.
 - Do not weaken these expectations as evaluation coverage grows.
 
-#### A2. Evaluation coverage expansion
+#### A2. Evaluation coverage expansion — CURRENT
+First expansion checkpoint:
+- Semantic suite expanded from **20 to 25 cases** without production feature changes.
+- Result: **25/25 passed (100.0%)**.
+- Latency: **p50 3.139 s**, **p95 3.946 s**.
+- Added coverage for entity/metric synonyms, non-default ranking limits, synonym + filter composition, metric-ranked entity synonyms, and governed attribute grouping.
+- An initially underspecified non-aggregate "items by colour" case was replaced with the analytically explicit "units sold by product colour"; benchmark expectations must represent unambiguous correctness requirements.
+
 Expand from the current semantic set toward roughly 50–75 meaningful cases covering:
 - Basic semantic resolution.
 - Metrics and metric synonyms.
