@@ -412,6 +412,15 @@ class QueryOrchestrator:
             required_grouping_columns=self._required_grouping_columns(
                 contextual_question, governed_context.get("entities", [])
             ),
+            required_filters=[
+                {
+                    "attribute": item.attribute,
+                    "column_name": item.column_name,
+                    "operator": item.operator,
+                    "value": item.value,
+                }
+                for item in intent.filters
+            ],
         )
 
     async def _validate_and_execute(
@@ -428,6 +437,7 @@ class QueryOrchestrator:
         governed_tables: Optional[list[str]] = None,
         governed_metrics: Optional[list[dict[str, Any]]] = None,
         required_grouping_columns: Optional[list[str]] = None,
+        required_filters: Optional[list[dict[str, Any]]] = None,
     ) -> QueryResponse:
         validation = await self._validator.validate(
             sql,
@@ -456,6 +466,7 @@ class QueryOrchestrator:
             sql=executable_sql,
             governed_metrics=governed_metrics or [],
             required_grouping_columns=required_grouping_columns or [],
+            required_filters=required_filters or [],
         )
         if trace is not None:
             trace.correctness_checks = correctness_checks
