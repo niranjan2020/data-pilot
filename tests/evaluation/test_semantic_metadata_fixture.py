@@ -525,3 +525,107 @@ def test_versioned_time_case_fails_evaluation_harness_on_wrong_grain():
     assert not result.passed
     assert "missing expected correctness checks: time_grain_alignment" in result.failures
     assert "unexpected correctness checks: time_grain_violation" in result.failures
+
+
+@pytest.mark.parametrize(
+    ("case_id", "question", "sql"),
+    [
+        (
+            "a3-month-over-month-revenue",
+            "Compare revenue this month vs last month",
+            """SELECT
+                 SUM(CASE WHEN order_date >= DATE '2026-10-01' AND order_date < DATE '2026-11-01' THEN amount ELSE 0 END),
+                 SUM(CASE WHEN order_date >= DATE '2026-09-01' AND order_date < DATE '2026-10-01' THEN amount ELSE 0 END)
+               FROM public.orders
+               WHERE order_date >= DATE '2026-09-01'
+                 AND order_date < DATE '2026-11-01'""",
+        ),
+        (
+            "a3-year-over-year-revenue",
+            "Compare revenue this year vs last year",
+            """SELECT
+                 SUM(CASE WHEN order_date >= DATE '2026-01-01' AND order_date < DATE '2027-01-01' THEN amount ELSE 0 END),
+                 SUM(CASE WHEN order_date >= DATE '2025-01-01' AND order_date < DATE '2026-01-01' THEN amount ELSE 0 END)
+               FROM public.orders
+               WHERE order_date >= DATE '2025-01-01'
+                 AND order_date < DATE '2027-01-01'""",
+        ),
+    ],
+)
+def test_versioned_comparison_cases_are_scored_by_evaluation_harness(
+    case_id, question, sql
+):
+    plan = resolve_time_semantics(
+        question,
+        _fixture_time_dimensions(),
+        now=A3_NOW,
+    )
+    checks = assess_query_correctness(
+        affected_tables=["public.orders"],
+        governed_tables=["public.orders"],
+        sql=sql,
+        required_time_plan=plan,
+    )
+    case = EvaluationCase(
+        id=case_id,
+        question=question,
+        expected=EvaluationExpectation(
+            required_correctness_codes=(
+                "time_filter_alignment",
+                "time_comparison_alignment",
+            ),
+            forbidden_correctness_codes=(
+                "time_filter_violation",
+                "time_comparison_violation",
+            ),
+        ),
+    )
+    response = QueryResponse(
+        question=question,
+        status="completed",
+        trace=QueryTrace(correctness_checks=checks),
+    )
+
+    result = evaluate_query_response(case, response)
+
+    assert result.passed, result.failures
+
+
+def test_versioned_comparison_case_fails_harness_when_period_split_is_lost():
+    question = "Compare revenue this month vs last month"
+    plan = resolve_time_semantics(
+        question,
+        _fixture_time_dimensions(),
+        now=A3_NOW,
+    )
+    checks = assess_query_correctness(
+        affected_tables=["public.orders"],
+        governed_tables=["public.orders"],
+        sql="""SELECT SUM(amount)
+               FROM public.orders
+               WHERE order_date >= DATE '2026-09-01'
+                 AND order_date < DATE '2026-11-01'""",
+        required_time_plan=plan,
+    )
+    case = EvaluationCase(
+        id="a3-mom-envelope-only",
+        question=question,
+        expected=EvaluationExpectation(
+            required_correctness_codes=(
+                "time_filter_alignment",
+                "time_comparison_alignment",
+            ),
+            forbidden_correctness_codes=("time_comparison_violation",),
+        ),
+    )
+    response = QueryResponse(
+        question=question,
+        status="completed",
+        trace=QueryTrace(correctness_checks=checks),
+    )
+
+    result = evaluate_query_response(case, response)
+
+    assert not result.passed
+    assert "missing expected correctness checks: time_comparison_alignment" in result.failures
+    assert "unexpected correctness checks: time_comparison_violation" in result.failures
