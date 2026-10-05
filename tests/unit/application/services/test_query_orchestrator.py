@@ -138,3 +138,24 @@ async def test_follow_up_context_is_visible_to_generator_and_trace():
     assert generator.contexts[0]["conversation_context"] == context
     assert response.trace is not None
     assert response.trace.conversation_context == context
+
+
+def test_chained_follow_up_contextualization_uses_full_analytical_lineage():
+    text = QueryOrchestrator._contextualize_follow_up(
+        "Top 5 only",
+        {
+            "previous_question": "Only red products",
+            "analytical_turns": [
+                "Show top 10 products by revenue",
+                "Only red products",
+            ],
+            "governed_metrics": ["Revenue"],
+            "governed_entities": ["Product", "Sales Order Line"],
+        },
+    )
+
+    assert "Show top 10 products by revenue" in text
+    assert "Only red products" in text
+    assert "Top 5 only" in text
+    assert text.index("Show top 10 products by revenue") < text.index("Only red products")
+    assert text.index("Only red products") < text.index("Top 5 only")
