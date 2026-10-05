@@ -683,3 +683,10 @@ def test_required_grouping_columns_uses_exact_metric_ranking_clause_with_multipl
         entities,
         metrics=metrics,
     ) == ["CustomerID"]
+
+    # Entity vocabulary embedded inside metric phrases must not become grouping.
+    assert QueryOrchestrator._required_grouping_columns(
+        "Show average order value for top 10 buyers by order count",
+        entities,
+        metrics=metrics,
+    ) == ["CustomerID"]
