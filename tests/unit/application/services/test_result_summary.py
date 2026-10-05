@@ -253,3 +253,34 @@ def test_ranking_concentration_does_not_claim_share_for_non_positive_total():
         {"kind": "ranking", "x_column": "product", "y_columns": ["change"]},
     )
     assert not any(item["type"] == "top_n_share" for item in summary["insights"])
+
+
+def test_ranking_flags_strong_outlier_with_returned_row_scope():
+    result = _result(
+        ["product", "revenue"],
+        [["A", 1000], ["B", 120], ["C", 110], ["D", 100], ["E", 90]],
+    )
+    summary = summarize_result(
+        "rank products by revenue",
+        result,
+        {"kind": "ranking", "x_column": "product", "y_columns": ["revenue"]},
+    )
+    outliers = [item for item in summary["insights"] if item["type"] == "outlier"]
+    assert len(outliers) == 1
+    assert outliers[0]["label"] == "A"
+    assert outliers[0]["direction"] == "high"
+    assert outliers[0]["method"] == "iqr_1_5"
+    assert outliers[0]["scope"] == "returned_rows"
+
+
+def test_ranking_does_not_invent_outlier_for_normal_distribution():
+    result = _result(
+        ["product", "revenue"],
+        [["A", 120], ["B", 115], ["C", 110], ["D", 105], ["E", 100]],
+    )
+    summary = summarize_result(
+        "rank products by revenue",
+        result,
+        {"kind": "ranking", "x_column": "product", "y_columns": ["revenue"]},
+    )
+    assert not any(item["type"] == "outlier" for item in summary["insights"])
