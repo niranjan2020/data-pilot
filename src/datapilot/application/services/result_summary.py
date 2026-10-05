@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from numbers import Number
 from typing import Any
 
@@ -11,7 +12,7 @@ from datapilot.domain.models import QueryResult
 def _display(value: Any) -> str:
     if value is None:
         return "NULL"
-    if isinstance(value, float):
+    if isinstance(value, (float, Decimal)):
         return f"{value:,.2f}".rstrip("0").rstrip(".")
     if isinstance(value, int) and not isinstance(value, bool):
         return f"{value:,}"
@@ -19,7 +20,7 @@ def _display(value: Any) -> str:
 
 
 def _number(value: Any) -> float | None:
-    if isinstance(value, Number) and not isinstance(value, bool):
+    if isinstance(value, (Number, Decimal)) and not isinstance(value, bool):
         return float(value)
     return None
 
