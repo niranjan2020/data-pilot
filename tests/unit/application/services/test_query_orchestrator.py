@@ -282,6 +282,54 @@ async def test_metric_clarification_selection_resumes_with_only_selected_metric(
     assert generator.contexts[0]["clarification_selections"] == {"metric": "Revenue"}
 
 
+
+class FakeDistinctMetricSemanticContextAssembler:
+    async def assemble(self, source_name, retrieved_context, question):
+        return {
+            "datasets": [],
+            "entities": [],
+            "relationships": [],
+            "metrics": [
+                {"name": "Revenue", "description": "Total sales revenue", "synonyms": ["sales amount"]},
+                {"name": "Units Sold", "description": "Total units sold", "synonyms": ["quantity sold"]},
+                {"name": "Order Count", "description": "Distinct orders", "synonyms": ["orders"]},
+            ],
+            "business_rules": [],
+            "time_dimensions": [],
+        }
+
+    async def carry_forward(self, source_name, governed_context, conversation_context):
+        return governed_context
+
+
+@pytest.mark.asyncio
+async def test_distinct_explicit_metrics_are_composed_without_clarification():
+    generator = FakeSQLGenerator()
+    orchestrator = QueryOrchestrator(
+        FakeDatabase(),
+        FakeValidator(),
+        generator,
+        FakeCatalog(SemanticCatalog()),
+        semantic_retriever=FakeSemanticRetriever(),
+        semantic_context_assembler=FakeDistinctMetricSemanticContextAssembler(),
+    )
+
+    response = await orchestrator.query(
+        QueryRequest(
+            question="Show revenue and units sold by product",
+            source_name="AdventureWorks",
+        )
+    )
+
+    assert response.status == "completed"
+    assert response.clarification is None
+    assert generator.calls == 1
+    metrics = generator.contexts[0]["governed_semantic_context"]["metrics"]
+    assert [metric["name"] for metric in metrics] == ["Revenue", "Units Sold"]
+    assert response.trace is not None
+    assert response.trace.governed_metrics == ["Revenue", "Units Sold"]
+
+
 class FakeAttributeSemanticContextAssembler:
     async def assemble(self, source_name, retrieved_context, question):
         return {
