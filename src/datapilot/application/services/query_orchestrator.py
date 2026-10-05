@@ -13,6 +13,7 @@ from datapilot.application.services.time_semantics import resolve_time_semantics
 from datapilot.application.services.result_presentation import plan_result_presentation
 from datapilot.application.services.result_summary import summarize_result
 from datapilot.application.services.query_correctness import assess_query_correctness
+from datapilot.application.services.sql_correction import classify_sql_correction
 from datapilot.core.exceptions import SemanticRetrievalError, SQLValidationError, TimeInterpretationError
 from datapilot.core.logging import get_logger
 from datapilot.domain.interfaces.database import DatabaseProvider
@@ -496,22 +497,64 @@ class QueryOrchestrator:
         bound_sql = bind_physical_identifiers(generated, schema, self._database.dialect)
         trace.bound_sql = bound_sql
         logger.info("query catalog_bound_sql=%s", bound_sql)
-        return await self._validate_and_execute(
-            question=request.question,
-            sql=bound_sql,
-            source="generator",
-            confidence=intent.confidence,
-            resolved_intent=intent,
-            retrieved_context=retrieved_context,
-            trace=trace,
-            execute=not request.dry_run,
-            governed_tables=trace.physical_tables,
-            governed_metrics=governed_context.get("metrics", []),
-            required_grouping_columns=governed_grouping_columns,
-            required_filters=governed_filters,
-            required_relationships=self._required_relationships(governed_context),
-            required_time_plan=time_interpretation,
-        )
+        validation_args = {
+            "question": request.question,
+            "source": "generator",
+            "confidence": intent.confidence,
+            "resolved_intent": intent,
+            "retrieved_context": retrieved_context,
+            "trace": trace,
+            "execute": not request.dry_run,
+            "governed_tables": trace.physical_tables,
+            "governed_metrics": governed_context.get("metrics", []),
+            "required_grouping_columns": governed_grouping_columns,
+            "required_filters": governed_filters,
+            "required_relationships": self._required_relationships(governed_context),
+            "required_time_plan": time_interpretation,
+        }
+        try:
+            return await self._validate_and_execute(sql=bound_sql, **validation_args)
+        except SQLValidationError as exc:
+            checks = tuple((exc.details or {}).get("checks") or ())
+            decision = classify_sql_correction(correctness_checks=checks)
+            if not decision.recoverable:
+                raise
+
+            correction_context = dict(generation_context)
+            correction_context["sql_correction"] = {
+                "attempt": 1,
+                "max_attempts": 1,
+                "failed_sql": bound_sql,
+                "category": decision.category,
+                "feedback": list(decision.feedback),
+            }
+            corrected = await self._sql_generator.generate(
+                question=request.question,
+                schema=schema,
+                context=correction_context,
+                dialect=self._database.dialect,
+            )
+            corrected_bound_sql = bind_physical_identifiers(
+                corrected, schema, self._database.dialect
+            )
+            trace.correction_attempts.append({
+                "attempt": 1,
+                "failed_sql": bound_sql,
+                "category": decision.category,
+                "feedback": list(decision.feedback),
+                "corrected_sql": corrected,
+                "corrected_bound_sql": corrected_bound_sql,
+            })
+            logger.info(
+                "query correction_attempt=1 corrected_sql=%s",
+                corrected_bound_sql,
+            )
+            # Deliberately call validation directly: a corrected proposal gets the
+            # full pipeline again, but a second failure is terminal.
+            return await self._validate_and_execute(
+                sql=corrected_bound_sql,
+                **validation_args,
+            )
 
     async def _validate_and_execute(
         self,
