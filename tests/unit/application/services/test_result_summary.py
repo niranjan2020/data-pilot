@@ -111,3 +111,46 @@ def test_empty_result_includes_non_speculative_diagnostic():
     )
     assert summary["diagnostics"][0]["code"] == "empty_result"
     assert "Review filters or time range" in summary["diagnostics"][0]["message"]
+
+
+
+def test_result_quality_good_when_measure_values_are_complete():
+    summary = summarize_result(
+        "monthly revenue",
+        _result(["Month", "Revenue"], [["Jan", 10.0], ["Feb", 12.0]]),
+        {"kind": "trend", "x_column": "Month", "y_columns": ["Revenue"]},
+    )
+    assert summary["quality"]["status"] == "good"
+    assert summary["quality"]["usable"] is True
+    assert summary["quality"]["complete"] is True
+
+
+def test_result_quality_partial_when_measure_has_missing_values():
+    summary = summarize_result(
+        "monthly revenue",
+        _result(["Month", "Revenue"], [["Jan", 10.0], ["Feb", None]]),
+        {"kind": "trend", "x_column": "Month", "y_columns": ["Revenue"]},
+    )
+    assert summary["quality"]["status"] == "partial"
+    assert summary["quality"]["usable"] is True
+    assert summary["quality"]["complete"] is False
+
+
+def test_result_quality_unusable_when_measure_is_entirely_null():
+    summary = summarize_result(
+        "compare revenue",
+        _result(["period", "Revenue"], [["current", None], ["previous", None]]),
+        {"kind": "comparison", "x_column": "period", "y_columns": ["Revenue"]},
+    )
+    assert summary["quality"]["status"] == "unusable"
+    assert summary["quality"]["usable"] is False
+
+
+def test_result_quality_empty_is_not_analytically_usable():
+    summary = summarize_result(
+        "revenue this month",
+        _result(["Revenue"], []),
+        {"kind": "empty", "y_columns": ["Revenue"]},
+    )
+    assert summary["quality"]["status"] == "empty"
+    assert summary["quality"]["usable"] is False
