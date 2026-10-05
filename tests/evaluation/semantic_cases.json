@@ -1184,8 +1184,8 @@
     "notes": "Combines ranking, entity grouping and governed filter propagation."
   },
   {
-    "id": "order-count-and-average-value-by-customer",
-    "question": "Show order count and average order value by customer",
+    "id": "top-customers-order-count-and-average-value",
+    "question": "Show order count and average order value for top 10 customers by order count",
     "source_name": "AdventureWorks",
     "expected": {
       "datasets": [
@@ -1225,11 +1225,11 @@
         "join_fanout_violation"
       ]
     },
-    "notes": "Two metrics owned by Sales Order grouped through the governed Customer relationship."
+    "notes": "Bounded multi-metric customer ranking; execution remains within the configured result-row policy."
   },
   {
-    "id": "order-count-and-average-value-by-buyer",
-    "question": "Show order count and average order value by buyer",
+    "id": "top-buyers-order-count-and-average-value",
+    "question": "Show order count and average order value for top 10 buyers by order count",
     "source_name": "AdventureWorks",
     "expected": {
       "datasets": [
@@ -1269,6 +1269,6 @@
         "join_fanout_violation"
       ]
     },
-    "notes": "Multi-metric grouping through the Customer entity synonym."
+    "notes": "Bounded multi-metric ranking through the Customer synonym."
   }
 ]
