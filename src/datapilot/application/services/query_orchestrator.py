@@ -949,7 +949,7 @@ class QueryOrchestrator:
                 terms = [attribute.get("name"), *(attribute.get("synonyms") or [])]
                 for term in terms:
                     semantic = " ".join(re.findall(r"[a-z0-9]+", str(term or "").casefold()))
-                    if semantic and re.search(rf"\\bby\\s+(?:each\\s+)?{re.escape(semantic)}(?:s)?\\b", normalized):
+                    if semantic and re.search(rf"\bby\s+(?:each\s+)?{re.escape(semantic)}(?:s)?\b", normalized):
                         add(attribute.get("column_name"))
                         break
         return required
