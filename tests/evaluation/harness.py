@@ -125,6 +125,16 @@ class EvaluationSummary:
         return self.percentile_ms(0.95)
 
 
+def _add_failure(
+    failures: list[str],
+    categories: list[str],
+    message: str,
+    category: str,
+) -> None:
+    failures.append(message)
+    categories.append(category)
+
+
 def normalize_value(value: Any) -> Any:
     if isinstance(value, Decimal):
         return float(value)
@@ -140,34 +150,50 @@ def evaluate_case(
     expected = case.expected
     normalized_rows = tuple(tuple(normalize_value(v) for v in row) for row in rows)
     failures: list[str] = []
+    categories: list[str] = []
 
     if expected.tables:
         actual_tables = {table.lower() for table in affected_tables}
         missing = sorted({table.lower() for table in expected.tables} - actual_tables)
         if missing:
-            failures.append(f"missing expected tables: {', '.join(missing)}")
+            _add_failure(
+                failures, categories,
+                f"missing expected tables: {', '.join(missing)}",
+                "result_correctness",
+            )
 
     if expected.row_count is not None and len(normalized_rows) != expected.row_count:
-        failures.append(
-            f"expected {expected.row_count} rows, got {len(normalized_rows)}"
+        _add_failure(
+            failures, categories,
+            f"expected {expected.row_count} rows, got {len(normalized_rows)}",
+            "result_correctness",
         )
 
     if expected.scalar is not None:
         actual = normalized_rows[0][0] if normalized_rows and normalized_rows[0] else None
         if normalize_value(expected.scalar) != actual:
-            failures.append(f"expected scalar {expected.scalar!r}, got {actual!r}")
+            _add_failure(
+                failures, categories,
+                f"expected scalar {expected.scalar!r}, got {actual!r}",
+                "result_correctness",
+            )
 
     if expected.rows:
         expected_rows = tuple(
             tuple(normalize_value(v) for v in row) for row in expected.rows
         )
         if normalized_rows != expected_rows:
-            failures.append(f"expected rows {expected_rows!r}, got {normalized_rows!r}")
+            _add_failure(
+                failures, categories,
+                f"expected rows {expected_rows!r}, got {normalized_rows!r}",
+                "result_correctness",
+            )
 
     return EvaluationResult(
         case_id=case.id,
         passed=not failures,
         failures=tuple(failures),
+        failure_categories=tuple(dict.fromkeys(categories)),
     )
 
 
@@ -178,46 +204,50 @@ def evaluate_query_response(
     """Evaluate semantic selection separately from optional result ground truth."""
     expected = case.expected
     failures: list[str] = []
+    categories: list[str] = []
     trace = response.trace
 
     if expected.expected_status is not None and response.status != expected.expected_status:
-        failures.append(f"expected status {expected.expected_status!r}, got {response.status!r}")
+        _add_failure(failures, categories, f"expected status {expected.expected_status!r}, got {response.status!r}", "semantic_resolution")
     if expected.require_completed and response.status != "completed":
-        failures.append(f"expected completed status, got {response.status!r}")
+        _add_failure(failures, categories, f"expected completed status, got {response.status!r}", "semantic_resolution")
     if expected.clarification_kind is not None:
         if response.clarification is None:
-            failures.append("expected structured clarification")
+            _add_failure(failures, categories, "expected structured clarification", "ambiguity_clarification")
         elif response.clarification.kind != expected.clarification_kind:
-            failures.append(
-                f"expected clarification kind {expected.clarification_kind!r}, "
-                f"got {response.clarification.kind!r}"
+            _add_failure(
+                failures, categories,
+                f"expected clarification kind {expected.clarification_kind!r}, got {response.clarification.kind!r}",
+                "ambiguity_clarification",
             )
     if expected.clarification_options:
         if response.clarification is None:
-            failures.append("expected clarification options")
+            _add_failure(failures, categories, "expected clarification options", "ambiguity_clarification")
         else:
             actual_options = {option.value for option in response.clarification.options}
             missing_options = sorted(set(expected.clarification_options) - actual_options)
             if missing_options:
-                failures.append(
-                    "missing clarification options: " + ", ".join(missing_options)
+                _add_failure(
+                    failures, categories,
+                    "missing clarification options: " + ", ".join(missing_options),
+                    "ambiguity_clarification",
                 )
     if expected.require_sql and not response.sql:
-        failures.append("expected generated SQL")
+        _add_failure(failures, categories, "expected generated SQL", "sql_generation")
     normalized_sql = (response.sql or "").lower()
     for fragment in expected.sql_contains:
         if fragment.lower() not in normalized_sql:
-            failures.append(f"SQL missing expected fragment: {fragment!r}")
+            _add_failure(failures, categories, f"SQL missing expected fragment: {fragment!r}", "sql_generation")
     for fragment in expected.sql_excludes:
         if fragment.lower() in normalized_sql:
-            failures.append(f"SQL contains forbidden fragment: {fragment!r}")
+            _add_failure(failures, categories, f"SQL contains forbidden fragment: {fragment!r}", "sql_generation")
 
     if any((
         expected.datasets, expected.entities, expected.relationships,
         expected.metrics, expected.excluded_datasets,
         expected.excluded_entities, expected.excluded_metrics,
     )) and trace is None:
-        failures.append("query trace is required for semantic evaluation")
+        _add_failure(failures, categories, "query trace is required for semantic evaluation", "semantic_resolution")
     elif trace is not None:
         checks = (
             ("datasets", expected.datasets, trace.governed_datasets),
@@ -228,7 +258,7 @@ def evaluate_query_response(
         for label, wanted, actual in checks:
             missing = sorted(set(wanted) - set(actual))
             if missing:
-                failures.append(f"missing expected {label}: {', '.join(missing)}")
+                _add_failure(failures, categories, f"missing expected {label}: {', '.join(missing)}", "semantic_resolution")
 
         exclusions = (
             ("datasets", expected.excluded_datasets, trace.governed_datasets),
@@ -238,11 +268,11 @@ def evaluate_query_response(
         for label, forbidden, actual in exclusions:
             leaked = sorted(set(forbidden) & set(actual))
             if leaked:
-                failures.append(f"unexpected {label}: {', '.join(leaked)}")
+                _add_failure(failures, categories, f"unexpected {label}: {', '.join(leaked)}", "semantic_resolution")
 
     if expected.required_correctness_codes or expected.forbidden_correctness_codes:
         if trace is None:
-            failures.append("query trace is required for correctness evaluation")
+            _add_failure(failures, categories, "query trace is required for correctness evaluation", "governed_correctness")
         else:
             actual_codes = {
                 str(check.get("code"))
@@ -251,13 +281,17 @@ def evaluate_query_response(
             }
             missing_codes = sorted(set(expected.required_correctness_codes) - actual_codes)
             if missing_codes:
-                failures.append(
-                    "missing expected correctness checks: " + ", ".join(missing_codes)
+                _add_failure(
+                    failures, categories,
+                    "missing expected correctness checks: " + ", ".join(missing_codes),
+                    "governed_correctness",
                 )
             forbidden_codes = sorted(set(expected.forbidden_correctness_codes) & actual_codes)
             if forbidden_codes:
-                failures.append(
-                    "unexpected correctness checks: " + ", ".join(forbidden_codes)
+                _add_failure(
+                    failures, categories,
+                    "unexpected correctness checks: " + ", ".join(forbidden_codes),
+                    "governed_correctness",
                 )
 
     # Result assertions remain optional and independent from semantic correctness.
@@ -266,5 +300,11 @@ def evaluate_query_response(
         affected = response.result.get("affected_tables", []) if isinstance(response.result, Mapping) else []
         result_eval = evaluate_case(case, rows=rows, affected_tables=affected)
         failures.extend(result_eval.failures)
+        categories.extend(result_eval.failure_categories)
 
-    return EvaluationResult(case_id=case.id, passed=not failures, failures=tuple(failures))
+    return EvaluationResult(
+        case_id=case.id,
+        passed=not failures,
+        failures=tuple(failures),
+        failure_categories=tuple(dict.fromkeys(categories)),
+    )
