@@ -1093,6 +1093,16 @@ class QueryOrchestrator:
         attribute_matches: list[tuple[int, str]] = []
         entity_matches: list[tuple[int, str]] = []
 
+        # For ordinary aggregation questions, every governed dimension explicitly
+        # named in the grouping clause contributes to the required grain. Earlier
+        # logic required each dimension to be immediately preceded by "by", which
+        # dropped later dimensions in forms such as
+        # "by customer country and customer segment".
+        grouping_clause = ""
+        grouping_match = re.search(r"\bby\s+(.+)$", normalized)
+        if grouping_match:
+            grouping_clause = grouping_match.group(1).strip()
+
         for entity in entities:
             for attribute in entity.get("attributes") or []:
                 column = str(attribute.get("column_name") or "").strip()
@@ -1111,6 +1121,13 @@ class QueryOrchestrator:
                         attribute_matches.append((len(semantic.split()), column))
                         continue
 
+                    if grouping_clause and re.search(
+                        rf"\b{re.escape(semantic)}(?:s)?\b",
+                        grouping_clause,
+                    ):
+                        attribute_matches.append((len(semantic.split()), column))
+                        continue
+
                     # Governed entity + attribute composition: semantic catalogs
                     # often store "Product" and "Color"/"colour" separately while
                     # users naturally ask for "by product colour".
@@ -1124,11 +1141,20 @@ class QueryOrchestrator:
                                 str(entity_term or "").casefold(),
                             )
                         )
-                        if entity_semantic and re.search(
-                            rf"\bby\s+(?:each\s+)?"
-                            rf"{re.escape(entity_semantic)}(?:s)?\s+"
-                            rf"{re.escape(semantic)}(?:s)?\b",
-                            normalized,
+                        composed_pattern = (
+                            rf"\b{re.escape(entity_semantic)}(?:s)?\s+"
+                            rf"{re.escape(semantic)}(?:s)?\b"
+                        )
+                        if entity_semantic and (
+                            re.search(
+                                rf"\bby\s+(?:each\s+)?"
+                                + composed_pattern.removeprefix(r"\b"),
+                                normalized,
+                            )
+                            or (
+                                grouping_clause
+                                and re.search(composed_pattern, grouping_clause)
+                            )
                         ):
                             attribute_matches.append(
                                 (len(entity_semantic.split()) + len(semantic.split()), column)
