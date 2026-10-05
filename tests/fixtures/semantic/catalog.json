@@ -1,0 +1,130 @@
+{
+  "concepts": [],
+  "entities": [
+    {
+      "name": "Customer",
+      "description": "A customer that places orders",
+      "synonyms": [
+        "buyer",
+        "account"
+      ],
+      "table_name": "customers",
+      "key_column": "customer_id",
+      "display_column": "customer_name",
+      "attributes": [
+        {
+          "name": "Country",
+          "description": "Customer country",
+          "synonyms": [
+            "nation"
+          ],
+          "column_name": "country",
+          "operators": [
+            "="
+          ]
+        },
+        {
+          "name": "Segment",
+          "description": "Customer business segment",
+          "synonyms": [
+            "customer segment"
+          ],
+          "column_name": "segment",
+          "operators": [
+            "="
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Product",
+      "description": "A product sold through orders",
+      "synonyms": [
+        "item"
+      ],
+      "table_name": "products",
+      "key_column": "product_id",
+      "display_column": "product_name",
+      "attributes": [
+        {
+          "name": "Category",
+          "description": "Product category",
+          "synonyms": [
+            "product category"
+          ],
+          "column_name": "category",
+          "operators": [
+            "="
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Order",
+      "description": "A customer purchase order",
+      "synonyms": [
+        "purchase",
+        "account"
+      ],
+      "table_name": "orders",
+      "key_column": "order_id",
+      "display_column": "order_id",
+      "attributes": [
+        {
+          "name": "Order Date",
+          "description": "Date the order was placed",
+          "synonyms": [
+            "purchase date"
+          ],
+          "column_name": "order_date",
+          "operators": [
+            "="
+          ]
+        }
+      ]
+    }
+  ],
+  "metrics": [
+    {
+      "name": "Revenue",
+      "description": "Total order amount",
+      "synonyms": [
+        "sales",
+        "sales amount"
+      ],
+      "expression": "SUM(amount)",
+      "default_table": "orders",
+      "dimensions": [
+        "Customer",
+        "Product"
+      ]
+    },
+    {
+      "name": "Units Sold",
+      "description": "Total quantity ordered",
+      "synonyms": [
+        "quantity sold"
+      ],
+      "expression": "SUM(quantity)",
+      "default_table": "orders",
+      "dimensions": [
+        "Customer",
+        "Product"
+      ]
+    },
+    {
+      "name": "Order Count",
+      "description": "Number of distinct orders",
+      "synonyms": [
+        "number of orders"
+      ],
+      "expression": "COUNT(DISTINCT order_id)",
+      "default_table": "orders",
+      "dimensions": [
+        "Customer",
+        "Product"
+      ]
+    }
+  ],
+  "business_rules": []
+}
