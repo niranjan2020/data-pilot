@@ -1,4 +1,4 @@
-from tests.evaluation.harness import EvaluationResult, EvaluationSummary
+from tests.evaluation.harness import EvaluationCase, EvaluationExpectation, EvaluationResult, EvaluationSummary
 
 
 def test_evaluation_summary_reports_latency_percentiles():
