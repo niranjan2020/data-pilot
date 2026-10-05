@@ -162,6 +162,29 @@ def _distribution_insights(
     return insights
 
 
+def _concentration_insights(
+    columns: list[str], rows: list[Any], x_column: str | None, measure: str | None
+) -> list[dict[str, Any]]:
+    """Describe returned-result concentration without extrapolating beyond returned rows."""
+    points = _numeric_points(columns, rows, x_column, measure)
+    positive = [(label, value) for label, value in points if value >= 0]
+    total = sum(value for _, value in positive)
+    if len(positive) < 2 or total <= 0 or measure is None:
+        return []
+
+    ordered = sorted(positive, key=lambda item: item[1], reverse=True)
+    top_n = min(3, len(ordered))
+    top_total = sum(value for _, value in ordered[:top_n])
+    return [{
+        "type": "top_n_share",
+        "measure": measure,
+        "n": top_n,
+        "share_percent": (top_total / total) * 100,
+        "returned_total": total,
+        "scope": "returned_rows",
+    }]
+
+
 def summarize_result(question: str, result: QueryResult, presentation: dict[str, Any]) -> dict[str, Any]:
     """Build a concise analytical answer only from returned rows; never infer missing facts."""
     kind = str(presentation.get("kind") or "table")
@@ -249,6 +272,7 @@ def summarize_result(question: str, result: QueryResult, presentation: dict[str,
                     )
 
             insights.extend(_distribution_insights(columns, rows, x_column, measure))
+            insights.extend(_concentration_insights(columns, rows, x_column, measure))
             return {"text": text, "kind": kind, "grounded": True, "insights": insights, "diagnostics": diagnostics, "quality": quality}
 
     if kind == "trend":
