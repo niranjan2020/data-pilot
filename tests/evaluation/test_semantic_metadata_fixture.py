@@ -128,3 +128,60 @@ async def test_versioned_metadata_fixture_keeps_same_entity_multi_dimension_cont
     assert {relationship["name"] for relationship in context["relationships"]} == {
         "Order to Customer"
     }
+
+
+@pytest.mark.asyncio
+async def test_versioned_metadata_fixture_selects_default_order_date_for_temporal_revenue():
+    assembler = SemanticContextAssembler(FixtureMetadataProvider())
+
+    context = await assembler.assemble(
+        "Generic Commerce",
+        [
+            {"kind": "entity", "name": "Order", "metadata": {"id": 203}},
+            {"kind": "metric", "name": "Revenue", "metadata": {"id": 401}},
+        ],
+        "Show revenue last month",
+    )
+
+    assert {entity["name"] for entity in context["entities"]} == {"Order"}
+    assert {metric["name"] for metric in context["metrics"]} == {"Revenue"}
+    assert [dimension["name"] for dimension in context["time_dimensions"]] == [
+        "Order Date"
+    ]
+    time_dimension = context["time_dimensions"][0]
+    assert time_dimension["column_name"] == "order_date"
+    assert time_dimension["role"] == "order_date"
+    assert time_dimension["is_default"] is True
+
+
+@pytest.mark.asyncio
+async def test_versioned_metadata_fixture_selects_order_date_for_monthly_revenue():
+    assembler = SemanticContextAssembler(FixtureMetadataProvider())
+
+    context = await assembler.assemble(
+        "Generic Commerce",
+        [
+            {"kind": "entity", "name": "Order", "metadata": {"id": 203}},
+            {"kind": "metric", "name": "Revenue", "metadata": {"id": 401}},
+        ],
+        "Show monthly revenue this year",
+    )
+
+    assert [dimension["name"] for dimension in context["time_dimensions"]] == [
+        "Order Date"
+    ]
+    assert "month" in context["time_dimensions"][0]["supported_grains"]
+
+
+@pytest.mark.asyncio
+async def test_versioned_metadata_fixture_does_not_leak_order_time_into_product_only_query():
+    assembler = SemanticContextAssembler(FixtureMetadataProvider())
+
+    context = await assembler.assemble(
+        "Generic Commerce",
+        [{"kind": "entity", "name": "Product", "metadata": {"id": 202}}],
+        "Show products",
+    )
+
+    assert {entity["name"] for entity in context["entities"]} == {"Product"}
+    assert context["time_dimensions"] == []
