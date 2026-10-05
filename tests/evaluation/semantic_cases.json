@@ -1270,5 +1270,236 @@
       ]
     },
     "notes": "Bounded multi-metric ranking through the Customer synonym."
+  },
+  {
+    "id": "revenue-and-units-by-product-colour",
+    "question": "Show revenue and units sold by product colour",
+    "source_name": "AdventureWorks",
+    "expected": {
+      "datasets": [
+        "Production.Product",
+        "Sales.SalesOrderDetail"
+      ],
+      "entities": [
+        "Product",
+        "Sales Order Line"
+      ],
+      "relationships": [
+        "Sales Order Line to Product"
+      ],
+      "excluded_entities": [
+        "Customer",
+        "Sales Order"
+      ],
+      "require_completed": true,
+      "require_sql": true,
+      "metrics": [
+        "Revenue",
+        "Units Sold"
+      ],
+      "excluded_metrics": [
+        "Order Count",
+        "Average Order Value"
+      ],
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "metric_expression_alignment",
+        "relationship_alignment",
+        "grouping_dimension_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "metric_expression_violation",
+        "relationship_violation",
+        "grouping_dimension_violation",
+        "join_fanout_violation"
+      ]
+    },
+    "notes": "Multi-metric aggregation at a governed attribute-synonym grain."
+  },
+  {
+    "id": "top-red-items-by-sales-amount",
+    "question": "Show top 5 red items by sales amount",
+    "source_name": "AdventureWorks",
+    "expected": {
+      "datasets": [
+        "Production.Product",
+        "Sales.SalesOrderDetail"
+      ],
+      "entities": [
+        "Product",
+        "Sales Order Line"
+      ],
+      "relationships": [
+        "Sales Order Line to Product"
+      ],
+      "excluded_entities": [
+        "Customer",
+        "Sales Order"
+      ],
+      "require_completed": true,
+      "require_sql": true,
+      "metrics": [
+        "Revenue"
+      ],
+      "excluded_metrics": [
+        "Units Sold",
+        "Order Count",
+        "Average Order Value"
+      ],
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "metric_expression_alignment",
+        "relationship_alignment",
+        "filter_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "metric_expression_violation",
+        "relationship_violation",
+        "filter_violation",
+        "grouping_dimension_violation",
+        "join_fanout_violation"
+      ]
+    },
+    "notes": "Composes entity synonym, metric synonym, categorical filter and bounded ranking."
+  },
+  {
+    "id": "top-products-by-revenue-with-units",
+    "question": "Show revenue and units sold for top 5 products by revenue",
+    "source_name": "AdventureWorks",
+    "expected": {
+      "datasets": [
+        "Production.Product",
+        "Sales.SalesOrderDetail"
+      ],
+      "entities": [
+        "Product",
+        "Sales Order Line"
+      ],
+      "relationships": [
+        "Sales Order Line to Product"
+      ],
+      "excluded_entities": [
+        "Customer",
+        "Sales Order"
+      ],
+      "require_completed": true,
+      "require_sql": true,
+      "metrics": [
+        "Revenue",
+        "Units Sold"
+      ],
+      "excluded_metrics": [
+        "Order Count",
+        "Average Order Value"
+      ],
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "metric_expression_alignment",
+        "relationship_alignment",
+        "grouping_dimension_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "metric_expression_violation",
+        "relationship_violation",
+        "grouping_dimension_violation",
+        "join_fanout_violation"
+      ]
+    },
+    "notes": "Multi-metric output ranked by one governed metric at Product grain."
+  },
+  {
+    "id": "top-red-products-by-revenue-with-units",
+    "question": "Show revenue and units sold for top 5 red products by revenue",
+    "source_name": "AdventureWorks",
+    "expected": {
+      "datasets": [
+        "Production.Product",
+        "Sales.SalesOrderDetail"
+      ],
+      "entities": [
+        "Product",
+        "Sales Order Line"
+      ],
+      "relationships": [
+        "Sales Order Line to Product"
+      ],
+      "excluded_entities": [
+        "Customer",
+        "Sales Order"
+      ],
+      "require_completed": true,
+      "require_sql": true,
+      "metrics": [
+        "Revenue",
+        "Units Sold"
+      ],
+      "excluded_metrics": [
+        "Order Count",
+        "Average Order Value"
+      ],
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "metric_expression_alignment",
+        "relationship_alignment",
+        "grouping_dimension_alignment",
+        "filter_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "metric_expression_violation",
+        "relationship_violation",
+        "grouping_dimension_violation",
+        "filter_violation",
+        "join_fanout_violation"
+      ]
+    },
+    "notes": "High-composition case: two metrics, ranking, grouping, relationship traversal and governed filter."
+  },
+  {
+    "id": "top-buyers-by-aov-with-order-count",
+    "question": "Show average order value and order count for top 5 buyers by average order value",
+    "source_name": "AdventureWorks",
+    "expected": {
+      "datasets": [
+        "Sales.Customer",
+        "Sales.SalesOrderHeader"
+      ],
+      "entities": [
+        "Customer",
+        "Sales Order"
+      ],
+      "relationships": [
+        "Sales Order to Customer"
+      ],
+      "metrics": [
+        "Average Order Value",
+        "Order Count"
+      ],
+      "excluded_entities": [
+        "Product",
+        "Sales Order Line"
+      ],
+      "excluded_metrics": [
+        "Revenue",
+        "Units Sold"
+      ],
+      "require_completed": true,
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "relationship_alignment",
+        "grouping_dimension_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "relationship_violation",
+        "grouping_dimension_violation",
+        "join_fanout_violation"
+      ]
+    },
+    "notes": "Customer synonym with two metrics ranked by Average Order Value."
   }
 ]
