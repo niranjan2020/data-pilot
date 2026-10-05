@@ -6,8 +6,8 @@
 
 **Last updated:** 2026-10-05  
 **Current focus:** Core OSS — Stage A: NL-to-SQL correctness and evaluation  
-**Current semantic evaluation baseline:** 10/20 passed (50.0%) after physical-scope and metric identifier canonicalization.  
-**Current correctness unit baseline:** 31/31 passing.
+**Current semantic evaluation baseline:** 20/20 passed (100.0%) after correctness requirement propagation and grouping-resolution fixes.  
+**Current targeted correctness/orchestrator unit baseline:** 51/51 expected after the latest composed-grouping regression addition; prior run 50/50 passing.
 
 ---
 
@@ -120,32 +120,29 @@ Benchmark
 
 ### Current checkpoint — 2026-10-05
 
-Initial Evaluation V2 run:
-- 0/20 passed.
-- A systemic false rejection was found in physical-scope verification: validator table strings included SQL quoting and aliases while governed tables used canonical names.
-- Revenue cases also exposed quoted/unquoted identifier differences in governed metric expressions.
+Evaluation V2 progression:
+- Initial run: **0/20**. Canonical SQL table/identifier differences caused systemic false correctness failures.
+- After physical-scope and metric-expression canonicalization: **10/20 (50%)**.
+- After governed grouping/filter requirement propagation: **17/20 (85%)**.
+- After metric-aware ranking/grouping resolution: **19/20 (95%)**.
+- After composed entity + attribute grouping resolution: **20/20 (100%)**.
+- Latest semantic latency: **p50 3.270 s**, **p95 4.644 s**.
+- Targeted orchestrator/correctness suite reached **50/50 passing** before the final composed-grouping regression test was added.
 
-After canonicalization fixes:
-- Correctness unit tests: **31/31 passed**.
-- Semantic evaluation: **10/20 passed (50.0%)**.
-- p50 latency: approximately 3.1 s.
-- p95 latency: approximately 8.2 s.
-
-Remaining benchmark failures are concentrated rather than random:
-- Missing `grouping_dimension_alignment` on grouping-oriented cases.
-- Missing `filter_alignment` on governed-filter cases.
-
-This means the immediate investigation is whether grouping/filter requirements are being resolved and propagated from semantic planning into deterministic correctness validation. Do not weaken benchmark expectations merely to raise the score.
+A1 defects fixed without weakening benchmark expectations:
+- Propagated governed grouping and filter requirements into the shared generation/correctness plan.
+- Canonicalized quoted/aliased physical table identities and metric identifiers.
+- Added clarification precedence for selected grouping attributes.
+- Distinguished metric ranking (for example, customers by order count) from dimensional grouping.
+- Resolved composed governed phrases such as entity + attribute (for example, product + colour).
+- Preserved deterministic correctness validation as the execution authority.
 
 ### Stage A work remaining
 
-#### A1. Correctness propagation — CURRENT
-- Trace grouping requirements from semantic resolution through orchestration into `assess_query_correctness`.
-- Trace governed filter requirements through the same path.
-- Fix missing propagation or planning defects.
-- Preserve deterministic validation as the authority.
-- Add regression tests for every confirmed defect.
-- Rerun the 20-case semantic suite and record the new baseline.
+#### A1. Correctness propagation — COMPLETE
+- Production 20-case semantic benchmark: **20/20 (100%)**.
+- All previously observed grouping/filter propagation defects have regression coverage.
+- Do not weaken these expectations as evaluation coverage grows.
 
 #### A2. Evaluation coverage expansion
 Expand from the current semantic set toward roughly 50–75 meaningful cases covering:
