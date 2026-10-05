@@ -204,3 +204,27 @@ def test_evaluation_automatically_classifies_result_correctness_failures():
 
     assert not result.passed
     assert result.failure_categories == ("result_correctness",)
+
+
+def test_runtime_exception_classification_distinguishes_pipeline_stages():
+    from datapilot.core.exceptions import (
+        DatabaseExecutionError,
+        LLMError,
+        MetadataError,
+        SQLGenerationError,
+        SQLValidationError,
+    )
+    from tests.evaluation.run_semantic import classify_runtime_exception
+
+    assert classify_runtime_exception(DatabaseExecutionError("db failed")) == ("execution",)
+    assert classify_runtime_exception(SQLGenerationError("generation failed")) == ("sql_generation",)
+    assert classify_runtime_exception(LLMError("llm failed")) == ("sql_generation",)
+    assert classify_runtime_exception(MetadataError("metadata failed")) == ("semantic_resolution",)
+    assert classify_runtime_exception(SQLValidationError("unsafe sql")) == ("validation",)
+    assert classify_runtime_exception(
+        SQLValidationError(
+            "correctness failed",
+            details={"checks": [{"code": "time_grain_violation", "status": "failed"}]},
+        )
+    ) == ("governed_correctness",)
+    assert classify_runtime_exception(RuntimeError("unknown")) == ()
