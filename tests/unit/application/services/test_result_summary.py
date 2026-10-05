@@ -300,7 +300,7 @@ def test_trend_reports_largest_adjacent_period_movement():
     assert movement["from_label"] == "Mar"
     assert movement["to_label"] == "Apr"
     assert movement["delta"] == 60
-    assert movement["direction"] == "increase"
+    assert movement["direction"] == "increased"
     assert movement["scope"] == "returned_periods"
 
 
