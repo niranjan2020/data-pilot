@@ -525,3 +525,77 @@ async def test_current_clarification_overrides_inherited_follow_up_selection():
     assert selection["attribute"] == "Billing Region"
     assert response.trace is not None
     assert response.trace.clarification_selections["attribute"] == "Customer.Billing Region"
+
+
+def test_required_grouping_columns_resolves_entity_and_attribute_synonym():
+    entities = [{
+        "name": "Product",
+        "synonyms": ["item"],
+        "display_column": "Name",
+        "key_column": "ProductID",
+        "attributes": [{
+            "name": "Color",
+            "column_name": "Color",
+            "synonyms": ["product colour"],
+        }],
+    }]
+
+    assert QueryOrchestrator._required_grouping_columns(
+        "Show revenue by product", entities
+    ) == ["Name"]
+    assert QueryOrchestrator._required_grouping_columns(
+        "Show top 10 products by product colour", entities
+    ) == ["Color"]
+
+
+def test_required_filters_resolves_value_only_governed_categorical_filter():
+    entities = [{
+        "name": "Product",
+        "synonyms": ["item"],
+        "attributes": [{
+            "name": "Color",
+            "column_name": "Color",
+            "synonyms": ["colour"],
+            "semantic_type": "category",
+        }],
+    }]
+
+    filters = QueryOrchestrator._required_filters(
+        "Show revenue for red products", entities, []
+    )
+
+    assert filters == [{
+        "attribute": "Color",
+        "column_name": "Color",
+        "operator": "=",
+        "value": "red",
+    }]
+
+
+def test_required_filters_preserves_resolver_filters_without_duplicates():
+    from datapilot.domain.semantic import ResolvedFilter
+
+    existing = ResolvedFilter(
+        attribute="Color",
+        column_name="Color",
+        operator="=",
+        value="Red",
+        confidence=0.9,
+        source_text="Color Red",
+    )
+    entities = [{
+        "name": "Product",
+        "attributes": [{
+            "name": "Color",
+            "column_name": "Color",
+            "semantic_type": "category",
+        }],
+    }]
+
+    filters = QueryOrchestrator._required_filters(
+        "Show red products", entities, [existing]
+    )
+
+    assert len(filters) == 1
+    assert filters[0]["column_name"] == "Color"
+    assert filters[0]["value"] == "Red"
