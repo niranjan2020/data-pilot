@@ -436,6 +436,123 @@ def _fanout_checks(
     }]
 
 
+
+def _time_checks(
+    sql: str,
+    *,
+    required_time_plan: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Verify resolved governed time filters and grouping grain in generated SQL."""
+    plan = required_time_plan or {}
+    if not plan or plan.get("status") != "resolved":
+        return []
+
+    try:
+        tree = parse_one(sql, read="postgres")
+    except Exception:
+        return [{
+            "code": "time_verification_unavailable",
+            "status": "skipped",
+            "severity": "info",
+            "message": "Time correctness verification could not parse the validated SQL.",
+        }]
+
+    column_name = _normalise(str(plan.get("column_name") or ""))
+    if not column_name:
+        return []
+
+    def contains_time_column(node: exp.Expression | None) -> bool:
+        return bool(node) and any(
+            _normalise(column.name) == column_name
+            for column in node.find_all(exp.Column)
+        )
+
+    def scalar_text(node: exp.Expression | None) -> str | None:
+        current = node
+        while isinstance(current, (exp.Cast, exp.Paren)):
+            current = current.this
+        if isinstance(current, exp.Literal):
+            return str(current.this)
+        return None
+
+    checks: list[dict[str, Any]] = []
+
+    # A comparison can be represented as one envelope range plus time grouping or
+    # conditional aggregates. Its deterministic filter boundary is the union of
+    # all governed periods.
+    if plan.get("comparison") and plan.get("periods"):
+        periods = plan["periods"]
+        expected_start = min(str(period["start"]) for period in periods)
+        expected_end = max(str(period["end_exclusive"]) for period in periods)
+    else:
+        expected_start = plan.get("start")
+        expected_end = plan.get("end_exclusive")
+
+    if expected_start and expected_end:
+        lower_ok = False
+        upper_ok = False
+        for predicate in tree.find_all(exp.GTE):
+            if contains_time_column(predicate.this) and scalar_text(predicate.expression) == str(expected_start):
+                lower_ok = True
+            elif contains_time_column(predicate.expression) and scalar_text(predicate.this) == str(expected_start):
+                # literal <= column is equivalent to column >= literal.
+                lower_ok = True
+        for predicate in tree.find_all(exp.LT):
+            if contains_time_column(predicate.this) and scalar_text(predicate.expression) == str(expected_end):
+                upper_ok = True
+        if lower_ok and upper_ok:
+            checks.append({
+                "code": "time_filter_alignment",
+                "status": "passed",
+                "severity": "info",
+                "column": column_name,
+                "start": str(expected_start),
+                "end_exclusive": str(expected_end),
+                "message": "SQL uses the governed half-open time range on the governed time column.",
+            })
+        else:
+            checks.append({
+                "code": "time_filter_violation",
+                "status": "failed",
+                "severity": "error",
+                "column": column_name,
+                "start": str(expected_start),
+                "end_exclusive": str(expected_end),
+                "missing_lower_bound": not lower_ok,
+                "missing_upper_bound": not upper_ok,
+                "message": "Generated SQL does not preserve the resolved governed half-open time range.",
+            })
+
+    grain = str(plan.get("grouping_grain") or "").strip().casefold()
+    if grain:
+        group = tree.args.get("group")
+        grain_ok = False
+        if group is not None:
+            for expression in group.expressions:
+                for function in expression.find_all(exp.DateTrunc):
+                    unit = scalar_text(function.this)
+                    target = function.expression
+                    if unit and unit.casefold() == grain and contains_time_column(target):
+                        grain_ok = True
+                        break
+                if grain_ok:
+                    break
+
+        checks.append({
+            "code": "time_grain_alignment" if grain_ok else "time_grain_violation",
+            "status": "passed" if grain_ok else "failed",
+            "severity": "info" if grain_ok else "error",
+            "column": column_name,
+            "grain": grain,
+            "message": (
+                f"SQL groups the governed time column at {grain} grain."
+                if grain_ok else
+                f"Generated SQL does not group the governed time column at the resolved {grain} grain."
+            ),
+        })
+
+    return checks
+
 def assess_query_correctness(
     *,
     affected_tables: Iterable[str],
@@ -445,6 +562,7 @@ def assess_query_correctness(
     required_grouping_columns: Iterable[str] = (),
     required_filters: Iterable[dict[str, Any]] = (),
     required_relationships: Iterable[dict[str, Any]] = (),
+    required_time_plan: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Return deterministic pre-execution alignment checks.
 
@@ -460,7 +578,8 @@ def assess_query_correctness(
     filter_checks = _filter_checks(sql, required_filters=required_filters) if sql else []
     relationship_checks = _relationship_checks(sql, required_relationships=required_relationships) if sql else []
     fanout_checks = _fanout_checks(sql, governed_metrics=governed_metrics, required_relationships=required_relationships) if sql else []
-    semantic_checks = metric_checks + grouping_checks + filter_checks + relationship_checks + fanout_checks
+    time_checks = _time_checks(sql, required_time_plan=required_time_plan) if sql else []
+    semantic_checks = metric_checks + grouping_checks + filter_checks + relationship_checks + fanout_checks + time_checks
 
     if not governed:
         return semantic_checks + [{
