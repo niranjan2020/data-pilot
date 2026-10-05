@@ -19,7 +19,11 @@ class QueryRequest(BaseModel):
         default=False,
         description="Build and validate the query plan without executing SQL against the source database",
     )
-    clarification_selections: Dict[str, str] = Field(\n        default_factory=dict,\n        description="Explicit user selections used to resume a previously ambiguous query",\n    )\n    follow_up_to_history_id: Optional[int] = Field(
+    clarification_selections: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Explicit user selections used to resume a previously ambiguous query",
+    )
+    follow_up_to_history_id: Optional[int] = Field(
         default=None,
         ge=1,
         description="Explicit prior query-history item whose analytical context should be carried into this follow-up",
@@ -93,7 +97,8 @@ class QueryResponse(BaseModel):
     sql: Optional[str] = None
     result: Optional[Any] = None
     confidence: float = 0.0
-    semantic_ambiguities: List[str] = Field(default_factory=list)\n    clarification: Optional[ClarificationRequest] = None
+    semantic_ambiguities: List[str] = Field(default_factory=list)
+    clarification: Optional[ClarificationRequest] = None
     resolved_intent: Optional[QueryIntent] = None
     retrieved_context: List[Dict[str, Any]] = Field(default_factory=list)
     validation_warnings: List[str] = Field(default_factory=list)
