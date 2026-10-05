@@ -18,8 +18,10 @@ from datapilot.core.exceptions import (
     DatabaseExecutionError,
     LLMError,
     MetadataError,
+    SemanticRetrievalError,
     SQLGenerationError,
     SQLValidationError,
+    TimeInterpretationError,
 )
 from datapilot.domain.query import QueryRequest
 from datapilot.infrastructure.database.postgresql import PostgreSQLDatabaseProvider
@@ -44,6 +46,10 @@ DEFAULT_CASES = Path(__file__).with_name("semantic_cases.json")
 
 def classify_runtime_exception(exc: Exception) -> tuple[str, ...]:
     """Map runtime failures to the narrowest trustworthy evaluation stage."""
+    if isinstance(exc, SemanticRetrievalError):
+        return ("semantic_retrieval",)
+    if isinstance(exc, TimeInterpretationError):
+        return ("time_interpretation",)
     if isinstance(exc, DatabaseExecutionError):
         return ("execution",)
     if isinstance(exc, (SQLGenerationError, LLMError)):
