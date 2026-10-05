@@ -1,9 +1,12 @@
 import json
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from datapilot.application.services.semantic_context import SemanticContextAssembler
+from datapilot.application.services.time_semantics import resolve_time_semantics
 
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "semantic" / "metadata.json"
@@ -185,3 +188,39 @@ async def test_versioned_metadata_fixture_does_not_leak_order_time_into_product_
 
     assert {entity["name"] for entity in context["entities"]} == {"Product"}
     assert context["time_dimensions"] == []
+
+
+A3_NOW = datetime(2026, 10, 5, 12, 0, tzinfo=ZoneInfo("UTC"))
+
+
+def _fixture_time_dimensions():
+    return json.loads(FIXTURE.read_text(encoding="utf-8"))["time_dimensions"]
+
+
+@pytest.mark.parametrize(
+    ("question", "expected_start", "expected_end"),
+    [
+        ("Show revenue last month", "2026-09-01", "2026-10-01"),
+        ("Show YTD revenue", "2026-01-01", "2026-10-06"),
+        ("Show revenue for the last 30 days", "2026-09-06", "2026-10-06"),
+    ],
+)
+def test_versioned_metadata_fixture_resolves_governed_time_ranges(
+    question, expected_start, expected_end
+):
+    result = resolve_time_semantics(
+        question,
+        _fixture_time_dimensions(),
+        now=A3_NOW,
+    )
+
+    assert result is not None
+    assert result["status"] == "resolved"
+    assert result["time_dimension"] == "Order Date"
+    assert result["entity"] == "Order"
+    assert result["schema_name"] == "public"
+    assert result["table_name"] == "orders"
+    assert result["column_name"] == "order_date"
+    assert result["start"] == expected_start
+    assert result["end_exclusive"] == expected_end
+    assert result["comparison"] is False
