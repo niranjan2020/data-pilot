@@ -1110,3 +1110,115 @@ async def test_orchestrator_does_not_correct_unverifiable_governed_failure(monke
 
     assert generator.calls == 1
     assert database.executed == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "first_code,second_code",
+    [
+        ("physical_scope_violation", "physical_scope_alignment"),
+        ("relationship_violation", "relationship_alignment"),
+        ("join_fanout_violation", "join_fanout_alignment"),
+        ("time_filter_violation", "time_filter_alignment"),
+        ("time_grain_violation", "time_grain_alignment"),
+        ("time_comparison_violation", "time_comparison_alignment"),
+    ],
+)
+async def test_bounded_correction_rechecks_stage_a_governed_invariants(
+    monkeypatch, first_code, second_code
+):
+    database = FakeDatabase()
+    generator = SequencedSQLGenerator([
+        "SELECT wrong FROM records",
+        "SELECT COUNT(*) AS count FROM records",
+    ])
+    orchestrator = QueryOrchestrator(
+        database, FakeValidator(), generator, FakeCatalog(SemanticCatalog())
+    )
+    calls = {"count": 0}
+
+    def correctness(**kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return [{
+                "code": first_code,
+                "status": "failed",
+                "severity": "error",
+                "message": "first proposal violates governed correctness",
+            }]
+        return [{
+            "code": second_code,
+            "status": "passed",
+            "severity": "info",
+            "message": "corrected proposal aligns",
+        }]
+
+    monkeypatch.setattr(
+        "datapilot.application.services.query_orchestrator.assess_query_correctness",
+        correctness,
+    )
+
+    response = await orchestrator.query(QueryRequest(question="How many records exist?"))
+
+    assert calls["count"] == 2
+    assert generator.calls == 2
+    assert database.executed == [response.sql]
+    assert response.trace is not None
+    assert response.trace.correction_attempts[0]["feedback"][0]["code"] == first_code
+    assert response.trace.correctness_checks[0]["code"] == second_code
+
+
+@pytest.mark.asyncio
+async def test_corrected_sql_must_pass_safety_validation_before_execution(monkeypatch):
+    from datapilot.domain.models import SQLValidationResult
+
+    class SecondAttemptInvalidValidator:
+        def __init__(self):
+            self.calls = 0
+
+        async def validate(self, sql, dialect=None, enforce_read_only=True):
+            self.calls += 1
+            if self.calls == 2:
+                return SQLValidationResult(
+                    is_valid=False,
+                    is_read_only=False,
+                    sanitized_sql=None,
+                    errors=["corrected SQL is unsafe"],
+                )
+            return SQLValidationResult(
+                is_valid=True,
+                is_read_only=True,
+                sanitized_sql=sql,
+            )
+
+    database = FakeDatabase()
+    generator = SequencedSQLGenerator([
+        "SELECT wrong FROM records",
+        "DELETE FROM records",
+    ])
+    validator = SecondAttemptInvalidValidator()
+    orchestrator = QueryOrchestrator(
+        database, validator, generator, FakeCatalog(SemanticCatalog())
+    )
+    calls = {"count": 0}
+
+    def correctness(**kwargs):
+        calls["count"] += 1
+        return [{
+            "code": "filter_violation",
+            "status": "failed",
+            "severity": "error",
+            "message": "required filter missing",
+        }]
+
+    monkeypatch.setattr(
+        "datapilot.application.services.query_orchestrator.assess_query_correctness",
+        correctness,
+    )
+
+    with pytest.raises(SQLValidationError):
+        await orchestrator.query(QueryRequest(question="How many records exist?"))
+
+    assert generator.calls == 2
+    assert validator.calls == 2
+    assert database.executed == []
