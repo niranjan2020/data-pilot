@@ -11,11 +11,32 @@ def _normalise(name: str) -> str:
     return str(name or "").strip().strip('"').casefold()
 
 
+def _canonical_table_name(table: str) -> str:
+    """Return schema-qualified table identity without SQL quoting or aliases."""
+    value = str(table or "").strip()
+    if not value:
+        return ""
+    try:
+        parsed = parse_one(value, read="postgres", into=exp.Table)
+        table_name = _normalise(parsed.name)
+        schema_name = _normalise(parsed.db)
+        return f"{schema_name}.{table_name}" if schema_name else table_name
+    except Exception:
+        # Keep scope verification available for validator formats that are not
+        # independently parseable as a Table expression.
+        base = value.split(" AS ", 1)[0].split(" as ", 1)[0].strip()
+        return ".".join(
+            _normalise(part.strip())
+            for part in base.split(".")
+            if part.strip()
+        )
+
+
 def _within_governed_scope(table: str, governed_tables: Iterable[str]) -> bool:
-    candidate = _normalise(table)
+    candidate = _canonical_table_name(table)
     candidate_leaf = candidate.rsplit(".", 1)[-1]
     for governed in governed_tables:
-        allowed = _normalise(governed)
+        allowed = _canonical_table_name(governed)
         if candidate == allowed:
             return True
         # Validators may report either schema-qualified or unqualified names.
@@ -31,6 +52,9 @@ def _canonical_expression(expression: exp.Expression) -> str:
         column.set("table", None)
         column.set("db", None)
         column.set("catalog", None)
+        # Governed metadata may store identifiers unquoted while generated SQL
+        # quotes them. Identifier quoting/case is not part of metric semantics.
+        column.set("this", exp.to_identifier(_normalise(column.name), quoted=False))
     return copy.sql(dialect="postgres").casefold().replace(" ", "")
 
 
