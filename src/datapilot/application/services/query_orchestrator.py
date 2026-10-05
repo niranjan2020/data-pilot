@@ -199,6 +199,23 @@ class QueryOrchestrator:
                 resolver_catalog = catalog.model_copy(update={"entities": selected_entities})
 
         intent = self._entity_resolver.resolve(contextual_question, resolver_catalog, schema)
+        if (
+            catalog.entities
+            and intent.entity is None
+            and not intent.ambiguities
+            and not effective_clarifications.get("entity")
+        ):
+            return QueryResponse(
+                question=request.question,
+                status="rejected",
+                confidence=intent.confidence,
+                resolved_intent=intent,
+                trace=trace,
+                message=(
+                    "I could not map this question to a governed business entity. "
+                    "No SQL was generated."
+                ),
+            )
         if intent.ambiguities:
             entity_by_name = {entity.name: entity for entity in catalog.entities}
             options = [
