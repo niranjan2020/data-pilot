@@ -339,6 +339,103 @@ def _relationship_checks(
     return checks
 
 
+
+def _fanout_checks(
+    sql: str,
+    *,
+    governed_metrics: Iterable[dict[str, Any]],
+    required_relationships: Iterable[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Detect additive/non-distinct metrics crossing from a one-side entity to many.
+
+    A correct join predicate can still multiply a metric when its owning entity is
+    on the one-side of a one-to-many relationship. COUNT DISTINCT is inherently
+    protected. Complex subquery/pre-aggregation plans are not guessed about here.
+    """
+    metrics = list(governed_metrics)
+    relationships = list(required_relationships)
+    if not metrics or not relationships:
+        return []
+
+    try:
+        tree = parse_one(sql, read="postgres")
+    except Exception:
+        return [{
+            "code": "fanout_verification_unavailable",
+            "status": "skipped",
+            "severity": "info",
+            "message": "Join fan-out verification could not parse the validated SQL.",
+        }]
+
+    if tree.find(exp.Subquery) is not None:
+        return [{
+            "code": "fanout_verification_unavailable",
+            "status": "skipped",
+            "severity": "info",
+            "message": "Query uses subquery/pre-aggregation; deterministic fan-out verification was not applied.",
+        }]
+
+    def cardinality_sides(value: str) -> tuple[str, str] | None:
+        normalized = str(value or "").strip().casefold().replace("_", "-").replace(" ", "-")
+        normalized = normalized.replace("many-to-one", "many-one").replace("one-to-many", "one-many")
+        normalized = normalized.replace("one-to-one", "one-one").replace("many-to-many", "many-many")
+        parts = normalized.split("-")
+        if len(parts) == 2 and all(part in {"one", "many"} for part in parts):
+            return parts[0], parts[1]
+        return None
+
+    checks: list[dict[str, Any]] = []
+    for metric in metrics:
+        metric_entity_id = metric.get("entity_id")
+        aggregation = str(metric.get("aggregation") or "").strip().casefold()
+        metric_name = str(metric.get("name") or "metric")
+        if metric_entity_id is None or aggregation in {"count_distinct", "min", "max"}:
+            continue
+
+        for relationship in relationships:
+            sides = cardinality_sides(str(relationship.get("cardinality") or ""))
+            if sides is None:
+                continue
+            from_side, to_side = sides
+            from_id = relationship.get("from_entity_id")
+            to_id = relationship.get("to_entity_id")
+
+            # Fan-out occurs when the metric lives on the ONE side and the query
+            # traverses the governed relationship to its MANY side.
+            risky = (
+                metric_entity_id == from_id and from_side == "one" and to_side == "many"
+            ) or (
+                metric_entity_id == to_id and to_side == "one" and from_side == "many"
+            )
+            if not risky:
+                continue
+
+            checks.append({
+                "code": "join_fanout_violation",
+                "status": "failed",
+                "severity": "error",
+                "metric": metric_name,
+                "aggregation": aggregation,
+                "relationship": relationship.get("name"),
+                "cardinality": relationship.get("cardinality"),
+                "message": (
+                    f"{metric_name} is aggregated from the one-side of governed relationship "
+                    f"{relationship.get('name')}; joining the many-side can duplicate metric rows. "
+                    "Use a fan-out-safe grain, pre-aggregation, or COUNT DISTINCT where semantically valid."
+                ),
+            })
+
+    if checks:
+        return checks
+
+    return [{
+        "code": "join_fanout_alignment",
+        "status": "passed",
+        "severity": "info",
+        "message": "No governed metric is exposed to a direct one-to-many aggregation fan-out.",
+    }]
+
+
 def assess_query_correctness(
     *,
     affected_tables: Iterable[str],
@@ -362,7 +459,8 @@ def assess_query_correctness(
     grouping_checks = _grouping_checks(sql, required_grouping_columns=required_grouping_columns) if sql else []
     filter_checks = _filter_checks(sql, required_filters=required_filters) if sql else []
     relationship_checks = _relationship_checks(sql, required_relationships=required_relationships) if sql else []
-    semantic_checks = metric_checks + grouping_checks + filter_checks + relationship_checks
+    fanout_checks = _fanout_checks(sql, governed_metrics=governed_metrics, required_relationships=required_relationships) if sql else []
+    semantic_checks = metric_checks + grouping_checks + filter_checks + relationship_checks + fanout_checks
 
     if not governed:
         return semantic_checks + [{
