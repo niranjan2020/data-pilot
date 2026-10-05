@@ -254,10 +254,23 @@ class QueryOrchestrator:
         selected_metric = effective_clarifications.get("metric")
         governed_metrics = governed_context.get("metrics", [])
         if selected_metric:
-            governed_metrics = [
+            selected_metrics = [
                 metric for metric in governed_metrics
                 if str(metric.get("name") or "").casefold() == selected_metric.casefold()
             ]
+            if not selected_metrics:
+                return QueryResponse(
+                    question=request.question,
+                    status="rejected",
+                    confidence=intent.confidence,
+                    resolved_intent=intent,
+                    trace=trace,
+                    message=(
+                        f"The selected metric {selected_metric!r} is not present in the "
+                        "governed semantic context. No SQL was generated."
+                    ),
+                )
+            governed_metrics = selected_metrics
             governed_context["metrics"] = governed_metrics
             trace.governed_metrics = [str(metric.get("name") or "") for metric in governed_metrics]
         else:
@@ -323,8 +336,35 @@ class QueryOrchestrator:
                 ),
                 None,
             )
-            if selected is not None:
-                governed_context["resolved_attribute_selection"] = selected
+            if selected is None:
+                for entity in governed_context.get("entities", []):
+                    for attribute in entity.get("attributes", []):
+                        value = f"{entity.get('name')}.{attribute.get('name')}"
+                        if value.casefold() == selected_attribute.casefold():
+                            selected = {
+                                "value": value,
+                                "label": value,
+                                "entity": str(entity.get("name") or ""),
+                                "attribute": str(attribute.get("name") or ""),
+                                "column_name": str(attribute.get("column_name") or ""),
+                                "description": attribute.get("description"),
+                            }
+                            break
+                    if selected is not None:
+                        break
+            if selected is None:
+                return QueryResponse(
+                    question=request.question,
+                    status="rejected",
+                    confidence=intent.confidence,
+                    resolved_intent=intent,
+                    trace=trace,
+                    message=(
+                        f"The selected attribute {selected_attribute!r} is not present in the "
+                        "governed semantic context. No SQL was generated."
+                    ),
+                )
+            governed_context["resolved_attribute_selection"] = selected
         elif len(attribute_candidates) > 1:
             return QueryResponse(
                 question=request.question,
