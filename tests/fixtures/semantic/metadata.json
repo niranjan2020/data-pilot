@@ -183,5 +183,26 @@
     }
   ],
   "business_rules": [],
-  "time_dimensions": []
+  "time_dimensions": [
+    {
+      "id": 501,
+      "name": "Order Date",
+      "description": "Date the order was placed",
+      "synonyms": [
+        "purchase date",
+        "order date"
+      ],
+      "entity_id": 203,
+      "column_name": "order_date",
+      "role": "order_date",
+      "is_default": true,
+      "supported_grains": [
+        "day",
+        "week",
+        "month",
+        "quarter",
+        "year"
+      ]
+    }
+  ]
 }
