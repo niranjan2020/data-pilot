@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+from numbers import Number
 from typing import Any
 
 from datapilot.domain.models import QueryResult
@@ -33,7 +35,7 @@ def plan_result_presentation(question: str, result: QueryResult, time_interpreta
     numeric_indices: list[int] = []
     for index in range(len(columns)):
         values = [row[index] for row in result.rows if index < len(row) and row[index] is not None]
-        if values and all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in values):
+        if values and all(isinstance(value, (Number, Decimal)) and not isinstance(value, bool) for value in values):
             numeric_indices.append(index)
 
     numeric_columns = [columns[i] for i in numeric_indices]
