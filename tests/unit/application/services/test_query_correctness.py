@@ -283,3 +283,103 @@ def test_correctness_skips_fanout_judgement_for_preaggregated_subquery():
     )
     assert any(item["code"] == "fanout_verification_unavailable" for item in checks)
     assert not any(item["code"] == "join_fanout_violation" for item in checks)
+
+
+
+def _monthly_time_plan():
+    return {
+        "status": "resolved",
+        "column_name": "OrderDate",
+        "start": "2026-01-01",
+        "end_exclusive": "2027-01-01",
+        "grouping_grain": "month",
+        "comparison": False,
+    }
+
+
+def test_correctness_passes_governed_time_range_and_month_grain():
+    checks = assess_query_correctness(
+        affected_tables=["Sales.SalesOrderHeader"],
+        governed_tables=["Sales.SalesOrderHeader"],
+        sql="""SELECT DATE_TRUNC('month', "OrderDate"), COUNT(*) FROM "Sales"."SalesOrderHeader"
+               WHERE "OrderDate" >= DATE '2026-01-01' AND "OrderDate" < DATE '2027-01-01'
+               GROUP BY DATE_TRUNC('month', "OrderDate")""",
+        required_time_plan=_monthly_time_plan(),
+    )
+    assert any(item["code"] == "time_filter_alignment" for item in checks)
+    assert any(item["code"] == "time_grain_alignment" for item in checks)
+
+
+def test_correctness_rejects_wrong_time_column_for_resolved_range():
+    checks = assess_query_correctness(
+        affected_tables=["Sales.SalesOrderHeader"],
+        governed_tables=["Sales.SalesOrderHeader"],
+        sql="""SELECT COUNT(*) FROM "Sales"."SalesOrderHeader"
+               WHERE "ShipDate" >= DATE '2026-01-01' AND "ShipDate" < DATE '2027-01-01'""",
+        required_time_plan={**_monthly_time_plan(), "grouping_grain": None},
+    )
+    violation = next(item for item in checks if item["code"] == "time_filter_violation")
+    assert violation["status"] == "failed"
+
+
+def test_correctness_rejects_wrong_time_range_boundary():
+    checks = assess_query_correctness(
+        affected_tables=["Sales.SalesOrderHeader"],
+        governed_tables=["Sales.SalesOrderHeader"],
+        sql="""SELECT COUNT(*) FROM "Sales"."SalesOrderHeader"
+               WHERE "OrderDate" >= DATE '2026-02-01' AND "OrderDate" < DATE '2027-01-01'""",
+        required_time_plan={**_monthly_time_plan(), "grouping_grain": None},
+    )
+    violation = next(item for item in checks if item["code"] == "time_filter_violation")
+    assert violation["missing_lower_bound"] is True
+
+
+def test_correctness_rejects_wrong_time_grouping_grain():
+    checks = assess_query_correctness(
+        affected_tables=["Sales.SalesOrderHeader"],
+        governed_tables=["Sales.SalesOrderHeader"],
+        sql="""SELECT DATE_TRUNC('year', "OrderDate"), COUNT(*) FROM "Sales"."SalesOrderHeader"
+               WHERE "OrderDate" >= DATE '2026-01-01' AND "OrderDate" < DATE '2027-01-01'
+               GROUP BY DATE_TRUNC('year', "OrderDate")""",
+        required_time_plan=_monthly_time_plan(),
+    )
+    assert any(item["code"] == "time_grain_violation" for item in checks)
+
+
+def test_correctness_accepts_grouping_only_time_plan():
+    checks = assess_query_correctness(
+        affected_tables=["Sales.SalesOrderHeader"],
+        governed_tables=["Sales.SalesOrderHeader"],
+        sql="""SELECT DATE_TRUNC('quarter', "OrderDate"), COUNT(*) FROM "Sales"."SalesOrderHeader"
+               GROUP BY DATE_TRUNC('quarter', "OrderDate")""",
+        required_time_plan={
+            "status": "resolved",
+            "column_name": "OrderDate",
+            "grouping_grain": "quarter",
+            "comparison": False,
+        },
+    )
+    assert any(item["code"] == "time_grain_alignment" for item in checks)
+    assert not any(item["code"] == "time_filter_violation" for item in checks)
+
+
+def test_correctness_accepts_comparison_envelope_range():
+    checks = assess_query_correctness(
+        affected_tables=["Sales.SalesOrderHeader"],
+        governed_tables=["Sales.SalesOrderHeader"],
+        sql="""SELECT DATE_TRUNC('month', "OrderDate"), COUNT(*) FROM "Sales"."SalesOrderHeader"
+               WHERE "OrderDate" >= DATE '2026-09-01' AND "OrderDate" < DATE '2026-11-01'
+               GROUP BY DATE_TRUNC('month', "OrderDate")""",
+        required_time_plan={
+            "status": "resolved",
+            "column_name": "OrderDate",
+            "grouping_grain": "month",
+            "comparison": True,
+            "periods": [
+                {"label": "this month", "start": "2026-10-01", "end_exclusive": "2026-11-01"},
+                {"label": "last month", "start": "2026-09-01", "end_exclusive": "2026-10-01"},
+            ],
+        },
+    )
+    assert any(item["code"] == "time_filter_alignment" for item in checks)
+    assert any(item["code"] == "time_grain_alignment" for item in checks)
