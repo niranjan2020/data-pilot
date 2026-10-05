@@ -52,7 +52,8 @@ class FakeSQLGenerator:
         assert "semantic_catalog" in context
         assert "query_intent" in context
         self.contexts.append(context)
-        grouping = context.get("required_grouping_columns") or []
+        governed_context = context.get("governed_semantic_context") or {}
+        grouping = governed_context.get("required_grouping_columns") or []
         if grouping and self.sql == "SELECT COUNT(*) AS count FROM records":
             columns = ", ".join(grouping)
             return f"SELECT {columns}, COUNT(*) AS count FROM records GROUP BY {columns}"
