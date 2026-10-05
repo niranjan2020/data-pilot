@@ -14,6 +14,99 @@ class SemanticContextAssembler:
     def __init__(self, metadata: PostgreSQLMetadataProvider) -> None:
         self._metadata = metadata
 
+    async def carry_forward(
+        self,
+        source_name: str,
+        current: dict[str, Any],
+        conversation_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Merge prior governed lineage into a follow-up using authoritative metadata.
+
+        Follow-ups may be elliptical, so retrieval for the new text can narrow
+        away a metric or join needed from the parent turn. Rehydrate only persisted
+        semantic names from PostgreSQL; prior SQL is never accepted or reused.
+        """
+        source_id = await self._metadata.get_data_source_id(source_name)
+        if source_id is None or not conversation_context.get("previous_question"):
+            return current
+
+        entities = await self._metadata.list_semantic_entities(source_id)
+        relationships = await self._metadata.list_semantic_relationships(source_id)
+        metrics = await self._metadata.list_semantic_metrics(source_id)
+        rules = await self._metadata.list_business_rules(source_id)
+        datasets = await self._metadata.list_semantic_datasets(source_id)
+        list_time_dimensions = getattr(self._metadata, "list_time_dimensions", None)
+        time_dimensions = await list_time_dimensions(source_id) if list_time_dimensions else []
+
+        prior_entity_names = set(conversation_context.get("governed_entities") or [])
+        prior_metric_names = set(conversation_context.get("governed_metrics") or [])
+        prior_rule_names = set(conversation_context.get("governed_business_rules") or [])
+        prior_time_names = set(conversation_context.get("governed_time_dimensions") or [])
+
+        entity_ids = {item["id"] for item in current.get("entities", [])}
+        entity_ids.update(e["id"] for e in entities if e.get("name") in prior_entity_names)
+
+        metric_ids = {item["id"] for item in current.get("metrics", [])}
+        metric_ids.update(m["id"] for m in metrics if m.get("name") in prior_metric_names)
+        # A carried metric always carries its authoritative owning entity so its
+        # expression cannot reference a table omitted from physical schema binding.
+        entity_ids.update(m["entity_id"] for m in metrics if m["id"] in metric_ids)
+
+        selected_entities = [e for e in entities if e["id"] in entity_ids]
+        selected_metrics = [m for m in metrics if m["id"] in metric_ids]
+        selected_relationships = [
+            r for r in relationships
+            if r["from_entity_id"] in entity_ids and r["to_entity_id"] in entity_ids
+        ]
+        current_rule_ids = {item["id"] for item in current.get("business_rules", [])}
+        selected_rules = [
+            r for r in rules
+            if r.get("enabled", True)
+            and (r["id"] in current_rule_ids or r.get("name") in prior_rule_names)
+            and (
+                (r.get("entity_id") is not None and r["entity_id"] in entity_ids)
+                or (r.get("metric_id") is not None and r["metric_id"] in metric_ids)
+            )
+        ]
+
+        dataset_keys = {
+            (e.get("schema_name"), e.get("table_name"))
+            for e in selected_entities
+            if e.get("schema_name") and e.get("table_name")
+        }
+        selected_datasets = [
+            d for d in datasets
+            if (d.get("schema_name"), d.get("table_name")) in dataset_keys
+        ]
+        existing_dataset_keys = {
+            (d.get("schema_name"), d.get("table_name")) for d in selected_datasets
+        }
+        selected_datasets.extend(
+            {
+                "schema_name": schema_name,
+                "table_name": table_name,
+                "name": f"{schema_name}.{table_name}",
+                "description": None,
+            }
+            for schema_name, table_name in sorted(dataset_keys - existing_dataset_keys)
+        )
+
+        current_time_ids = {item["id"] for item in current.get("time_dimensions", [])}
+        selected_time_dimensions = [
+            d for d in time_dimensions
+            if d["entity_id"] in entity_ids
+            and (d["id"] in current_time_ids or d.get("name") in prior_time_names)
+        ]
+
+        return {
+            "datasets": selected_datasets,
+            "entities": selected_entities,
+            "relationships": selected_relationships,
+            "metrics": selected_metrics,
+            "business_rules": selected_rules,
+            "time_dimensions": selected_time_dimensions,
+        }
+
     async def assemble(
         self, source_name: str, retrieved: list[dict[str, Any]], question: str = ""
     ) -> dict[str, Any]:
