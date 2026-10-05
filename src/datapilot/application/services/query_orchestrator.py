@@ -1178,10 +1178,25 @@ class QueryOrchestrator:
         matches = attribute_matches or entity_matches
         if not matches:
             return []
-        max_specificity = max(score for score, _ in matches)
-        result: list[str] = []
+
+        # Attribute matches are authoritative governed dimensions. Preserve every
+        # distinct explicitly requested attribute in a multi-dimension grouping
+        # clause instead of discarding shorter phrases merely because another
+        # dimension has a more specific composed name.
+        if attribute_matches:
+            result: list[str] = []
+            seen: set[str] = set()
+            for _, column in attribute_matches:
+                key = column.casefold()
+                if key not in seen:
+                    seen.add(key)
+                    result.append(column)
+            return result
+
+        max_specificity = max(score for score, _ in entity_matches)
+        result = []
         seen: set[str] = set()
-        for score, column in matches:
+        for score, column in entity_matches:
             key = column.casefold()
             if score == max_specificity and key not in seen:
                 seen.add(key)
