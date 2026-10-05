@@ -408,6 +408,7 @@ class QueryOrchestrator:
             trace=trace,
             execute=not request.dry_run,
             governed_tables=trace.physical_tables,
+            governed_metrics=governed_context.get("metrics", []),
         )
 
     async def _validate_and_execute(
@@ -422,6 +423,7 @@ class QueryOrchestrator:
         trace: Optional[QueryTrace] = None,
         execute: bool = True,
         governed_tables: Optional[list[str]] = None,
+        governed_metrics: Optional[list[dict[str, Any]]] = None,
     ) -> QueryResponse:
         validation = await self._validator.validate(
             sql,
@@ -447,6 +449,8 @@ class QueryOrchestrator:
         correctness_checks = assess_query_correctness(
             affected_tables=validation.affected_tables,
             governed_tables=governed_tables or [],
+            sql=executable_sql,
+            governed_metrics=governed_metrics or [],
         )
         if trace is not None:
             trace.correctness_checks = correctness_checks
