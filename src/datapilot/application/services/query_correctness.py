@@ -130,6 +130,7 @@ def _grouping_checks(
     sql: str,
     *,
     required_grouping_columns: Iterable[str],
+    enforce_exact_grain: bool = False,
 ) -> list[dict[str, Any]]:
     required = {
         _normalise(column).rsplit(".", 1)[-1]
@@ -157,7 +158,17 @@ def _grouping_checks(
                 actual.add(_normalise(column.name))
 
     missing = sorted(required - actual)
-    if missing:
+    extra = sorted(actual - required) if enforce_exact_grain else []
+    if missing or extra:
+        message_parts: list[str] = []
+        if missing:
+            message_parts.append(
+                "missing governed dimensions: " + ", ".join(missing)
+            )
+        if extra:
+            message_parts.append(
+                "unexpected finer-grain dimensions: " + ", ".join(extra)
+            )
         return [{
             "code": "grouping_dimension_violation",
             "status": "failed",
@@ -165,7 +176,8 @@ def _grouping_checks(
             "required_columns": sorted(required),
             "actual_grouping_columns": sorted(actual),
             "missing_columns": missing,
-            "message": "Generated SQL does not group by all governed dimensions: " + ", ".join(missing),
+            "extra_columns": extra,
+            "message": "Generated SQL has incorrect governed grouping grain; " + "; ".join(message_parts),
         }]
 
     return [{
@@ -598,6 +610,7 @@ def assess_query_correctness(
     sql: str | None = None,
     governed_metrics: Iterable[dict[str, Any]] = (),
     required_grouping_columns: Iterable[str] = (),
+    enforce_exact_grouping_grain: bool = False,
     required_filters: Iterable[dict[str, Any]] = (),
     required_relationships: Iterable[dict[str, Any]] = (),
     required_time_plan: dict[str, Any] | None = None,
@@ -612,7 +625,11 @@ def assess_query_correctness(
     governed = [str(item) for item in governed_tables if str(item or "").strip()]
 
     metric_checks = _metric_expression_checks(sql, governed_metrics) if sql else []
-    grouping_checks = _grouping_checks(sql, required_grouping_columns=required_grouping_columns) if sql else []
+    grouping_checks = _grouping_checks(
+        sql,
+        required_grouping_columns=required_grouping_columns,
+        enforce_exact_grain=enforce_exact_grouping_grain,
+    ) if sql else []
     filter_checks = _filter_checks(sql, required_filters=required_filters) if sql else []
     relationship_checks = _relationship_checks(sql, required_relationships=required_relationships) if sql else []
     fanout_checks = _fanout_checks(sql, governed_metrics=governed_metrics, required_relationships=required_relationships) if sql else []
