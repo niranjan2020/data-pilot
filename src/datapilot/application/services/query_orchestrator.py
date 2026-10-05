@@ -326,6 +326,19 @@ class QueryOrchestrator:
                 message="The filter wording can refer to more than one governed attribute.",
             )
 
+        governed_filters = self._required_filters(
+            contextual_question,
+            governed_context.get("entities", []),
+            intent.filters,
+        )
+        governed_grouping_columns = self._required_grouping_columns(
+            contextual_question, governed_context.get("entities", [])
+        )
+        if governed_filters:
+            governed_context["resolved_filters"] = governed_filters
+        if governed_grouping_columns:
+            governed_context["required_grouping_columns"] = governed_grouping_columns
+
         parameters = self._merge_resolved_parameters(request.parameters, intent)
         trace.resolved_parameters = parameters
         governed_time_dimensions = governed_context.get("time_dimensions", [])
@@ -409,18 +422,8 @@ class QueryOrchestrator:
             execute=not request.dry_run,
             governed_tables=trace.physical_tables,
             governed_metrics=governed_context.get("metrics", []),
-            required_grouping_columns=self._required_grouping_columns(
-                contextual_question, governed_context.get("entities", [])
-            ),
-            required_filters=[
-                {
-                    "attribute": item.attribute,
-                    "column_name": item.column_name,
-                    "operator": item.operator,
-                    "value": item.value,
-                }
-                for item in intent.filters
-            ],
+            required_grouping_columns=governed_grouping_columns,
+            required_filters=governed_filters,
             required_relationships=self._required_relationships(governed_context),
             required_time_plan=time_interpretation,
         )
@@ -837,6 +840,87 @@ class QueryOrchestrator:
                 "to_column": relationship.get("to_column"),
                 "cardinality": relationship.get("cardinality"),
             })
+        return required
+
+    @staticmethod
+    def _required_filters(
+        question: str,
+        entities: list[dict[str, Any]],
+        intent_filters: list[Any],
+    ) -> list[dict[str, Any]]:
+        """Resolve deterministic governed filters used by generation and validation.
+
+        The legacy entity resolver remains a valid source, but governed semantic
+        attributes may also imply simple value filters (for example "red products")
+        even when the attribute name is omitted.
+        """
+        required: list[dict[str, Any]] = []
+        seen: set[tuple[str, str, str]] = set()
+
+        def add(attribute: Any, column: Any, operator: Any, value: Any) -> None:
+            column_name = str(column or "").strip()
+            filter_value = str(value or "").strip()
+            op = str(operator or "=").strip() or "="
+            key = (column_name.casefold(), op, filter_value.casefold())
+            if column_name and filter_value and key not in seen:
+                seen.add(key)
+                required.append({
+                    "attribute": str(attribute or column_name),
+                    "column_name": column_name,
+                    "operator": op,
+                    "value": filter_value,
+                })
+
+        for item in intent_filters:
+            add(item.attribute, item.column_name, item.operator, item.value)
+
+        normalized_tokens = re.findall(r"[a-z0-9]+", question.casefold())
+        stop_words = {
+            "show", "list", "give", "find", "get", "all", "top", "bottom",
+            "by", "for", "from", "with", "where", "and", "or", "the", "a", "an",
+            "revenue", "sales", "amount", "units", "unit", "sold", "count",
+        }
+        candidate_values = [
+            token for token in normalized_tokens
+            if token not in stop_words and not token.isdigit()
+        ]
+
+        for entity in entities:
+            entity_terms = {
+                token
+                for term in [entity.get("name"), *(entity.get("synonyms") or [])]
+                for token in re.findall(r"[a-z0-9]+", str(term or "").casefold())
+            }
+            values = [token for token in candidate_values if token not in entity_terms]
+            if not values:
+                continue
+            for attribute in entity.get("attributes") or []:
+                # Value-only inference is intentionally limited to categorical
+                # governed attributes. Free-text/display columns must not absorb
+                # arbitrary words from the question.
+                data_type = str(attribute.get("data_type") or "").casefold()
+                semantic_type = str(attribute.get("semantic_type") or "").casefold()
+                name = str(attribute.get("name") or "")
+                if not (
+                    semantic_type in {"category", "categorical", "dimension"}
+                    or name.casefold() in {"color", "colour"}
+                    or "char" in data_type
+                ):
+                    continue
+                for value in values:
+                    # A bare adjective/noun immediately before the governed entity
+                    # is a conservative value-only filter form: "red products".
+                    pattern_terms = [entity.get("name"), *(entity.get("synonyms") or [])]
+                    if any(
+                        re.search(
+                            rf"\\b{re.escape(value)}\\s+{re.escape(str(term or '').casefold())}s?\\b",
+                            question.casefold(),
+                        )
+                        for term in pattern_terms if str(term or "").strip()
+                    ):
+                        add(attribute.get("name"), attribute.get("column_name"), "=", value)
+                        break
+
         return required
 
     @staticmethod
