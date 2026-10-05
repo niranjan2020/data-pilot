@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from datapilot.core.exceptions import SQLValidationError
 from datapilot.application.services.query_orchestrator import QueryOrchestrator
 from datapilot.domain.models import SchemaMetadata
 from datapilot.domain.policies import QueryExecutionPolicy
@@ -794,3 +795,36 @@ def test_required_grouping_columns_resolves_attributes_across_entities():
         "Show revenue by product category and customer country",
         entities,
     ) == ["country", "category"]
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_blocks_partial_multi_dimension_sql_before_execution():
+    database = FakeDatabase()
+    generator = FakeSQLGenerator(
+        'SELECT country, SUM(amount) FROM records GROUP BY country'
+    )
+    orchestrator = QueryOrchestrator(
+        database,
+        FakeValidator(),
+        generator,
+        FakeCatalog(SemanticCatalog()),
+    )
+
+    with pytest.raises(SQLValidationError) as error:
+        await orchestrator._validate_and_execute(
+            question="Show revenue by customer country and customer segment",
+            sql=generator.sql,
+            source="generator",
+            confidence=1.0,
+            required_grouping_columns=["country", "segment"],
+        )
+
+    assert "governed correctness" in str(error.value).lower()
+    assert database.executed == []
+    details = error.value.details
+    failed_checks = details["checks"]
+    violation = next(
+        check for check in failed_checks
+        if check["code"] == "grouping_dimension_violation"
+    )
+    assert violation["missing_columns"] == ["segment"]
