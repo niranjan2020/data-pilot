@@ -19,7 +19,7 @@ class QueryRequest(BaseModel):
         default=False,
         description="Build and validate the query plan without executing SQL against the source database",
     )
-    follow_up_to_history_id: Optional[int] = Field(
+    clarification_selections: Dict[str, str] = Field(\n        default_factory=dict,\n        description="Explicit user selections used to resume a previously ambiguous query",\n    )\n    follow_up_to_history_id: Optional[int] = Field(
         default=None,
         ge=1,
         description="Explicit prior query-history item whose analytical context should be carried into this follow-up",
@@ -67,6 +67,23 @@ class QueryTrace(BaseModel):
     )
 
 
+class ClarificationOption(BaseModel):
+    """One explicit governed interpretation the user can choose."""
+
+    value: str
+    label: str
+    description: Optional[str] = None
+
+
+class ClarificationRequest(BaseModel):
+    """Structured ambiguity returned before SQL generation."""
+
+    kind: Literal["entity", "time_dimension", "metric", "attribute"]
+    key: str
+    question: str
+    options: List[ClarificationOption] = Field(default_factory=list)
+
+
 class QueryResponse(BaseModel):
     """End-to-end result of the Data Pilot query orchestration workflow."""
 
@@ -76,7 +93,7 @@ class QueryResponse(BaseModel):
     sql: Optional[str] = None
     result: Optional[Any] = None
     confidence: float = 0.0
-    semantic_ambiguities: List[str] = Field(default_factory=list)
+    semantic_ambiguities: List[str] = Field(default_factory=list)\n    clarification: Optional[ClarificationRequest] = None
     resolved_intent: Optional[QueryIntent] = None
     retrieved_context: List[Dict[str, Any]] = Field(default_factory=list)
     validation_warnings: List[str] = Field(default_factory=list)
