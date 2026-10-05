@@ -1044,5 +1044,231 @@
       ]
     },
     "notes": "Unambiguous governed attribute-synonym grouping with a metric and relationship traversal."
+  },
+  {
+    "id": "revenue-and-units-by-item",
+    "question": "Show sales and units sold by item",
+    "source_name": "AdventureWorks",
+    "expected": {
+      "datasets": [
+        "Production.Product",
+        "Sales.SalesOrderDetail"
+      ],
+      "entities": [
+        "Product",
+        "Sales Order Line"
+      ],
+      "relationships": [
+        "Sales Order Line to Product"
+      ],
+      "metrics": [
+        "Revenue",
+        "Units Sold"
+      ],
+      "excluded_entities": [
+        "Customer",
+        "Sales Order"
+      ],
+      "excluded_metrics": [
+        "Order Count",
+        "Average Order Value"
+      ],
+      "require_completed": true,
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "metric_expression_alignment",
+        "relationship_alignment",
+        "grouping_dimension_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "metric_expression_violation",
+        "relationship_violation",
+        "grouping_dimension_violation",
+        "join_fanout_violation"
+      ]
+    },
+    "notes": "Composes a Revenue synonym, a second metric, an entity synonym, relationship traversal and grouping."
+  },
+  {
+    "id": "top-red-items-by-revenue",
+    "question": "Show top 5 red items by revenue",
+    "source_name": "AdventureWorks",
+    "expected": {
+      "datasets": [
+        "Production.Product",
+        "Sales.SalesOrderDetail"
+      ],
+      "entities": [
+        "Product",
+        "Sales Order Line"
+      ],
+      "relationships": [
+        "Sales Order Line to Product"
+      ],
+      "metrics": [
+        "Revenue"
+      ],
+      "excluded_entities": [
+        "Customer",
+        "Sales Order"
+      ],
+      "excluded_metrics": [
+        "Units Sold",
+        "Order Count",
+        "Average Order Value"
+      ],
+      "require_completed": true,
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "metric_expression_alignment",
+        "relationship_alignment",
+        "filter_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "metric_expression_violation",
+        "relationship_violation",
+        "filter_violation",
+        "grouping_dimension_violation",
+        "join_fanout_violation"
+      ]
+    },
+    "notes": "Ranking by a derived metric while applying a governed categorical filter through an entity synonym."
+  },
+  {
+    "id": "top-red-products-by-units-sold",
+    "question": "Show top 5 red products by units sold",
+    "source_name": "AdventureWorks",
+    "expected": {
+      "datasets": [
+        "Production.Product",
+        "Sales.SalesOrderDetail"
+      ],
+      "entities": [
+        "Product",
+        "Sales Order Line"
+      ],
+      "relationships": [
+        "Sales Order Line to Product"
+      ],
+      "metrics": [
+        "Units Sold"
+      ],
+      "excluded_entities": [
+        "Customer",
+        "Sales Order"
+      ],
+      "excluded_metrics": [
+        "Revenue",
+        "Order Count",
+        "Average Order Value"
+      ],
+      "require_completed": true,
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "relationship_alignment",
+        "filter_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "relationship_violation",
+        "filter_violation",
+        "grouping_dimension_violation",
+        "join_fanout_violation"
+      ]
+    },
+    "notes": "Combines ranking, entity grouping and governed filter propagation."
+  },
+  {
+    "id": "order-count-and-average-value-by-customer",
+    "question": "Show order count and average order value by customer",
+    "source_name": "AdventureWorks",
+    "expected": {
+      "datasets": [
+        "Sales.Customer",
+        "Sales.SalesOrderHeader"
+      ],
+      "entities": [
+        "Customer",
+        "Sales Order"
+      ],
+      "relationships": [
+        "Sales Order to Customer"
+      ],
+      "metrics": [
+        "Order Count",
+        "Average Order Value"
+      ],
+      "excluded_entities": [
+        "Product",
+        "Sales Order Line"
+      ],
+      "excluded_metrics": [
+        "Revenue",
+        "Units Sold"
+      ],
+      "require_completed": true,
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "relationship_alignment",
+        "grouping_dimension_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "relationship_violation",
+        "grouping_dimension_violation",
+        "join_fanout_violation"
+      ]
+    },
+    "notes": "Two metrics owned by Sales Order grouped through the governed Customer relationship."
+  },
+  {
+    "id": "order-count-and-average-value-by-buyer",
+    "question": "Show order count and average order value by buyer",
+    "source_name": "AdventureWorks",
+    "expected": {
+      "datasets": [
+        "Sales.Customer",
+        "Sales.SalesOrderHeader"
+      ],
+      "entities": [
+        "Customer",
+        "Sales Order"
+      ],
+      "relationships": [
+        "Sales Order to Customer"
+      ],
+      "metrics": [
+        "Order Count",
+        "Average Order Value"
+      ],
+      "excluded_entities": [
+        "Product",
+        "Sales Order Line"
+      ],
+      "excluded_metrics": [
+        "Revenue",
+        "Units Sold"
+      ],
+      "require_completed": true,
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "relationship_alignment",
+        "grouping_dimension_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "relationship_violation",
+        "grouping_dimension_violation",
+        "join_fanout_violation"
+      ]
+    },
+    "notes": "Multi-metric grouping through the Customer entity synonym."
   }
 ]
