@@ -13,7 +13,7 @@ from datapilot.application.services.time_semantics import resolve_time_semantics
 from datapilot.application.services.result_presentation import plan_result_presentation
 from datapilot.application.services.result_summary import summarize_result
 from datapilot.application.services.query_correctness import assess_query_correctness
-from datapilot.core.exceptions import SQLValidationError
+from datapilot.core.exceptions import SemanticRetrievalError, SQLValidationError, TimeInterpretationError
 from datapilot.core.logging import get_logger
 from datapilot.domain.interfaces.database import DatabaseProvider
 from datapilot.domain.interfaces.entity_resolver import EntityResolver
@@ -84,27 +84,33 @@ class QueryOrchestrator:
         )
         retrieved_context: list[dict[str, Any]] = []
         if self._semantic_retriever is not None and request.source_name:
-            # Stage 1 discovers the relevant physical/business neighborhood rather
-            # than allowing rules/metrics to crowd datasets out of a flat top-k.
-            search_kinds = getattr(self._semantic_retriever, "search_kinds", None)
-            if search_kinds is not None:
-                seed_limit = max(4, min(self._semantic_retrieval_limit, 6))
-                structural_seeds = await search_kinds(
-                    request.source_name, contextual_question,
-                    ["dataset", "entity"], seed_limit,
-                )
-                # Stage 2 retrieves semantic intent objects independently. They do
-                # not select physical datasets; the authoritative catalog later
-                # constrains them to the Stage-1 dataset/entity neighborhood.
-                intent_seeds = await search_kinds(
-                    request.source_name, contextual_question,
-                    ["metric", "business_rule"], seed_limit,
-                )
-                retrieved_context = [*structural_seeds, *intent_seeds]
-            else:
-                retrieved_context = await self._semantic_retriever.search(
-                    request.source_name, contextual_question, self._semantic_retrieval_limit
-                )
+            try:
+                # Stage 1 discovers the relevant physical/business neighborhood rather
+                # than allowing rules/metrics to crowd datasets out of a flat top-k.
+                search_kinds = getattr(self._semantic_retriever, "search_kinds", None)
+                if search_kinds is not None:
+                    seed_limit = max(4, min(self._semantic_retrieval_limit, 6))
+                    structural_seeds = await search_kinds(
+                        request.source_name, contextual_question,
+                        ["dataset", "entity"], seed_limit,
+                    )
+                    # Stage 2 retrieves semantic intent objects independently. They do
+                    # not select physical datasets; the authoritative catalog later
+                    # constrains them to the Stage-1 dataset/entity neighborhood.
+                    intent_seeds = await search_kinds(
+                        request.source_name, contextual_question,
+                        ["metric", "business_rule"], seed_limit,
+                    )
+                    retrieved_context = [*structural_seeds, *intent_seeds]
+                else:
+                    retrieved_context = await self._semantic_retriever.search(
+                        request.source_name, contextual_question, self._semantic_retrieval_limit
+                    )
+            except Exception as exc:
+                raise SemanticRetrievalError(
+                    "Semantic retrieval failed",
+                    details={"source_name": request.source_name},
+                ) from exc
 
         logger.info(
             "query question=%r source=%r retrieval_stage=hierarchical_seeds retrieved=%s",
@@ -416,9 +422,20 @@ class QueryOrchestrator:
                 dimension for dimension in governed_time_dimensions
                 if str(dimension.get("name") or "").casefold() == selected_time_dimension.casefold()
             ]
-        time_interpretation = resolve_time_semantics(
-            contextual_question, governed_time_dimensions
-        )
+        try:
+            time_interpretation = resolve_time_semantics(
+                contextual_question, governed_time_dimensions
+            )
+        except Exception as exc:
+            raise TimeInterpretationError(
+                "Governed time interpretation failed",
+                details={
+                    "time_dimensions": [
+                        str(dimension.get("name") or "")
+                        for dimension in governed_time_dimensions
+                    ],
+                },
+            ) from exc
         if time_interpretation:
             trace.time_interpretation = time_interpretation
             if time_interpretation.get("status") == "ambiguous":
