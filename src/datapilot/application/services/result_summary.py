@@ -185,6 +185,51 @@ def _concentration_insights(
     }]
 
 
+
+def _outlier_insights(
+    columns: list[str], rows: list[Any], x_column: str | None, measure: str | None
+) -> list[dict[str, Any]]:
+    """Flag strong returned-row outliers using the robust IQR rule."""
+    points = _numeric_points(columns, rows, x_column, measure)
+    if len(points) < 4 or measure is None:
+        return []
+
+    ordered_values = sorted(value for _, value in points)
+
+    def median(values: list[float]) -> float:
+        size = len(values)
+        middle = size // 2
+        if size % 2:
+            return values[middle]
+        return (values[middle - 1] + values[middle]) / 2
+
+    middle = len(ordered_values) // 2
+    lower = ordered_values[:middle]
+    upper = ordered_values[middle:] if len(ordered_values) % 2 == 0 else ordered_values[middle + 1:]
+    q1, q3 = median(lower), median(upper)
+    iqr = q3 - q1
+    if iqr <= 0:
+        return []
+
+    lower_bound, upper_bound = q1 - (1.5 * iqr), q3 + (1.5 * iqr)
+    outliers = [
+        (label, value)
+        for label, value in points
+        if value < lower_bound or value > upper_bound
+    ]
+    return [
+        {
+            "type": "outlier",
+            "label": label,
+            "measure": measure,
+            "value": value,
+            "direction": "high" if value > upper_bound else "low",
+            "method": "iqr_1_5",
+            "scope": "returned_rows",
+        }
+        for label, value in outliers[:3]
+    ]
+
 def summarize_result(question: str, result: QueryResult, presentation: dict[str, Any]) -> dict[str, Any]:
     """Build a concise analytical answer only from returned rows; never infer missing facts."""
     kind = str(presentation.get("kind") or "table")
@@ -273,6 +318,7 @@ def summarize_result(question: str, result: QueryResult, presentation: dict[str,
 
             insights.extend(_distribution_insights(columns, rows, x_column, measure))
             insights.extend(_concentration_insights(columns, rows, x_column, measure))
+            insights.extend(_outlier_insights(columns, rows, x_column, measure))
             return {"text": text, "kind": kind, "grounded": True, "insights": insights, "diagnostics": diagnostics, "quality": quality}
 
     if kind == "trend":
