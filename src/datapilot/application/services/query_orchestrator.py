@@ -999,11 +999,38 @@ class QueryOrchestrator:
                     semantic = " ".join(
                         re.findall(r"[a-z0-9]+", str(term or "").casefold())
                     )
-                    if semantic and re.search(
+                    if not semantic:
+                        continue
+                    if re.search(
                         rf"\bby\s+(?:each\s+)?{re.escape(semantic)}(?:s)?\b",
                         normalized,
                     ):
                         attribute_matches.append((len(semantic.split()), column))
+                        continue
+
+                    # Governed entity + attribute composition: semantic catalogs
+                    # often store "Product" and "Color"/"colour" separately while
+                    # users naturally ask for "by product colour".
+                    for entity_term in [
+                        entity.get("name"),
+                        *(entity.get("synonyms") or []),
+                    ]:
+                        entity_semantic = " ".join(
+                            re.findall(
+                                r"[a-z0-9]+",
+                                str(entity_term or "").casefold(),
+                            )
+                        )
+                        if entity_semantic and re.search(
+                            rf"\bby\s+(?:each\s+)?"
+                            rf"{re.escape(entity_semantic)}(?:s)?\s+"
+                            rf"{re.escape(semantic)}(?:s)?\b",
+                            normalized,
+                        ):
+                            attribute_matches.append(
+                                (len(entity_semantic.split()) + len(semantic.split()), column)
+                            )
+                            break
 
             entity_column = str(
                 entity.get("display_column") or entity.get("key_column") or ""
