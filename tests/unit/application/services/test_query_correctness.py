@@ -140,6 +140,47 @@ def test_correctness_rejects_missing_required_grouping_dimension():
     assert grouping["missing_columns"] == ["name"]
 
 
+def test_correctness_rejects_partial_multi_dimension_grouping():
+    checks = assess_query_correctness(
+        affected_tables=["public.customers", "public.orders"],
+        governed_tables=["public.customers", "public.orders"],
+        sql=(
+            'SELECT "c"."country", SUM("o"."amount") '
+            'FROM "public"."customers" c '
+            'JOIN "public"."orders" o ON "c"."customer_id" = "o"."customer_id" '
+            'GROUP BY "c"."country"'
+        ),
+        required_grouping_columns=["country", "segment"],
+    )
+
+    violation = next(
+        check for check in checks
+        if check["code"] == "grouping_dimension_violation"
+    )
+    assert violation["status"] == "failed"
+    assert violation["missing_columns"] == ["segment"]
+
+
+def test_correctness_accepts_complete_multi_dimension_grouping():
+    checks = assess_query_correctness(
+        affected_tables=["public.customers", "public.orders"],
+        governed_tables=["public.customers", "public.orders"],
+        sql=(
+            'SELECT "c"."country", "c"."segment", SUM("o"."amount") '
+            'FROM "public"."customers" c '
+            'JOIN "public"."orders" o ON "c"."customer_id" = "o"."customer_id" '
+            'GROUP BY "c"."country", "c"."segment"'
+        ),
+        required_grouping_columns=["country", "segment"],
+    )
+
+    alignment = next(
+        check for check in checks
+        if check["code"] == "grouping_dimension_alignment"
+    )
+    assert alignment["status"] == "passed"
+
+
 def test_correctness_accepts_additional_grouping_when_required_dimension_is_present():
     checks = assess_query_correctness(
         affected_tables=["Production.Product"],
