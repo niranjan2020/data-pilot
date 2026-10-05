@@ -546,3 +546,55 @@ def test_correctness_accepts_comparison_envelope_range():
     assert any(item["code"] == "time_grain_alignment" for item in checks)
 
 
+
+
+def test_correctness_accepts_comparison_with_all_governed_period_boundaries():
+    plan = {
+        "status": "resolved",
+        "column_name": "OrderDate",
+        "grouping_grain": None,
+        "comparison": True,
+        "periods": [
+            {"label": "this month", "start": "2026-10-01", "end_exclusive": "2026-11-01"},
+            {"label": "last month", "start": "2026-09-01", "end_exclusive": "2026-10-01"},
+        ],
+    }
+    checks = assess_query_correctness(
+        affected_tables=["Sales.SalesOrderHeader"],
+        governed_tables=["Sales.SalesOrderHeader"],
+        sql="""SELECT
+                 SUM(CASE WHEN "OrderDate" >= DATE '2026-10-01' AND "OrderDate" < DATE '2026-11-01' THEN 1 ELSE 0 END),
+                 SUM(CASE WHEN "OrderDate" >= DATE '2026-09-01' AND "OrderDate" < DATE '2026-10-01' THEN 1 ELSE 0 END)
+               FROM "Sales"."SalesOrderHeader"
+               WHERE "OrderDate" >= DATE '2026-09-01' AND "OrderDate" < DATE '2026-11-01'""",
+        required_time_plan=plan,
+    )
+
+    assert any(item["code"] == "time_filter_alignment" for item in checks)
+    assert any(item["code"] == "time_comparison_alignment" for item in checks)
+    assert not any(item["code"] == "time_comparison_violation" for item in checks)
+
+
+def test_correctness_rejects_comparison_envelope_without_period_split():
+    plan = {
+        "status": "resolved",
+        "column_name": "OrderDate",
+        "grouping_grain": None,
+        "comparison": True,
+        "periods": [
+            {"label": "this month", "start": "2026-10-01", "end_exclusive": "2026-11-01"},
+            {"label": "last month", "start": "2026-09-01", "end_exclusive": "2026-10-01"},
+        ],
+    }
+    checks = assess_query_correctness(
+        affected_tables=["Sales.SalesOrderHeader"],
+        governed_tables=["Sales.SalesOrderHeader"],
+        sql="""SELECT COUNT(*) FROM "Sales"."SalesOrderHeader"
+               WHERE "OrderDate" >= DATE '2026-09-01' AND "OrderDate" < DATE '2026-11-01'""",
+        required_time_plan=plan,
+    )
+
+    assert any(item["code"] == "time_filter_alignment" for item in checks)
+    violation = next(item for item in checks if item["code"] == "time_comparison_violation")
+    assert violation["status"] == "failed"
+    assert violation["missing_period_boundaries"] == ["2026-10-01"]
