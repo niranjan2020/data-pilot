@@ -65,6 +65,10 @@ class QueryTrace(BaseModel):
     policy_sql: Optional[str] = None
     policy_warnings: List[str] = Field(default_factory=list)
     execution: Dict[str, Any] = Field(default_factory=dict)
+    clarification_selections: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Effective governed clarification choices, including inherited follow-up selections",
+    )
     conversation_context: Dict[str, Any] = Field(
         default_factory=dict,
         description="Explicit carried-forward context for a follow-up query; prior SQL is never reused",
