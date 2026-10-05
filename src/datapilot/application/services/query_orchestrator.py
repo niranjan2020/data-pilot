@@ -195,8 +195,17 @@ class QueryOrchestrator:
                 entity for entity in catalog.entities
                 if entity.name.casefold() == selected_entity.casefold()
             ]
-            if selected_entities:
-                resolver_catalog = catalog.model_copy(update={"entities": selected_entities})
+            if not selected_entities:
+                return QueryResponse(
+                    question=request.question,
+                    status="rejected",
+                    trace=trace,
+                    message=(
+                        f"The selected entity {selected_entity!r} is not present in the "
+                        "governed semantic catalog. No SQL was generated."
+                    ),
+                )
+            resolver_catalog = catalog.model_copy(update={"entities": selected_entities})
 
         intent = self._entity_resolver.resolve(contextual_question, resolver_catalog, schema)
         if (
