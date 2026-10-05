@@ -164,6 +164,7 @@ async def query(
             "governed_time_dimensions": parent_trace.get("governed_time_dimensions") or [],
             "time_interpretation": parent_trace.get("time_interpretation") or {},
             "resolved_parameters": parent_trace.get("resolved_parameters") or {},
+            "clarification_selections": parent_trace.get("clarification_selections") or {},
         }
 
     response = await orchestrator.query(
