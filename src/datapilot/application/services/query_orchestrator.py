@@ -913,7 +913,7 @@ class QueryOrchestrator:
                     pattern_terms = [entity.get("name"), *(entity.get("synonyms") or [])]
                     if any(
                         re.search(
-                            rf"\\b{re.escape(value)}\\s+{re.escape(str(term or '').casefold())}s?\\b",
+                            rf"\b{re.escape(value)}\s+{re.escape(str(term or '').casefold())}s?\b",
                             question.casefold(),
                         )
                         for term in pattern_terms if str(term or "").strip()
@@ -942,7 +942,7 @@ class QueryOrchestrator:
             entity_terms = [entity.get("name"), *(entity.get("synonyms") or [])]
             for term in entity_terms:
                 semantic = " ".join(re.findall(r"[a-z0-9]+", str(term or "").casefold()))
-                if semantic and re.search(rf"\\bby\\s+(?:each\\s+)?{re.escape(semantic)}(?:s)?\\b", normalized):
+                if semantic and re.search(rf"\bby\s+(?:each\s+)?{re.escape(semantic)}(?:s)?\b", normalized):
                     add(entity.get("display_column") or entity.get("key_column"))
                     break
             for attribute in entity.get("attributes") or []:
