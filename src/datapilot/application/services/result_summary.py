@@ -119,6 +119,48 @@ def assess_result_quality(
     }
 
 
+
+def _numeric_points(
+    columns: list[str], rows: list[Any], x_column: str | None, measure: str | None
+) -> list[tuple[Any, float]]:
+    if x_column not in columns or measure not in columns:
+        return []
+    xi, yi = columns.index(x_column), columns.index(measure)
+    points: list[tuple[Any, float]] = []
+    for row in rows:
+        value = _number(row[yi])
+        if value is not None:
+            points.append((row[xi], value))
+    return points
+
+
+def _distribution_insights(
+    columns: list[str], rows: list[Any], x_column: str | None, measure: str | None
+) -> list[dict[str, Any]]:
+    """Calculate deterministic extrema/share insights from returned rows only."""
+    points = _numeric_points(columns, rows, x_column, measure)
+    if not points or measure is None:
+        return []
+
+    maximum = max(points, key=lambda item: item[1])
+    minimum = min(points, key=lambda item: item[1])
+    insights: list[dict[str, Any]] = [
+        {"type": "maximum", "label": maximum[0], "measure": measure, "value": maximum[1]},
+        {"type": "minimum", "label": minimum[0], "measure": measure, "value": minimum[1]},
+    ]
+    total = sum(value for _, value in points)
+    if total > 0 and maximum[1] >= 0:
+        insights.append({
+            "type": "leader_share",
+            "label": maximum[0],
+            "measure": measure,
+            "value": maximum[1],
+            "share_percent": (maximum[1] / total) * 100,
+            "returned_total": total,
+        })
+    return insights
+
+
 def summarize_result(question: str, result: QueryResult, presentation: dict[str, Any]) -> dict[str, Any]:
     """Build a concise analytical answer only from returned rows; never infer missing facts."""
     kind = str(presentation.get("kind") or "table")
@@ -205,6 +247,7 @@ def summarize_result(question: str, result: QueryResult, presentation: dict[str,
                         {"type": "leader_gap", "runner_up": rows[1][xi], "measure": measure, "delta": gap}
                     )
 
+            insights.extend(_distribution_insights(columns, rows, x_column, measure))
             return {"text": text, "kind": kind, "grounded": True, "insights": insights, "diagnostics": diagnostics, "quality": quality}
 
     if kind == "trend":
@@ -243,6 +286,18 @@ def summarize_result(question: str, result: QueryResult, presentation: dict[str,
                         f"by {_display(abs(change['delta']))} ({abs(change['percent']):.1f}%)."
                     )
 
+            distribution = _distribution_insights(columns, rows, x_column, measure)
+            insights.extend(distribution)
+            points = _numeric_points(columns, rows, x_column, measure)
+            if len(points) >= 3:
+                deltas = [points[index][1] - points[index - 1][1] for index in range(1, len(points))]
+                direction = (
+                    "increasing" if all(delta > 0 for delta in deltas)
+                    else "decreasing" if all(delta < 0 for delta in deltas)
+                    else "flat" if all(delta == 0 for delta in deltas)
+                    else "mixed"
+                )
+                insights.append({"type": "trend_pattern", "measure": measure, "direction": direction})
             return {"text": text, "kind": kind, "grounded": True, "insights": insights, "diagnostics": diagnostics, "quality": quality}
 
     return {
