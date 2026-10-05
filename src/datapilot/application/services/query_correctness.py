@@ -154,6 +154,111 @@ def _grouping_checks(
     }]
 
 
+
+def _filter_checks(
+    sql: str,
+    *,
+    required_filters: Iterable[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Verify deterministic semantic filters are represented in SQL predicates."""
+    filters = [
+        item for item in required_filters
+        if str(item.get("column_name") or "").strip()
+    ]
+    if not filters:
+        return []
+
+    try:
+        tree = parse_one(sql, read="postgres")
+    except Exception:
+        return [{
+            "code": "filter_verification_unavailable",
+            "status": "skipped",
+            "severity": "info",
+            "message": "Filter verification could not parse the validated SQL.",
+        }]
+
+    operator_nodes: dict[str, type[exp.Expression]] = {
+        "=": exp.EQ,
+        "!=": exp.NEQ,
+        "<>": exp.NEQ,
+        ">": exp.GT,
+        ">=": exp.GTE,
+        "<": exp.LT,
+        "<=": exp.LTE,
+    }
+    checks: list[dict[str, Any]] = []
+
+    def literal_value(node: exp.Expression | None) -> str | None:
+        if isinstance(node, exp.Literal):
+            return str(node.this)
+        if isinstance(node, exp.Boolean):
+            return str(node.this).casefold()
+        if isinstance(node, exp.Null):
+            return "null"
+        return None
+
+    for item in filters:
+        column_name = _normalise(str(item.get("column_name") or "")).rsplit(".", 1)[-1]
+        operator = str(item.get("operator") or "=").strip()
+        expected_value = str(item.get("value") or "")
+        node_type = operator_nodes.get(operator)
+        if node_type is None:
+            checks.append({
+                "code": "filter_verification_unavailable",
+                "status": "skipped",
+                "severity": "info",
+                "column": column_name,
+                "operator": operator,
+                "message": f"Filter verification does not yet support operator {operator}.",
+            })
+            continue
+
+        matched = False
+        for predicate in tree.find_all(node_type):
+            left_columns = {
+                _normalise(column.name) for column in predicate.this.find_all(exp.Column)
+            } if predicate.this is not None else set()
+            right_columns = {
+                _normalise(column.name) for column in predicate.expression.find_all(exp.Column)
+            } if predicate.expression is not None else set()
+
+            if column_name in left_columns:
+                actual = literal_value(predicate.expression)
+            elif column_name in right_columns and operator == "=":
+                actual = literal_value(predicate.this)
+            else:
+                continue
+
+            if actual is not None and actual.casefold() == expected_value.casefold():
+                matched = True
+                break
+
+        if matched:
+            checks.append({
+                "code": "filter_alignment",
+                "status": "passed",
+                "severity": "info",
+                "attribute": item.get("attribute"),
+                "column": column_name,
+                "operator": operator,
+                "value": expected_value,
+                "message": f"SQL contains the governed filter on {column_name}.",
+            })
+        else:
+            checks.append({
+                "code": "filter_violation",
+                "status": "failed",
+                "severity": "error",
+                "attribute": item.get("attribute"),
+                "column": column_name,
+                "operator": operator,
+                "expected_value": expected_value,
+                "message": f"Generated SQL does not contain the governed filter {column_name} {operator} {expected_value!r}.",
+            })
+    return checks
+
+
 def assess_query_correctness(
     *,
     affected_tables: Iterable[str],
@@ -161,6 +266,7 @@ def assess_query_correctness(
     sql: str | None = None,
     governed_metrics: Iterable[dict[str, Any]] = (),
     required_grouping_columns: Iterable[str] = (),
+    required_filters: Iterable[dict[str, Any]] = (),
 ) -> list[dict[str, Any]]:
     """Return deterministic pre-execution alignment checks.
 
@@ -173,7 +279,8 @@ def assess_query_correctness(
 
     metric_checks = _metric_expression_checks(sql, governed_metrics) if sql else []
     grouping_checks = _grouping_checks(sql, required_grouping_columns=required_grouping_columns) if sql else []
-    semantic_checks = metric_checks + grouping_checks
+    filter_checks = _filter_checks(sql, required_filters=required_filters) if sql else []
+    semantic_checks = metric_checks + grouping_checks + filter_checks
 
     if not governed:
         return semantic_checks + [{
