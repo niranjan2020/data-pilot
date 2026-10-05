@@ -690,3 +690,49 @@ def test_required_grouping_columns_uses_exact_metric_ranking_clause_with_multipl
         entities,
         metrics=metrics,
     ) == ["CustomerID"]
+
+
+@pytest.mark.asyncio
+async def test_invalid_metric_clarification_selection_is_rejected_before_generation():
+    generator = FakeSQLGenerator()
+    orchestrator = QueryOrchestrator(
+        FakeDatabase(),
+        FakeValidator(),
+        generator,
+        FakeCatalog(SemanticCatalog()),
+        semantic_retriever=FakeSemanticRetriever(),
+        semantic_context_assembler=FakeSemanticContextAssembler(),
+    )
+
+    response = await orchestrator.query(QueryRequest(
+        question="Show sales",
+        source_name="AdventureWorks",
+        clarification_selections={"metric": "Profit"},
+    ))
+
+    assert response.status == "rejected"
+    assert response.sql is None
+    assert generator.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_invalid_attribute_clarification_selection_is_rejected_before_generation():
+    generator = FakeSQLGenerator()
+    orchestrator = QueryOrchestrator(
+        FakeDatabase(),
+        FakeValidator(),
+        generator,
+        FakeCatalog(SemanticCatalog()),
+        semantic_retriever=FakeSemanticRetriever(),
+        semantic_context_assembler=FakeAttributeSemanticContextAssembler(),
+    )
+
+    response = await orchestrator.query(QueryRequest(
+        question="Show customers by region",
+        source_name="AdventureWorks",
+        clarification_selections={"attribute": "Customer.Secret Region"},
+    ))
+
+    assert response.status == "rejected"
+    assert response.sql is None
+    assert generator.calls == 0
