@@ -567,10 +567,24 @@ class QueryOrchestrator:
         failed_correctness = [
             check for check in correctness_checks if check.get("status") == "failed"
         ]
-        if failed_correctness:
+        unavailable_required_codes = {
+            "metric_expression_verification_unavailable",
+            "grouping_verification_unavailable",
+            "filter_verification_unavailable",
+            "relationship_verification_unavailable",
+            "time_verification_unavailable",
+        }
+        unavailable_required = [
+            check
+            for check in correctness_checks
+            if check.get("status") == "skipped"
+            and check.get("code") in unavailable_required_codes
+        ]
+        blocking_correctness = [*failed_correctness, *unavailable_required]
+        if blocking_correctness:
             raise SQLValidationError(
                 "Generated SQL failed governed correctness checks",
-                details={"checks": failed_correctness},
+                details={"checks": blocking_correctness},
             )
 
         policy_result = self._query_policy_enforcer.enforce(
