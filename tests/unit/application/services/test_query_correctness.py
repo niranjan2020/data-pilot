@@ -116,3 +116,66 @@ def test_correctness_accepts_additional_grouping_when_required_dimension_is_pres
         required_grouping_columns=["Name"],
     )
     assert any(check["code"] == "grouping_dimension_alignment" for check in checks)
+
+
+def test_correctness_passes_governed_filter():
+    checks = assess_query_correctness(
+        affected_tables=["Production.Product"],
+        governed_tables=["Production.Product"],
+        sql='SELECT "Name" FROM "Production"."Product" WHERE "Color" = \'Red\'',
+        required_filters=[{
+            "attribute": "Color",
+            "column_name": "Color",
+            "operator": "=",
+            "value": "Red",
+        }],
+    )
+    check = next(item for item in checks if item["code"] == "filter_alignment")
+    assert check["status"] == "passed"
+
+
+def test_correctness_rejects_missing_governed_filter():
+    checks = assess_query_correctness(
+        affected_tables=["Production.Product"],
+        governed_tables=["Production.Product"],
+        sql='SELECT "Name" FROM "Production"."Product"',
+        required_filters=[{
+            "attribute": "Color",
+            "column_name": "Color",
+            "operator": "=",
+            "value": "Red",
+        }],
+    )
+    check = next(item for item in checks if item["code"] == "filter_violation")
+    assert check["status"] == "failed"
+
+
+def test_correctness_rejects_wrong_governed_filter_value():
+    checks = assess_query_correctness(
+        affected_tables=["Production.Product"],
+        governed_tables=["Production.Product"],
+        sql='SELECT "Name" FROM "Production"."Product" WHERE "Color" = \'Blue\'',
+        required_filters=[{
+            "attribute": "Color",
+            "column_name": "Color",
+            "operator": "=",
+            "value": "Red",
+        }],
+    )
+    check = next(item for item in checks if item["code"] == "filter_violation")
+    assert check["expected_value"] == "Red"
+
+
+def test_correctness_accepts_qualified_governed_filter():
+    checks = assess_query_correctness(
+        affected_tables=["Production.Product"],
+        governed_tables=["Production.Product"],
+        sql='SELECT "p"."Name" FROM "Production"."Product" p WHERE "p"."Color" = \'Red\'',
+        required_filters=[{
+            "attribute": "Color",
+            "column_name": "Color",
+            "operator": "=",
+            "value": "Red",
+        }],
+    )
+    assert any(item["code"] == "filter_alignment" for item in checks)
