@@ -422,6 +422,7 @@ class QueryOrchestrator:
                 for item in intent.filters
             ],
             required_relationships=self._required_relationships(governed_context),
+            required_time_plan=time_interpretation,
         )
 
     async def _validate_and_execute(
@@ -440,6 +441,7 @@ class QueryOrchestrator:
         required_grouping_columns: Optional[list[str]] = None,
         required_filters: Optional[list[dict[str, Any]]] = None,
         required_relationships: Optional[list[dict[str, Any]]] = None,
+        required_time_plan: Optional[dict[str, Any]] = None,
     ) -> QueryResponse:
         validation = await self._validator.validate(
             sql,
@@ -470,6 +472,7 @@ class QueryOrchestrator:
             required_grouping_columns=required_grouping_columns or [],
             required_filters=required_filters or [],
             required_relationships=required_relationships or [],
+            required_time_plan=required_time_plan,
         )
         if trace is not None:
             trace.correctness_checks = correctness_checks
