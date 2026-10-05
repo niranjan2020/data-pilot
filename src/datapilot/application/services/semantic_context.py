@@ -182,15 +182,29 @@ class SemanticContextAssembler:
             if best_specificity:
                 explicit_entity_matches.append((entity["id"], best_specificity))
 
-        max_entity_specificity = max(
-            (specificity for _, specificity in explicit_entity_matches),
-            default=0,
-        )
-        explicit_entity_ids: set[int] = {
-            entity_id
-            for entity_id, specificity in explicit_entity_matches
-            if specificity == max_entity_specificity
-        }
+        # Keep independent explicit entities even when their phrase lengths
+        # differ. Suppress only an entity whose matched phrase is wholly contained
+        # in a longer matched entity phrase (for example "order" inside
+        # "order line"). A global max-specificity rule incorrectly drops valid
+        # multi-entity questions such as "by product category and customer country".
+        explicit_entity_ids: set[int] = set()
+        for entity_id, _ in explicit_entity_matches:
+            phrases = explicit_entity_phrases.get(entity_id, set())
+            shadowed = False
+            for other_id, _ in explicit_entity_matches:
+                if other_id == entity_id:
+                    continue
+                other_phrases = explicit_entity_phrases.get(other_id, set())
+                if any(
+                    len(other_phrase.split()) > len(phrase.split())
+                    and f" {phrase} " in f" {other_phrase} "
+                    for phrase in phrases
+                    for other_phrase in other_phrases
+                ):
+                    shadowed = True
+                    break
+            if not shadowed:
+                explicit_entity_ids.add(entity_id)
 
         if explicit_entity_ids:
             entity_ids = set(explicit_entity_ids)
