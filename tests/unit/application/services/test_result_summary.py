@@ -223,3 +223,33 @@ def test_postgresql_decimal_ranking_produces_grounded_insights():
     assert by_type["maximum"]["label"] == "Mountain-200 Black, 38"
     assert by_type["minimum"]["label"] == "Road-250 Black, 44"
     assert by_type["leader_share"]["share_percent"] > 0
+
+
+def test_ranking_reports_top_three_concentration_within_returned_rows():
+    result = _result(
+        ["product", "revenue"],
+        [["A", 40], ["B", 30], ["C", 20], ["D", 10]],
+    )
+    summary = summarize_result(
+        "top products by revenue",
+        result,
+        {"kind": "ranking", "x_column": "product", "y_columns": ["revenue"]},
+    )
+    insight = next(item for item in summary["insights"] if item["type"] == "top_n_share")
+    assert insight["n"] == 3
+    assert insight["share_percent"] == 90.0
+    assert insight["returned_total"] == 100
+    assert insight["scope"] == "returned_rows"
+
+
+def test_ranking_concentration_does_not_claim_share_for_non_positive_total():
+    result = _result(
+        ["product", "change"],
+        [["A", 10], ["B", -10]],
+    )
+    summary = summarize_result(
+        "rank products by change",
+        result,
+        {"kind": "ranking", "x_column": "product", "y_columns": ["change"]},
+    )
+    assert not any(item["type"] == "top_n_share" for item in summary["insights"])
