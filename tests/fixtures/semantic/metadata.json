@@ -202,7 +202,12 @@
         "month",
         "quarter",
         "year"
-      ]
+      ],
+      "entity_name": "Order",
+      "schema_name": "public",
+      "table_name": "orders",
+      "grain": "day",
+      "timezone": "UTC"
     }
   ]
 }
