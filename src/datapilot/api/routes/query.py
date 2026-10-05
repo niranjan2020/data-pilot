@@ -143,9 +143,20 @@ async def query(
                 detail="Only completed or dry-run queries can be used as follow-up context",
             )
         parent_trace = saved_response.get("trace") or {}
+        parent_conversation = parent_trace.get("conversation_context") or {}
+        prior_turns = list(parent_conversation.get("analytical_turns") or [])
+        if not prior_turns:
+            root_question = str(parent_conversation.get("previous_question") or "").strip()
+            if root_question:
+                prior_turns.append(root_question)
+        parent_question = str(parent["question"]).strip()
+        if parent_question and (not prior_turns or prior_turns[-1] != parent_question):
+            prior_turns.append(parent_question)
+
         conversation_context = {
             "parent_history_id": parent["id"],
             "previous_question": parent["question"],
+            "analytical_turns": prior_turns,
             "governed_datasets": parent_trace.get("governed_datasets") or [],
             "governed_entities": parent_trace.get("governed_entities") or [],
             "governed_metrics": parent_trace.get("governed_metrics") or [],
