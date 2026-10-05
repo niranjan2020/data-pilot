@@ -409,6 +409,9 @@ class QueryOrchestrator:
             execute=not request.dry_run,
             governed_tables=trace.physical_tables,
             governed_metrics=governed_context.get("metrics", []),
+            required_grouping_columns=self._required_grouping_columns(
+                contextual_question, governed_context.get("entities", [])
+            ),
         )
 
     async def _validate_and_execute(
@@ -424,6 +427,7 @@ class QueryOrchestrator:
         execute: bool = True,
         governed_tables: Optional[list[str]] = None,
         governed_metrics: Optional[list[dict[str, Any]]] = None,
+        required_grouping_columns: Optional[list[str]] = None,
     ) -> QueryResponse:
         validation = await self._validator.validate(
             sql,
@@ -451,6 +455,7 @@ class QueryOrchestrator:
             governed_tables=governed_tables or [],
             sql=executable_sql,
             governed_metrics=governed_metrics or [],
+            required_grouping_columns=required_grouping_columns or [],
         )
         if trace is not None:
             trace.correctness_checks = correctness_checks
@@ -791,6 +796,37 @@ class QueryOrchestrator:
                 if tokens.intersection(location_terms):
                     add(entity, attribute)
         return candidates if len(candidates) > 1 else []
+
+    @staticmethod
+    def _required_grouping_columns(
+        question: str, entities: list[dict[str, Any]]
+    ) -> list[str]:
+        """Resolve explicit 'by <entity/attribute>' dimensions to governed columns."""
+        normalized = " ".join(re.findall(r"[a-z0-9]+", question.casefold()))
+        required: list[str] = []
+        seen: set[str] = set()
+
+        def add(column: Any) -> None:
+            value = str(column or "").strip()
+            if value and value.casefold() not in seen:
+                seen.add(value.casefold())
+                required.append(value)
+
+        for entity in entities:
+            entity_terms = [entity.get("name"), *(entity.get("synonyms") or [])]
+            for term in entity_terms:
+                semantic = " ".join(re.findall(r"[a-z0-9]+", str(term or "").casefold()))
+                if semantic and re.search(rf"\\bby\\s+(?:each\\s+)?{re.escape(semantic)}(?:s)?\\b", normalized):
+                    add(entity.get("display_column") or entity.get("key_column"))
+                    break
+            for attribute in entity.get("attributes") or []:
+                terms = [attribute.get("name"), *(attribute.get("synonyms") or [])]
+                for term in terms:
+                    semantic = " ".join(re.findall(r"[a-z0-9]+", str(term or "").casefold()))
+                    if semantic and re.search(rf"\\bby\\s+(?:each\\s+)?{re.escape(semantic)}(?:s)?\\b", normalized):
+                        add(attribute.get("column_name"))
+                        break
+        return required
 
     @staticmethod
     def _merge_resolved_parameters(
