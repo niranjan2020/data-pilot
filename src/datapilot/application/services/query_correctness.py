@@ -101,12 +101,66 @@ def _metric_expression_checks(sql: str, governed_metrics: Iterable[dict[str, Any
     return checks
 
 
+
+def _grouping_checks(
+    sql: str,
+    *,
+    required_grouping_columns: Iterable[str],
+) -> list[dict[str, Any]]:
+    required = {
+        _normalise(column).rsplit(".", 1)[-1]
+        for column in required_grouping_columns
+        if str(column or "").strip()
+    }
+    if not required:
+        return []
+
+    try:
+        tree = parse_one(sql, read="postgres")
+    except Exception:
+        return [{
+            "code": "grouping_verification_unavailable",
+            "status": "skipped",
+            "severity": "info",
+            "message": "Grouping verification could not parse the validated SQL.",
+        }]
+
+    group = tree.args.get("group")
+    actual: set[str] = set()
+    if group is not None:
+        for expression in group.expressions:
+            for column in expression.find_all(exp.Column):
+                actual.add(_normalise(column.name))
+
+    missing = sorted(required - actual)
+    if missing:
+        return [{
+            "code": "grouping_dimension_violation",
+            "status": "failed",
+            "severity": "error",
+            "required_columns": sorted(required),
+            "actual_grouping_columns": sorted(actual),
+            "missing_columns": missing,
+            "message": "Generated SQL does not group by all governed dimensions: " + ", ".join(missing),
+        }]
+
+    return [{
+        "code": "grouping_dimension_alignment",
+        "status": "passed",
+        "severity": "info",
+        "required_columns": sorted(required),
+        "actual_grouping_columns": sorted(actual),
+        "message": "SQL grouping contains all governed dimensions required by the question.",
+    }]
+
+
 def assess_query_correctness(
     *,
     affected_tables: Iterable[str],
     governed_tables: Iterable[str],
     sql: str | None = None,
     governed_metrics: Iterable[dict[str, Any]] = (),
+    required_grouping_columns: Iterable[str] = (),
 ) -> list[dict[str, Any]]:
     """Return deterministic pre-execution alignment checks.
 
@@ -118,9 +172,11 @@ def assess_query_correctness(
     governed = [str(item) for item in governed_tables if str(item or "").strip()]
 
     metric_checks = _metric_expression_checks(sql, governed_metrics) if sql else []
+    grouping_checks = _grouping_checks(sql, required_grouping_columns=required_grouping_columns) if sql else []
+    semantic_checks = metric_checks + grouping_checks
 
     if not governed:
-        return metric_checks + [{
+        return semantic_checks + [{
             "code": "governed_scope_unavailable",
             "status": "skipped",
             "severity": "info",
