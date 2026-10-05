@@ -1,0 +1,187 @@
+{
+  "source": {
+    "id": 1,
+    "name": "Generic Commerce"
+  },
+  "datasets": [
+    {
+      "id": 101,
+      "schema_name": "public",
+      "table_name": "customers",
+      "name": "public.customers",
+      "description": "Customer master"
+    },
+    {
+      "id": 102,
+      "schema_name": "public",
+      "table_name": "products",
+      "name": "public.products",
+      "description": "Product master"
+    },
+    {
+      "id": 103,
+      "schema_name": "public",
+      "table_name": "orders",
+      "name": "public.orders",
+      "description": "Customer orders"
+    }
+  ],
+  "entities": [
+    {
+      "id": 201,
+      "name": "Customer",
+      "description": "A customer that places orders",
+      "synonyms": [
+        "buyer"
+      ],
+      "schema_name": "public",
+      "table_name": "customers",
+      "key_column": "customer_id",
+      "display_column": "customer_name",
+      "attributes": [
+        {
+          "name": "Country",
+          "description": "Customer country",
+          "synonyms": [
+            "nation"
+          ],
+          "column_name": "country",
+          "operators": [
+            "="
+          ]
+        },
+        {
+          "name": "Segment",
+          "description": "Customer business segment",
+          "synonyms": [
+            "customer segment"
+          ],
+          "column_name": "segment",
+          "operators": [
+            "="
+          ]
+        }
+      ]
+    },
+    {
+      "id": 202,
+      "name": "Product",
+      "description": "A product sold through orders",
+      "synonyms": [
+        "item"
+      ],
+      "schema_name": "public",
+      "table_name": "products",
+      "key_column": "product_id",
+      "display_column": "product_name",
+      "attributes": [
+        {
+          "name": "Category",
+          "description": "Product category",
+          "synonyms": [
+            "product category"
+          ],
+          "column_name": "category",
+          "operators": [
+            "="
+          ]
+        }
+      ]
+    },
+    {
+      "id": 203,
+      "name": "Order",
+      "description": "A customer purchase order",
+      "synonyms": [
+        "purchase"
+      ],
+      "schema_name": "public",
+      "table_name": "orders",
+      "key_column": "order_id",
+      "display_column": "order_id",
+      "attributes": [
+        {
+          "name": "Order Date",
+          "description": "Date the order was placed",
+          "synonyms": [
+            "purchase date"
+          ],
+          "column_name": "order_date",
+          "operators": [
+            "="
+          ]
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "id": 301,
+      "name": "Order to Customer",
+      "from_entity_id": 203,
+      "to_entity_id": 201,
+      "from_column": "customer_id",
+      "to_column": "customer_id",
+      "relationship_type": "many_to_one"
+    },
+    {
+      "id": 302,
+      "name": "Order to Product",
+      "from_entity_id": 203,
+      "to_entity_id": 202,
+      "from_column": "product_id",
+      "to_column": "product_id",
+      "relationship_type": "many_to_one"
+    }
+  ],
+  "metrics": [
+    {
+      "id": 401,
+      "name": "Revenue",
+      "description": "Total order amount",
+      "synonyms": [
+        "sales",
+        "sales amount"
+      ],
+      "expression": "SUM(amount)",
+      "entity_id": 203,
+      "default_table": "orders",
+      "dimensions": [
+        "Customer",
+        "Product"
+      ]
+    },
+    {
+      "id": 402,
+      "name": "Units Sold",
+      "description": "Total quantity ordered",
+      "synonyms": [
+        "quantity sold"
+      ],
+      "expression": "SUM(quantity)",
+      "entity_id": 203,
+      "default_table": "orders",
+      "dimensions": [
+        "Customer",
+        "Product"
+      ]
+    },
+    {
+      "id": 403,
+      "name": "Order Count",
+      "description": "Number of distinct orders",
+      "synonyms": [
+        "number of orders"
+      ],
+      "expression": "COUNT(DISTINCT order_id)",
+      "entity_id": 203,
+      "default_table": "orders",
+      "dimensions": [
+        "Customer",
+        "Product"
+      ]
+    }
+  ],
+  "business_rules": [],
+  "time_dimensions": []
+}
