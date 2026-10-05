@@ -154,3 +154,51 @@ def test_result_quality_empty_is_not_analytically_usable():
     )
     assert summary["quality"]["status"] == "empty"
     assert summary["quality"]["usable"] is False
+
+
+
+def test_ranking_adds_extrema_and_leader_share_from_returned_rows():
+    summary = summarize_result(
+        "top products by revenue",
+        _result(["Product", "Revenue"], [["A", 60.0], ["B", 30.0], ["C", 10.0]]),
+        {"kind": "ranking", "x_column": "Product", "y_columns": ["Revenue"]},
+    )
+    by_type = {item["type"]: item for item in summary["insights"]}
+    assert by_type["maximum"]["label"] == "A"
+    assert by_type["minimum"]["label"] == "C"
+    assert by_type["leader_share"]["share_percent"] == 60.0
+    assert by_type["leader_share"]["returned_total"] == 100.0
+
+
+def test_trend_adds_extrema_and_monotonic_pattern():
+    summary = summarize_result(
+        "monthly revenue",
+        _result(["Month", "Revenue"], [["Jan", 10.0], ["Feb", 20.0], ["Mar", 35.0]]),
+        {"kind": "trend", "x_column": "Month", "y_columns": ["Revenue"]},
+    )
+    by_type = {item["type"]: item for item in summary["insights"]}
+    assert by_type["maximum"]["label"] == "Mar"
+    assert by_type["minimum"]["label"] == "Jan"
+    assert by_type["trend_pattern"]["direction"] == "increasing"
+
+
+def test_trend_pattern_is_mixed_when_returned_values_reverse_direction():
+    summary = summarize_result(
+        "monthly revenue",
+        _result(["Month", "Revenue"], [["Jan", 10.0], ["Feb", 25.0], ["Mar", 20.0]]),
+        {"kind": "trend", "x_column": "Month", "y_columns": ["Revenue"]},
+    )
+    pattern = next(item for item in summary["insights"] if item["type"] == "trend_pattern")
+    assert pattern["direction"] == "mixed"
+
+
+def test_distribution_insights_ignore_null_measure_rows():
+    summary = summarize_result(
+        "top products",
+        _result(["Product", "Revenue"], [["A", 50.0], ["B", None], ["C", 25.0]]),
+        {"kind": "ranking", "x_column": "Product", "y_columns": ["Revenue"]},
+    )
+    by_type = {item["type"]: item for item in summary["insights"]}
+    assert by_type["maximum"]["label"] == "A"
+    assert by_type["minimum"]["label"] == "C"
+    assert round(by_type["leader_share"]["share_percent"], 1) == 66.7
