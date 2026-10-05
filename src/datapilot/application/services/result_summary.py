@@ -292,6 +292,57 @@ def _trend_movement_insights(
         })
     return insights
 
+
+def _trend_dynamics_insights(
+    columns: list[str], rows: list[Any], x_column: str | None, measure: str | None
+) -> list[dict[str, Any]]:
+    """Detect grounded reversals and changes in period-to-period momentum."""
+    points = _numeric_points(columns, rows, x_column, measure)
+    if len(points) < 3 or measure is None:
+        return []
+
+    deltas = [points[i][1] - points[i - 1][1] for i in range(1, len(points))]
+    insights: list[dict[str, Any]] = []
+
+    for i in range(1, len(deltas)):
+        previous_delta, current_delta = deltas[i - 1], deltas[i]
+        if previous_delta > 0 and current_delta < 0:
+            turning_type = "peak"
+        elif previous_delta < 0 and current_delta > 0:
+            turning_type = "trough"
+        else:
+            continue
+        label, value = points[i]
+        insights.append({
+            "type": "turning_point", "turning_type": turning_type,
+            "label": label, "measure": measure, "value": value,
+            "previous_delta": previous_delta, "next_delta": current_delta,
+            "scope": "returned_periods",
+        })
+
+    momentum_changes: list[dict[str, Any]] = []
+    for i in range(1, len(deltas)):
+        previous_delta, current_delta = deltas[i - 1], deltas[i]
+        magnitude_change = abs(current_delta) - abs(previous_delta)
+        momentum = "accelerating" if magnitude_change > 0 else "decelerating" if magnitude_change < 0 else "steady"
+        momentum_changes.append({
+            "type": "trend_momentum", "from_label": points[i][0],
+            "to_label": points[i + 1][0], "measure": measure,
+            "previous_delta": previous_delta, "current_delta": current_delta,
+            "delta_change": current_delta - previous_delta,
+            "magnitude_change": magnitude_change, "momentum": momentum,
+            "scope": "returned_periods",
+        })
+
+    if momentum_changes:
+        strongest = max(momentum_changes, key=lambda item: abs(item["magnitude_change"]))
+        insights.append({
+            "type": "strongest_momentum_change",
+            **{key: value for key, value in strongest.items() if key != "type"},
+        })
+    return insights
+
+
 def summarize_result(question: str, result: QueryResult, presentation: dict[str, Any]) -> dict[str, Any]:
     """Build a concise analytical answer only from returned rows; never infer missing facts."""
     kind = str(presentation.get("kind") or "table")
@@ -432,6 +483,7 @@ def summarize_result(question: str, result: QueryResult, presentation: dict[str,
                 )
                 insights.append({"type": "trend_pattern", "measure": measure, "direction": direction})
             insights.extend(_trend_movement_insights(columns, rows, x_column, measure))
+            insights.extend(_trend_dynamics_insights(columns, rows, x_column, measure))
             return {"text": text, "kind": kind, "grounded": True, "insights": insights, "diagnostics": diagnostics, "quality": quality}
 
     return {
