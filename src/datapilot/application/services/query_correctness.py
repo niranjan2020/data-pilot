@@ -501,11 +501,9 @@ def _time_checks(
 
     checks: list[dict[str, Any]] = []
 
-    # A comparison can be represented as one envelope range plus time grouping or
-    # conditional aggregates. Its deterministic filter boundary is the union of
-    # all governed periods.
-    if plan.get("comparison") and plan.get("periods"):
-        periods = plan["periods"]
+    comparison_periods = plan.get("periods") if plan.get("comparison") else None
+    if comparison_periods:
+        periods = comparison_periods
         expected_start = min(str(period["start"]) for period in periods)
         expected_end = max(str(period["end_exclusive"]) for period in periods)
     else:
@@ -545,6 +543,32 @@ def _time_checks(
                 "missing_lower_bound": not lower_ok,
                 "missing_upper_bound": not upper_ok,
                 "message": "Generated SQL does not preserve the resolved governed half-open time range.",
+            })
+
+    if comparison_periods:
+        sql_text = sql.casefold()
+        missing_period_boundaries: list[str] = []
+        for period in comparison_periods:
+            for boundary_name in ("start", "end_exclusive"):
+                boundary = str(period.get(boundary_name) or "")
+                if boundary and boundary.casefold() not in sql_text:
+                    missing_period_boundaries.append(boundary)
+        if missing_period_boundaries:
+            checks.append({
+                "code": "time_comparison_violation",
+                "status": "failed",
+                "severity": "error",
+                "column": column_name,
+                "missing_period_boundaries": sorted(set(missing_period_boundaries)),
+                "message": "Generated SQL does not preserve every governed comparison-period boundary.",
+            })
+        else:
+            checks.append({
+                "code": "time_comparison_alignment",
+                "status": "passed",
+                "severity": "info",
+                "column": column_name,
+                "message": "SQL preserves every governed comparison-period boundary.",
             })
 
     grain = str(plan.get("grouping_grain") or "").strip().casefold()
