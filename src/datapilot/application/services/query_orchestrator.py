@@ -504,7 +504,14 @@ class QueryOrchestrator:
         still performs fresh retrieval, SQL generation, validation and policy checks.
         """
         previous_question = str(conversation_context.get("previous_question") or "").strip()
-        if not previous_question:
+        analytical_turns = [
+            str(turn).strip()
+            for turn in (conversation_context.get("analytical_turns") or [])
+            if str(turn).strip()
+        ]
+        if not analytical_turns and previous_question:
+            analytical_turns = [previous_question]
+        if not analytical_turns:
             return question
 
         metrics = ", ".join(conversation_context.get("governed_metrics") or [])
@@ -516,8 +523,9 @@ class QueryOrchestrator:
             ) if part
         )
         suffix = f" ({semantic_hint})" if semantic_hint else ""
+        lineage = " -> ".join(analytical_turns)
         return (
-            f"Previous analytical question: {previous_question}{suffix}. "
+            f"Prior analytical turns: {lineage}{suffix}. "
             f"Current follow-up: {question}"
         )
 
