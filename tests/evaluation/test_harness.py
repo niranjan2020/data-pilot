@@ -1,3 +1,4 @@
+import pytest
 from tests.evaluation.harness import EvaluationCase, EvaluationExpectation, EvaluationResult, EvaluationSummary
 
 
@@ -111,3 +112,40 @@ def test_evaluation_case_can_group_follow_up_conversation():
     )
 
     assert case.conversation_id == "product-revenue"
+
+
+def test_evaluation_summary_counts_structured_failure_categories():
+    summary = EvaluationSummary(results=[
+        EvaluationResult(
+            case_id="semantic",
+            passed=False,
+            failures=("missing expected entities: Customer",),
+            failure_categories=("semantic_resolution",),
+        ),
+        EvaluationResult(
+            case_id="correctness",
+            passed=False,
+            failures=("unexpected correctness checks: time_grain_violation",),
+            failure_categories=("governed_correctness", "time_interpretation"),
+        ),
+        EvaluationResult(case_id="pass", passed=True),
+    ])
+
+    assert summary.failure_category_counts["semantic_resolution"] == 1
+    assert summary.failure_category_counts["governed_correctness"] == 1
+    assert summary.failure_category_counts["time_interpretation"] == 1
+    assert summary.failure_category_counts["execution"] == 0
+    assert summary.failure_category_rates["semantic_resolution"] == pytest.approx(1 / 3)
+
+
+def test_evaluation_summary_deduplicates_category_per_case():
+    summary = EvaluationSummary(results=[
+        EvaluationResult(
+            case_id="multiple-correctness-failures",
+            passed=False,
+            failures=("failure one", "failure two"),
+            failure_categories=("governed_correctness", "governed_correctness"),
+        ),
+    ])
+
+    assert summary.failure_category_counts["governed_correctness"] == 1
