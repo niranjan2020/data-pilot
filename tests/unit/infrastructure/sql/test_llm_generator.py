@@ -57,3 +57,31 @@ def test_follow_up_prompt_requires_composition_not_plain_reinterpretation():
     assert "must not turn" in system
     assert "Show top 10 products by revenue" in user
     assert "Only red products" in user
+
+
+def test_follow_up_prompt_composes_against_accumulated_analytical_intent():
+    generator = LLMBackedSQLGenerator(FakeLLM())
+
+    messages = generator.build_messages(
+        question="Top 5 only",
+        schema=SchemaMetadata(dialect="postgresql"),
+        context={
+            "conversation_context": {
+                "previous_question": "Only red products",
+                "analytical_turns": [
+                    "Show top 10 products by revenue",
+                    "Only red products",
+                ],
+                "governed_metrics": ["Revenue"],
+                "governed_entities": ["Product", "Sales Order Line"],
+            }
+        },
+        dialect="postgresql",
+    )
+
+    system = messages[0].content
+    user = messages[1].content
+    assert "accumulated analytical intent" in system
+    assert "Show top 10 products by revenue" in user
+    assert "Only red products" in user
+    assert "Top 5 only" in user
