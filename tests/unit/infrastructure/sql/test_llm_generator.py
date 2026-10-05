@@ -32,3 +32,28 @@ async def test_generator_uses_only_generic_llm_contract():
     )
 
     assert result == "SELECT COUNT(*) FROM records"
+
+
+def test_follow_up_prompt_requires_composition_not_plain_reinterpretation():
+    generator = LLMBackedSQLGenerator(FakeLLM())
+
+    messages = generator.build_messages(
+        question="Only red products",
+        schema=SchemaMetadata(dialect="postgresql"),
+        context={
+            "conversation_context": {
+                "previous_question": "Show top 10 products by revenue",
+                "governed_metrics": ["Revenue"],
+                "governed_entities": ["Product", "Sales Order Line"],
+            }
+        },
+        dialect="postgresql",
+    )
+
+    system = messages[0].content
+    user = messages[1].content
+    assert "Compose the current request as a delta" in system
+    assert "preserve prior measures, grouping dimensions, ordering/ranking" in system
+    assert "must not turn" in system
+    assert "Show top 10 products by revenue" in user
+    assert "Only red products" in user
