@@ -147,6 +147,10 @@ A1 defects fixed without weakening benchmark expectations:
 #### A2. Evaluation coverage expansion — CURRENT
 First expansion checkpoint:
 - Semantic suite expanded from **20 to 25 cases** without production feature changes.
+- **Second expansion checkpoint: 30/30 semantic cases passed (100.0%) with 52/52 targeted correctness/orchestrator unit tests passing.**
+- The 26–30 slice added composed multi-metric ranking, governed filters, entity/metric synonyms, and relationship traversal.
+- This slice exposed and fixed metric-vocabulary leakage into grouping resolution: entity terms embedded inside governed metric phrases (for example an entity synonym occurring inside a metric name) no longer become accidental grouping dimensions.
+- Evaluation diagnostics now support focused `--case` execution and include SQL/correctness context on result-row policy failures.
 - Result: **25/25 passed (100.0%)**.
 - Latency: **p50 3.139 s**, **p95 3.946 s**.
 - Added coverage for entity/metric synonyms, non-default ranking limits, synonym + filter composition, metric-ranked entity synonyms, and governed attribute grouping.
