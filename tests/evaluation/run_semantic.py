@@ -13,7 +13,14 @@ from typing import Any
 from datapilot.application.services.query_orchestrator import QueryOrchestrator
 from datapilot.application.services.semantic_context import SemanticContextAssembler
 from datapilot.core.config import Settings
-from datapilot.core.exceptions import ConfigurationError
+from datapilot.core.exceptions import (
+    ConfigurationError,
+    DatabaseExecutionError,
+    LLMError,
+    MetadataError,
+    SQLGenerationError,
+    SQLValidationError,
+)
 from datapilot.domain.query import QueryRequest
 from datapilot.infrastructure.database.postgresql import PostgreSQLDatabaseProvider
 from datapilot.infrastructure.llm.gemini import GeminiLLMProvider
@@ -33,6 +40,23 @@ from tests.evaluation.harness import (
 
 
 DEFAULT_CASES = Path(__file__).with_name("semantic_cases.json")
+
+
+def classify_runtime_exception(exc: Exception) -> tuple[str, ...]:
+    """Map runtime failures to the narrowest trustworthy evaluation stage."""
+    if isinstance(exc, DatabaseExecutionError):
+        return ("execution",)
+    if isinstance(exc, (SQLGenerationError, LLMError)):
+        return ("sql_generation",)
+    if isinstance(exc, MetadataError):
+        return ("semantic_resolution",)
+    if isinstance(exc, SQLValidationError):
+        details = getattr(exc, "details", {}) or {}
+        checks = details.get("checks")
+        if checks:
+            return ("governed_correctness",)
+        return ("validation",)
+    return ()
 
 
 def load_cases(path: Path) -> list[tuple[EvaluationCase, str]]:
@@ -132,6 +156,8 @@ def print_result(result: EvaluationResult, question: str) -> None:
     marker = "PASS" if result.passed else "FAIL"
     timing = f" ({result.duration_ms:.0f} ms)" if result.duration_ms is not None else ""
     print(f"[{marker}] {result.case_id}: {question}{timing}")
+    if result.failure_categories:
+        print(f"       category: {', '.join(result.failure_categories)}")
     for failure in result.failures:
         print(f"       - {failure}")
 
@@ -179,6 +205,7 @@ async def run(path: Path, case_id: str | None = None) -> int:
                     passed=evaluated.passed,
                     failures=evaluated.failures,
                     duration_ms=(time.perf_counter() - started) * 1000,
+                    failure_categories=evaluated.failure_categories,
                 )
             except Exception as exc:
                 result = EvaluationResult(
@@ -186,6 +213,7 @@ async def run(path: Path, case_id: str | None = None) -> int:
                     passed=False,
                     failures=(f"{type(exc).__name__}: {exc}",),
                     duration_ms=(time.perf_counter() - started) * 1000,
+                    failure_categories=classify_runtime_exception(exc),
                 )
             summary.results.append(result)
             print_result(result, case.question)
@@ -199,6 +227,15 @@ async def run(path: Path, case_id: str | None = None) -> int:
     )
     if summary.p50_ms is not None:
         print(f"Latency: p50 {summary.p50_ms:.0f} ms | p95 {summary.p95_ms:.0f} ms")
+    category_counts = {
+        category: count
+        for category, count in summary.failure_category_counts.items()
+        if count
+    }
+    if category_counts:
+        print("Failure categories:")
+        for category, count in category_counts.items():
+            print(f"  {category}: {count}/{summary.total} cases ({count / summary.total:.1%})")
     return 0 if summary.failed == 0 else 1
 
 
