@@ -828,3 +828,59 @@ async def test_orchestrator_blocks_partial_multi_dimension_sql_before_execution(
         if check["code"] == "grouping_dimension_violation"
     )
     assert violation["missing_columns"] == ["segment"]
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_blocks_wrong_governed_time_sql_before_execution():
+    database = FakeDatabase()
+    generator = FakeSQLGenerator(
+        """SELECT DATE_TRUNC('year', created_at), SUM(amount)
+           FROM public.orders
+           WHERE created_at >= DATE '2026-02-01'
+             AND created_at < DATE '2027-01-01'
+           GROUP BY DATE_TRUNC('year', created_at)"""
+    )
+    orchestrator = QueryOrchestrator(
+        database,
+        FakeValidator(),
+        generator,
+        FakeCatalog(SemanticCatalog()),
+    )
+    time_plan = {
+        "status": "resolved",
+        "time_dimension": "Order Date",
+        "entity": "Order",
+        "schema_name": "public",
+        "table_name": "orders",
+        "column_name": "order_date",
+        "role": "order_date",
+        "source_grain": "day",
+        "timezone": "UTC",
+        "grouping_grain": "month",
+        "comparison": False,
+        "start": "2026-01-01",
+        "end_exclusive": "2027-01-01",
+    }
+
+    with pytest.raises(SQLValidationError) as error:
+        await orchestrator._validate_and_execute(
+            question="Show monthly revenue this year",
+            sql=generator.sql,
+            source="generator",
+            confidence=1.0,
+            governed_tables=["public.orders"],
+            required_time_plan=time_plan,
+        )
+
+    assert database.executed == []
+    failed_checks = error.value.details["checks"]
+    assert any(
+        check["code"] == "time_filter_violation"
+        and check["status"] == "failed"
+        for check in failed_checks
+    )
+    assert any(
+        check["code"] == "time_grain_violation"
+        and check["status"] == "failed"
+        for check in failed_checks
+    )
