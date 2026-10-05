@@ -188,3 +188,57 @@ async def test_versioned_fixture_rejects_unknown_entity_clarification_selection(
     assert response.clarification is None
     assert response.trace is not None
     assert response.trace.clarification_selections == {"entity": selected_entity}
+
+
+@pytest.mark.asyncio
+async def test_versioned_fixture_rejects_valid_but_conflicting_entity_selection():
+    orchestrator = QueryOrchestrator(
+        NoExecutionDatabase(),
+        NoValidation(),
+        NoGeneration(),
+        FixtureCatalog(load_catalog()),
+    )
+
+    response = await orchestrator.query(
+        QueryRequest(
+            question="Show orders",
+            clarification_selections={"entity": "Customer"},
+        )
+    )
+
+    assert response.status == "rejected"
+    assert response.sql is None
+    assert response.resolved_intent is not None
+    assert response.resolved_intent.entity is None
+
+
+@pytest.mark.asyncio
+async def test_current_entity_selection_overrides_stale_inherited_selection():
+    generator = ResumeGenerator()
+    orchestrator = QueryOrchestrator(
+        ResumeDatabase(),
+        PassValidation(),
+        generator,
+        FixtureCatalog(load_catalog()),
+    )
+    context = {
+        "previous_question": "Show account",
+        "clarification_selections": {"entity": "Order"},
+    }
+
+    response = await orchestrator.query(
+        QueryRequest(
+            question="Show account",
+            clarification_selections={"entity": "Customer"},
+            dry_run=True,
+        ),
+        conversation_context=context,
+    )
+
+    assert response.status == "dry_run"
+    assert response.resolved_intent is not None
+    assert response.resolved_intent.entity is not None
+    assert response.resolved_intent.entity.name == "Customer"
+    assert response.trace is not None
+    assert response.trace.clarification_selections == {"entity": "Customer"}
+    assert generator.calls == 1
