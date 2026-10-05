@@ -259,6 +259,86 @@ def _filter_checks(
     return checks
 
 
+
+def _relationship_checks(
+    sql: str,
+    *,
+    required_relationships: Iterable[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Verify governed relationships are represented by SQL equality joins."""
+    relationships = [
+        item for item in required_relationships
+        if str(item.get("from_column") or "").strip()
+        and str(item.get("to_column") or "").strip()
+    ]
+    if not relationships:
+        return []
+
+    try:
+        tree = parse_one(sql, read="postgres")
+    except Exception:
+        return [{
+            "code": "relationship_verification_unavailable",
+            "status": "skipped",
+            "severity": "info",
+            "message": "Relationship verification could not parse the validated SQL.",
+        }]
+
+    alias_to_table: dict[str, str] = {}
+    for table in tree.find_all(exp.Table):
+        table_name = _normalise(table.name)
+        schema_name = _normalise(table.db)
+        qualified = f"{schema_name}.{table_name}" if schema_name else table_name
+        alias = _normalise(table.alias_or_name)
+        if alias:
+            alias_to_table[alias] = qualified
+        alias_to_table[table_name] = qualified
+
+    def column_ref(column: exp.Column) -> tuple[str, str]:
+        qualifier = _normalise(column.table)
+        table_name = alias_to_table.get(qualifier, qualifier)
+        return table_name, _normalise(column.name)
+
+    equality_pairs: set[frozenset[tuple[str, str]]] = set()
+    for predicate in tree.find_all(exp.EQ):
+        if isinstance(predicate.this, exp.Column) and isinstance(predicate.expression, exp.Column):
+            equality_pairs.add(frozenset({
+                column_ref(predicate.this),
+                column_ref(predicate.expression),
+            }))
+
+    checks: list[dict[str, Any]] = []
+    for relationship in relationships:
+        name = str(relationship.get("name") or "relationship")
+        from_table = _normalise(str(relationship.get("from_table") or ""))
+        to_table = _normalise(str(relationship.get("to_table") or ""))
+        from_column = _normalise(str(relationship.get("from_column") or ""))
+        to_column = _normalise(str(relationship.get("to_column") or ""))
+
+        expected = frozenset({
+            (from_table, from_column),
+            (to_table, to_column),
+        })
+        matched = expected in equality_pairs
+        checks.append({
+            "code": "relationship_alignment" if matched else "relationship_violation",
+            "status": "passed" if matched else "failed",
+            "severity": "info" if matched else "error",
+            "relationship": name,
+            "from_table": from_table,
+            "from_column": from_column,
+            "to_table": to_table,
+            "to_column": to_column,
+            "message": (
+                f"SQL uses the governed join path for {name}."
+                if matched else
+                f"Generated SQL does not use the governed join path for {name}: "
+                f"{from_table}.{from_column} = {to_table}.{to_column}."
+            ),
+        })
+    return checks
+
+
 def assess_query_correctness(
     *,
     affected_tables: Iterable[str],
@@ -267,6 +347,7 @@ def assess_query_correctness(
     governed_metrics: Iterable[dict[str, Any]] = (),
     required_grouping_columns: Iterable[str] = (),
     required_filters: Iterable[dict[str, Any]] = (),
+    required_relationships: Iterable[dict[str, Any]] = (),
 ) -> list[dict[str, Any]]:
     """Return deterministic pre-execution alignment checks.
 
@@ -280,7 +361,8 @@ def assess_query_correctness(
     metric_checks = _metric_expression_checks(sql, governed_metrics) if sql else []
     grouping_checks = _grouping_checks(sql, required_grouping_columns=required_grouping_columns) if sql else []
     filter_checks = _filter_checks(sql, required_filters=required_filters) if sql else []
-    semantic_checks = metric_checks + grouping_checks + filter_checks
+    relationship_checks = _relationship_checks(sql, required_relationships=required_relationships) if sql else []
+    semantic_checks = metric_checks + grouping_checks + filter_checks + relationship_checks
 
     if not governed:
         return semantic_checks + [{
