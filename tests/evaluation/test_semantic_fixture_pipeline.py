@@ -78,3 +78,29 @@ async def test_versioned_fixture_entity_ambiguity_uses_real_orchestrator():
 
     assert result.passed, result.failures
     assert response.sql is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("question", "expected_status"),
+    [
+        ("Show account", "ambiguous"),
+        ("What is the weather today?", "rejected"),
+        ("Show employee salaries", "rejected"),
+    ],
+)
+async def test_versioned_fixture_stops_before_sql_for_non_executable_semantics(
+    question,
+    expected_status,
+):
+    orchestrator = QueryOrchestrator(
+        NoExecutionDatabase(),
+        NoValidation(),
+        NoGeneration(),
+        FixtureCatalog(load_catalog()),
+    )
+
+    response = await orchestrator.query(QueryRequest(question=question))
+
+    assert response.status == expected_status
+    assert response.sql is None
