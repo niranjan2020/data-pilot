@@ -144,12 +144,13 @@ A1 defects fixed without weakening benchmark expectations:
 - All previously observed grouping/filter propagation defects have regression coverage.
 - Do not weaken these expectations as evaluation coverage grows.
 
-#### A2. Evaluation coverage expansion — CURRENT
+#### A2. Evaluation coverage expansion — COMPLETE
 First expansion checkpoint:
 - Semantic suite expanded from **20 to 25 cases** without production feature changes.
 - **Second expansion checkpoint: 30/30 semantic cases passed (100.0%) with 52/52 targeted correctness/orchestrator unit tests passing.**
 - **Third expansion checkpoint: 35/35 live semantic cases passed (100.0%); targeted orchestrator/fixture/ambiguity suite is 29/29.**
 - **Fourth expansion checkpoint: 39/39 live semantic cases passed (100.0%), including real multi-turn follow-up conversations through the production pipeline.**
+- **A2 exit checkpoint: 86/86 targeted correctness/orchestrator/evaluation tests and 39/39 live semantic cases passed after the adversarial and multi-dimension changes. A2 is complete; additional cases should now be driven by identified product risks rather than an arbitrary case-count target.**
 - Added versioned production-shaped semantic metadata for generic Customer/Product/Order evaluation, exercised through the real `SemanticContextAssembler` rather than benchmark-only semantic logic.
 - Added and validated multi-dimension grouping across attributes on one entity and across independent entities. This exposed and fixed two production gaps: later dimensions after conjunctions were dropped, and global phrase-specificity could incorrectly discard an independent explicit entity.
 - Added adversarial correctness coverage for partial multi-dimension grouping, incomplete cross-entity relationship paths, and plausible-but-wrong join columns.
@@ -184,7 +185,7 @@ Expand from the current semantic set toward roughly 50–75 meaningful cases cov
 
 Prefer semantic assertions and correctness trace codes over exact SQL-string comparison.
 
-#### A3. Time benchmark integration
+#### A3. Time benchmark integration — CURRENT
 - Version representative governed time-dimension evaluation metadata.
 - Add last month, YTD, last N days, monthly trend, MoM, YoY, and grouping-only cases.
 - Assert `time_filter_alignment` and `time_grain_alignment`.
