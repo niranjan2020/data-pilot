@@ -185,13 +185,16 @@ Expand from the current semantic set toward roughly 50–75 meaningful cases cov
 
 Prefer semantic assertions and correctness trace codes over exact SQL-string comparison.
 
-#### A3. Time benchmark integration — CURRENT
-- Version representative governed time-dimension evaluation metadata.
-- Add last month, YTD, last N days, monthly trend, MoM, YoY, and grouping-only cases.
-- Assert `time_filter_alignment` and `time_grain_alignment`.
-- Include wrong-column, wrong-boundary, and wrong-grain negative cases.
+#### A3. Time benchmark integration — COMPLETE
+- Versioned representative governed time-dimension metadata using the generic commerce fixture.
+- Covered deterministic last month, YTD, last N days, monthly/quarterly grouping, rolling 12 months, grouping-only, MoM, and YoY semantics.
+- Bridged resolved governed time plans into deterministic SQL correctness and evaluation-harness scoring.
+- Asserted `time_filter_alignment`, `time_grain_alignment`, and comparison-period correctness.
+- Added `time_comparison_alignment` / `time_comparison_violation` so comparison SQL must preserve each governed period rather than only the outer envelope.
+- Covered wrong-column, wrong-boundary, wrong-grain, envelope-only comparison, and orchestrator fail-closed paths.
+- A3 regression checkpoint: **108/108 passed** across time semantics, correctness, orchestrator, evaluation harness, and versioned semantic metadata tests.
 
-#### A4. Failure taxonomy and reporting
+#### A4. Failure taxonomy and reporting — CURRENT
 Benchmark results should distinguish failures originating from:
 - semantic retrieval,
 - semantic resolution,
