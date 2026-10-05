@@ -136,6 +136,8 @@ def test_evaluation_summary_counts_structured_failure_categories():
     assert summary.failure_category_counts["time_interpretation"] == 1
     assert summary.failure_category_counts["execution"] == 0
     assert summary.failure_category_rates["semantic_resolution"] == pytest.approx(1 / 3)
+    assert summary.category_pass_rates["semantic_resolution"] == pytest.approx(2 / 3)
+    assert summary.category_pass_rates["execution"] == 1.0
 
 
 def test_evaluation_summary_deduplicates_category_per_case():
