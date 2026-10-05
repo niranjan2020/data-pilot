@@ -38,6 +38,7 @@ class EvaluationCase:
     id: str
     question: str
     expected: EvaluationExpectation
+    conversation_id: str | None = None
 
 
 @dataclass(frozen=True)
