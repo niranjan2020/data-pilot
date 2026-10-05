@@ -204,8 +204,15 @@ def _outlier_insights(
         return (values[middle - 1] + values[middle]) / 2
 
     middle = len(ordered_values) // 2
-    lower = ordered_values[:middle]
-    upper = ordered_values[middle:] if len(ordered_values) % 2 == 0 else ordered_values[middle + 1:]
+    # Tukey hinges: for an odd-sized sample include the overall median in
+    # both halves. This keeps small returned result sets from allowing one
+    # extreme value to inflate Q3 and hide itself as an outlier.
+    if len(ordered_values) % 2:
+        lower = ordered_values[: middle + 1]
+        upper = ordered_values[middle:]
+    else:
+        lower = ordered_values[:middle]
+        upper = ordered_values[middle:]
     q1, q3 = median(lower), median(upper)
     iqr = q3 - q1
     if iqr <= 0:
