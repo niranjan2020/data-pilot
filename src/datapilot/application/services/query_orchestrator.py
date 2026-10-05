@@ -111,6 +111,10 @@ class QueryOrchestrator:
             governed_context = await self._semantic_context_assembler.assemble(
                 request.source_name, retrieved_context, contextual_question
             )
+            if conversation_context:
+                governed_context = await self._semantic_context_assembler.carry_forward(
+                    request.source_name, governed_context, conversation_context
+                )
             logger.info(
                 "query governed_context datasets=%s entities=%s relationships=%s metrics=%s rules=%s",
                 [f"{x['schema_name']}.{x['table_name']}" for x in governed_context.get("datasets", [])],
