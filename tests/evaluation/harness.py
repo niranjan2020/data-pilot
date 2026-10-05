@@ -29,6 +29,8 @@ class EvaluationExpectation:
     clarification_options: tuple[str, ...] = ()
     sql_contains: tuple[str, ...] = ()
     sql_excludes: tuple[str, ...] = ()
+    required_correctness_codes: tuple[str, ...] = ()
+    forbidden_correctness_codes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -205,6 +207,26 @@ def evaluate_query_response(
             leaked = sorted(set(forbidden) & set(actual))
             if leaked:
                 failures.append(f"unexpected {label}: {', '.join(leaked)}")
+
+    if expected.required_correctness_codes or expected.forbidden_correctness_codes:
+        if trace is None:
+            failures.append("query trace is required for correctness evaluation")
+        else:
+            actual_codes = {
+                str(check.get("code"))
+                for check in trace.correctness_checks
+                if check.get("code")
+            }
+            missing_codes = sorted(set(expected.required_correctness_codes) - actual_codes)
+            if missing_codes:
+                failures.append(
+                    "missing expected correctness checks: " + ", ".join(missing_codes)
+                )
+            forbidden_codes = sorted(set(expected.forbidden_correctness_codes) & actual_codes)
+            if forbidden_codes:
+                failures.append(
+                    "unexpected correctness checks: " + ", ".join(forbidden_codes)
+                )
 
     # Result assertions remain optional and independent from semantic correctness.
     if response.status == "completed" and response.result is not None:
