@@ -24,6 +24,9 @@ class EvaluationExpectation:
     excluded_metrics: tuple[str, ...] = ()
     require_completed: bool = False
     require_sql: bool = False
+    expected_status: str | None = None
+    clarification_kind: str | None = None
+    clarification_options: tuple[str, ...] = ()
     sql_contains: tuple[str, ...] = ()
     sql_excludes: tuple[str, ...] = ()
 
@@ -118,8 +121,28 @@ def evaluate_query_response(
     failures: list[str] = []
     trace = response.trace
 
+    if expected.expected_status is not None and response.status != expected.expected_status:
+        failures.append(f"expected status {expected.expected_status!r}, got {response.status!r}")
     if expected.require_completed and response.status != "completed":
         failures.append(f"expected completed status, got {response.status!r}")
+    if expected.clarification_kind is not None:
+        if response.clarification is None:
+            failures.append("expected structured clarification")
+        elif response.clarification.kind != expected.clarification_kind:
+            failures.append(
+                f"expected clarification kind {expected.clarification_kind!r}, "
+                f"got {response.clarification.kind!r}"
+            )
+    if expected.clarification_options:
+        if response.clarification is None:
+            failures.append("expected clarification options")
+        else:
+            actual_options = {option.value for option in response.clarification.options}
+            missing_options = sorted(set(expected.clarification_options) - actual_options)
+            if missing_options:
+                failures.append(
+                    "missing clarification options: " + ", ".join(missing_options)
+                )
     if expected.require_sql and not response.sql:
         failures.append("expected generated SQL")
     normalized_sql = (response.sql or "").lower()
