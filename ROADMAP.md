@@ -149,6 +149,11 @@ First expansion checkpoint:
 - Semantic suite expanded from **20 to 25 cases** without production feature changes.
 - **Second expansion checkpoint: 30/30 semantic cases passed (100.0%) with 52/52 targeted correctness/orchestrator unit tests passing.**
 - **Third expansion checkpoint: 35/35 live semantic cases passed (100.0%); targeted orchestrator/fixture/ambiguity suite is 29/29.**
+- **Fourth expansion checkpoint: 39/39 live semantic cases passed (100.0%), including real multi-turn follow-up conversations through the production pipeline.**
+- Added versioned production-shaped semantic metadata for generic Customer/Product/Order evaluation, exercised through the real `SemanticContextAssembler` rather than benchmark-only semantic logic.
+- Added and validated multi-dimension grouping across attributes on one entity and across independent entities. This exposed and fixed two production gaps: later dimensions after conjunctions were dropped, and global phrase-specificity could incorrectly discard an independent explicit entity.
+- Added adversarial correctness coverage for partial multi-dimension grouping, incomplete cross-entity relationship paths, and plausible-but-wrong join columns.
+- Confirmed governed correctness fails closed at the orchestrator boundary: semantically invalid SQL is rejected before policy enforcement/database execution.
 - Added high-composition coverage for multi-metric output, ranking, governed filters, synonyms, attribute grouping, and relationship traversal.
 - Added a versioned generic `SemanticCatalog` fixture so ambiguity/negative evaluation can be reproduced without relying on local AdventureWorks metadata state.
 - Added deterministic fail-closed behavior for questions that cannot map to any governed entity when a semantic catalog is populated; these queries are rejected before SQL generation, validation, or database execution.
