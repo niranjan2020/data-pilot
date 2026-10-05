@@ -65,6 +65,7 @@ def load_cases(path: Path) -> list[tuple[EvaluationCase, str]]:
                 required_correctness_codes=tuple(expected.get("required_correctness_codes", [])),
                 forbidden_correctness_codes=tuple(expected.get("forbidden_correctness_codes", [])),
             ),
+            conversation_id=item.get("conversation_id"),
         )
         cases.append((case, item.get("source_name", "")))
     return cases
@@ -144,14 +145,34 @@ async def run(path: Path, case_id: str | None = None) -> int:
     settings = Settings()
     orchestrator, resources = await build_orchestrator(settings)
     summary = EvaluationSummary()
+    conversation_contexts: dict[str, dict[str, Any]] = {}
 
     try:
         for case, source_name in cases:
             started = time.perf_counter()
             try:
-                response = await orchestrator.query(
-                    QueryRequest(question=case.question, source_name=source_name or None)
+                conversation_context = (
+                    conversation_contexts.get(case.conversation_id, {})
+                    if case.conversation_id
+                    else {}
                 )
+                response = await orchestrator.query(
+                    QueryRequest(question=case.question, source_name=source_name or None),
+                    conversation_context=conversation_context,
+                )
+                if case.conversation_id and response.status == "completed":
+                    trace = response.trace
+                    prior_turns = list(conversation_context.get("analytical_turns") or [])
+                    prior_turns.append(case.question)
+                    conversation_contexts[case.conversation_id] = {
+                        "previous_question": case.question,
+                        "analytical_turns": prior_turns,
+                        "governed_metrics": list(trace.governed_metrics) if trace else [],
+                        "governed_entities": list(trace.governed_entities) if trace else [],
+                        "clarification_selections": (
+                            dict(trace.clarification_selections) if trace else {}
+                        ),
+                    }
                 evaluated = evaluate_query_response(case, response)
                 result = EvaluationResult(
                     case_id=evaluated.case_id,
