@@ -194,21 +194,18 @@ Prefer semantic assertions and correctness trace codes over exact SQL-string com
 - Covered wrong-column, wrong-boundary, wrong-grain, envelope-only comparison, and orchestrator fail-closed paths.
 - A3 regression checkpoint: **108/108 passed** across time semantics, correctness, orchestrator, evaluation harness, and versioned semantic metadata tests.
 
-#### A4. Failure taxonomy and reporting — CURRENT
-Benchmark results should distinguish failures originating from:
-- semantic retrieval,
-- semantic resolution,
-- ambiguity/clarification,
-- time interpretation,
-- SQL generation,
-- AST/safety validation,
-- governed correctness,
-- execution,
-- result correctness.
+#### A4. Failure taxonomy and reporting — COMPLETE
+- Added a stable structured failure taxonomy covering semantic retrieval, semantic resolution, ambiguity/clarification, time interpretation, SQL generation, AST/safety validation, governed correctness, execution, and result correctness.
+- Evaluation assertions assign failure categories at the point of failure rather than parsing human-readable error messages afterward.
+- Added explicit `SemanticRetrievalError` and `TimeInterpretationError` orchestrator boundaries so runtime failures can be attributed without guessing.
+- Runtime classification distinguishes SQL generation/LLM failures, validation failures, governed-correctness failures, database execution failures, semantic metadata/resolution failures, retrieval failures, and time-interpretation failures.
+- Unknown runtime exceptions remain intentionally unclassified instead of being assigned to a misleading stage.
+- Benchmark reporting now includes category-level affected-case counts and pass rates alongside overall accuracy and latency.
+- Added regressions proving retrieval and time failures stop before downstream SQL generation/execution.
+- A4 full regression checkpoint: **127/127 passed**.
+- Live production-pipeline semantic benchmark: **39/39 passed**.
 
-Add category-level pass rates so an overall score does not hide weak areas.
-
-#### A5. Stage A exit criteria
+#### A5. Stage A exit criteria — CURRENT
 Stage A is complete when:
 - Core correctness unit suites remain green.
 - Evaluation contains broad realistic coverage rather than a small happy-path set.
