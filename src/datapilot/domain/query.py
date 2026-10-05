@@ -62,6 +62,7 @@ class QueryTrace(BaseModel):
     validated_sql: Optional[str] = None
     validation_affected_tables: List[str] = Field(default_factory=list)
     validation_warnings: List[str] = Field(default_factory=list)
+    correctness_checks: List[Dict[str, Any]] = Field(default_factory=list, description="Deterministic semantic/physical alignment checks performed before execution")
     policy_sql: Optional[str] = None
     policy_warnings: List[str] = Field(default_factory=list)
     execution: Dict[str, Any] = Field(default_factory=dict)
