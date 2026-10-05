@@ -336,3 +336,37 @@ def test_trend_zero_baseline_movement_does_not_invent_percent():
     )
     assert increase["delta"] == 25
     assert increase["percent"] is None
+
+
+def test_trend_detects_peak_and_trough_turning_points():
+    result = _result(["month", "revenue"], [["Jan", 100], ["Feb", 140], ["Mar", 110], ["Apr", 150]])
+    summary = summarize_result("monthly revenue trend", result, {"kind": "trend", "x_column": "month", "y_columns": ["revenue"]})
+    points = [item for item in summary["insights"] if item["type"] == "turning_point"]
+    assert [(item["label"], item["turning_type"]) for item in points] == [("Feb", "peak"), ("Mar", "trough")]
+    assert all(item["scope"] == "returned_periods" for item in points)
+
+
+def test_trend_does_not_invent_turning_point_for_monotonic_series():
+    result = _result(["month", "revenue"], [["Jan", 100], ["Feb", 120], ["Mar", 150], ["Apr", 190]])
+    summary = summarize_result("monthly revenue trend", result, {"kind": "trend", "x_column": "month", "y_columns": ["revenue"]})
+    assert not any(item["type"] == "turning_point" for item in summary["insights"])
+
+
+def test_trend_reports_strongest_acceleration_from_returned_periods():
+    result = _result(["month", "revenue"], [["Jan", 100], ["Feb", 110], ["Mar", 140], ["Apr", 200]])
+    summary = summarize_result("monthly revenue trend", result, {"kind": "trend", "x_column": "month", "y_columns": ["revenue"]})
+    momentum = next(item for item in summary["insights"] if item["type"] == "strongest_momentum_change")
+    assert (momentum["from_label"], momentum["to_label"]) == ("Mar", "Apr")
+    assert momentum["previous_delta"] == 30
+    assert momentum["current_delta"] == 60
+    assert momentum["magnitude_change"] == 30
+    assert momentum["momentum"] == "accelerating"
+    assert momentum["scope"] == "returned_periods"
+
+
+def test_trend_reports_deceleration_by_movement_magnitude():
+    result = _result(["month", "revenue"], [["Jan", 200], ["Feb", 150], ["Mar", 120], ["Apr", 110]])
+    summary = summarize_result("monthly revenue trend", result, {"kind": "trend", "x_column": "month", "y_columns": ["revenue"]})
+    momentum = next(item for item in summary["insights"] if item["type"] == "strongest_momentum_change")
+    assert momentum["momentum"] == "decelerating"
+    assert momentum["magnitude_change"] < 0
