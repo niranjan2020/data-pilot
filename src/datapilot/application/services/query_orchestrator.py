@@ -421,6 +421,7 @@ class QueryOrchestrator:
                 }
                 for item in intent.filters
             ],
+            required_relationships=self._required_relationships(governed_context),
         )
 
     async def _validate_and_execute(
@@ -438,6 +439,7 @@ class QueryOrchestrator:
         governed_metrics: Optional[list[dict[str, Any]]] = None,
         required_grouping_columns: Optional[list[str]] = None,
         required_filters: Optional[list[dict[str, Any]]] = None,
+        required_relationships: Optional[list[dict[str, Any]]] = None,
     ) -> QueryResponse:
         validation = await self._validator.validate(
             sql,
@@ -467,6 +469,7 @@ class QueryOrchestrator:
             governed_metrics=governed_metrics or [],
             required_grouping_columns=required_grouping_columns or [],
             required_filters=required_filters or [],
+            required_relationships=required_relationships or [],
         )
         if trace is not None:
             trace.correctness_checks = correctness_checks
@@ -807,6 +810,28 @@ class QueryOrchestrator:
                 if tokens.intersection(location_terms):
                     add(entity, attribute)
         return candidates if len(candidates) > 1 else []
+
+    @staticmethod
+    def _required_relationships(governed_context: dict[str, Any]) -> list[dict[str, Any]]:
+        """Convert governed semantic relationships into physical join invariants."""
+        entities = governed_context.get("entities", [])
+        entity_by_id = {entity.get("id"): entity for entity in entities}
+        required: list[dict[str, Any]] = []
+        for relationship in governed_context.get("relationships", []):
+            left = entity_by_id.get(relationship.get("from_entity_id"))
+            right = entity_by_id.get(relationship.get("to_entity_id"))
+            if not left or not right:
+                continue
+            if not relationship.get("from_column") or not relationship.get("to_column"):
+                continue
+            required.append({
+                "name": relationship.get("name"),
+                "from_table": f"{left.get('schema_name')}.{left.get('table_name')}",
+                "from_column": relationship.get("from_column"),
+                "to_table": f"{right.get('schema_name')}.{right.get('table_name')}",
+                "to_column": relationship.get("to_column"),
+            })
+        return required
 
     @staticmethod
     def _required_grouping_columns(
