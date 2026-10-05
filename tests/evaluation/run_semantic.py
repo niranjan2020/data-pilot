@@ -241,7 +241,11 @@ async def run(path: Path, case_id: str | None = None) -> int:
     if category_counts:
         print("Failure categories:")
         for category, count in category_counts.items():
-            print(f"  {category}: {count}/{summary.total} cases ({count / summary.total:.1%})")
+            pass_rate = summary.category_pass_rates[category]
+            print(
+                f"  {category}: {count}/{summary.total} affected | "
+                f"pass rate {pass_rate:.1%}"
+            )
     return 0 if summary.failed == 0 else 1
 
 
