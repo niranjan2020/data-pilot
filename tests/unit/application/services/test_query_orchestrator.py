@@ -994,3 +994,119 @@ async def test_orchestrator_does_not_fail_closed_for_non_required_scope_skip(mon
 
     assert response.status == "completed"
     assert database.executed
+
+
+class SequencedSQLGenerator(FakeSQLGenerator):
+    def __init__(self, sqls):
+        super().__init__(sqls[0])
+        self.sqls = list(sqls)
+
+    async def generate(self, question, schema, context=None, dialect=None):
+        self.calls += 1
+        assert context is not None
+        self.contexts.append(context)
+        return self.sqls[min(self.calls - 1, len(self.sqls) - 1)]
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_attempts_one_correction_for_recoverable_governed_failure(monkeypatch):
+    database = FakeDatabase()
+    generator = SequencedSQLGenerator([
+        "SELECT wrong FROM records",
+        "SELECT COUNT(*) AS count FROM records",
+    ])
+    orchestrator = QueryOrchestrator(
+        database, FakeValidator(), generator, FakeCatalog(SemanticCatalog())
+    )
+    calls = {"count": 0}
+
+    def correctness(**kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return [{
+                "code": "grouping_dimension_violation",
+                "status": "failed",
+                "severity": "error",
+                "message": "required grouping missing",
+            }]
+        return [{
+            "code": "grouping_dimension_alignment",
+            "status": "passed",
+            "severity": "info",
+        }]
+
+    monkeypatch.setattr(
+        "datapilot.application.services.query_orchestrator.assess_query_correctness",
+        correctness,
+    )
+
+    response = await orchestrator.query(QueryRequest(question="How many records exist?"))
+
+    assert response.status == "completed"
+    assert generator.calls == 2
+    assert len(generator.contexts) == 2
+    correction = generator.contexts[1]["sql_correction"]
+    assert correction["attempt"] == 1
+    assert correction["max_attempts"] == 1
+    assert correction["failed_sql"] == "SELECT wrong FROM records"
+    assert correction["feedback"][0]["code"] == "grouping_dimension_violation"
+    assert response.trace is not None
+    assert len(response.trace.correction_attempts) == 1
+    assert database.executed == [response.sql]
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_does_not_retry_after_corrected_sql_fails(monkeypatch):
+    database = FakeDatabase()
+    generator = SequencedSQLGenerator([
+        "SELECT wrong FROM records",
+        "SELECT still_wrong FROM records",
+        "SELECT COUNT(*) AS count FROM records",
+    ])
+    orchestrator = QueryOrchestrator(
+        database, FakeValidator(), generator, FakeCatalog(SemanticCatalog())
+    )
+
+    monkeypatch.setattr(
+        "datapilot.application.services.query_orchestrator.assess_query_correctness",
+        lambda **kwargs: [{
+            "code": "filter_violation",
+            "status": "failed",
+            "severity": "error",
+            "message": "required filter missing",
+        }],
+    )
+
+    with pytest.raises(SQLValidationError):
+        await orchestrator.query(QueryRequest(question="How many records exist?"))
+
+    assert generator.calls == 2
+    assert database.executed == []
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_does_not_correct_unverifiable_governed_failure(monkeypatch):
+    database = FakeDatabase()
+    generator = SequencedSQLGenerator([
+        "SELECT wrong FROM records",
+        "SELECT COUNT(*) AS count FROM records",
+    ])
+    orchestrator = QueryOrchestrator(
+        database, FakeValidator(), generator, FakeCatalog(SemanticCatalog())
+    )
+
+    monkeypatch.setattr(
+        "datapilot.application.services.query_orchestrator.assess_query_correctness",
+        lambda **kwargs: [{
+            "code": "relationship_verification_unavailable",
+            "status": "skipped",
+            "severity": "info",
+            "message": "verification unavailable",
+        }],
+    )
+
+    with pytest.raises(SQLValidationError):
+        await orchestrator.query(QueryRequest(question="How many records exist?"))
+
+    assert generator.calls == 1
+    assert database.executed == []
