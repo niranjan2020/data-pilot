@@ -149,3 +149,58 @@ def test_evaluation_summary_deduplicates_category_per_case():
     ])
 
     assert summary.failure_category_counts["governed_correctness"] == 1
+
+
+def test_evaluation_automatically_classifies_semantic_clarification_sql_and_correctness_failures():
+    from datapilot.domain.query import QueryResponse, QueryTrace
+    from tests.evaluation.harness import evaluate_query_response
+
+    case = EvaluationCase(
+        id="classified-failures",
+        question="Show monthly revenue",
+        expected=EvaluationExpectation(
+            entities=("Order",),
+            clarification_kind="entity",
+            require_sql=True,
+            required_correctness_codes=("time_grain_alignment",),
+        ),
+    )
+    response = QueryResponse(
+        question=case.question,
+        status="completed",
+        trace=QueryTrace(
+            governed_entities=[],
+            correctness_checks=[],
+        ),
+    )
+
+    result = evaluate_query_response(case, response)
+
+    assert not result.passed
+    assert set(result.failure_categories) == {
+        "semantic_resolution",
+        "ambiguity_clarification",
+        "sql_generation",
+        "governed_correctness",
+    }
+
+
+def test_evaluation_automatically_classifies_result_correctness_failures():
+    from datapilot.domain.query import QueryResponse
+    from tests.evaluation.harness import evaluate_query_response
+
+    case = EvaluationCase(
+        id="wrong-result",
+        question="How many orders?",
+        expected=EvaluationExpectation(row_count=2),
+    )
+    response = QueryResponse(
+        question=case.question,
+        status="completed",
+        result={"rows": [[1]], "affected_tables": []},
+    )
+
+    result = evaluate_query_response(case, response)
+
+    assert not result.passed
+    assert result.failure_categories == ("result_correctness",)
