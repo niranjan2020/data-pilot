@@ -1501,5 +1501,191 @@
       ]
     },
     "notes": "Customer synonym with two metrics ranked by Average Order Value."
+  },
+  {
+    "id": "followup-product-revenue-base",
+    "question": "Show top 10 products by revenue",
+    "source_name": "AdventureWorks",
+    "conversation_id": "product-revenue-filter",
+    "expected": {
+      "datasets": [
+        "Production.Product",
+        "Sales.SalesOrderDetail"
+      ],
+      "entities": [
+        "Product",
+        "Sales Order Line"
+      ],
+      "relationships": [
+        "Sales Order Line to Product"
+      ],
+      "excluded_entities": [
+        "Customer",
+        "Sales Order"
+      ],
+      "require_completed": true,
+      "require_sql": true,
+      "metrics": [
+        "Revenue"
+      ],
+      "excluded_metrics": [
+        "Units Sold",
+        "Order Count",
+        "Average Order Value"
+      ],
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "metric_expression_alignment",
+        "relationship_alignment",
+        "grouping_dimension_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "metric_expression_violation",
+        "relationship_violation",
+        "grouping_dimension_violation",
+        "join_fanout_violation"
+      ]
+    },
+    "notes": "Conversation baseline for governed Product/Revenue follow-up evaluation."
+  },
+  {
+    "id": "followup-product-revenue-red",
+    "question": "Only red products",
+    "source_name": "AdventureWorks",
+    "conversation_id": "product-revenue-filter",
+    "expected": {
+      "datasets": [
+        "Production.Product",
+        "Sales.SalesOrderDetail"
+      ],
+      "entities": [
+        "Product",
+        "Sales Order Line"
+      ],
+      "relationships": [
+        "Sales Order Line to Product"
+      ],
+      "excluded_entities": [
+        "Customer",
+        "Sales Order"
+      ],
+      "require_completed": true,
+      "require_sql": true,
+      "metrics": [
+        "Revenue"
+      ],
+      "excluded_metrics": [
+        "Units Sold",
+        "Order Count",
+        "Average Order Value"
+      ],
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "metric_expression_alignment",
+        "relationship_alignment",
+        "grouping_dimension_alignment",
+        "filter_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "metric_expression_violation",
+        "relationship_violation",
+        "grouping_dimension_violation",
+        "join_fanout_violation",
+        "filter_violation"
+      ]
+    },
+    "notes": "Follow-up must inherit Product/Revenue semantics and add the governed red Color filter without reusing prior SQL."
+  },
+  {
+    "id": "followup-buyer-orders-base",
+    "question": "Show top 10 buyers by order count",
+    "source_name": "AdventureWorks",
+    "conversation_id": "buyer-orders-ranking",
+    "expected": {
+      "datasets": [
+        "Sales.Customer",
+        "Sales.SalesOrderHeader"
+      ],
+      "entities": [
+        "Customer",
+        "Sales Order"
+      ],
+      "relationships": [
+        "Sales Order to Customer"
+      ],
+      "metrics": [
+        "Order Count"
+      ],
+      "excluded_entities": [
+        "Product",
+        "Sales Order Line"
+      ],
+      "excluded_metrics": [
+        "Revenue",
+        "Units Sold",
+        "Average Order Value"
+      ],
+      "require_completed": true,
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "relationship_alignment",
+        "grouping_dimension_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "relationship_violation",
+        "grouping_dimension_violation",
+        "join_fanout_violation"
+      ]
+    },
+    "notes": "Conversation baseline for Customer/Order Count follow-up evaluation."
+  },
+  {
+    "id": "followup-buyer-orders-top5",
+    "question": "Top 5 only",
+    "source_name": "AdventureWorks",
+    "conversation_id": "buyer-orders-ranking",
+    "expected": {
+      "datasets": [
+        "Sales.Customer",
+        "Sales.SalesOrderHeader"
+      ],
+      "entities": [
+        "Customer",
+        "Sales Order"
+      ],
+      "relationships": [
+        "Sales Order to Customer"
+      ],
+      "metrics": [
+        "Order Count"
+      ],
+      "excluded_entities": [
+        "Product",
+        "Sales Order Line"
+      ],
+      "excluded_metrics": [
+        "Revenue",
+        "Units Sold",
+        "Average Order Value"
+      ],
+      "require_completed": true,
+      "require_sql": true,
+      "required_correctness_codes": [
+        "physical_scope_alignment",
+        "relationship_alignment",
+        "grouping_dimension_alignment"
+      ],
+      "forbidden_correctness_codes": [
+        "physical_scope_violation",
+        "relationship_violation",
+        "grouping_dimension_violation",
+        "join_fanout_violation"
+      ]
+    },
+    "notes": "Follow-up must retain Customer/Order Count semantics while changing only the ranking limit."
   }
 ]
