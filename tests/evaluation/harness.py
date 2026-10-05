@@ -6,6 +6,19 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Iterable, Mapping, Sequence
 
+
+FAILURE_CATEGORIES = (
+    "semantic_retrieval",
+    "semantic_resolution",
+    "ambiguity_clarification",
+    "time_interpretation",
+    "sql_generation",
+    "validation",
+    "governed_correctness",
+    "execution",
+    "result_correctness",
+)
+
 from datapilot.domain.query import QueryResponse
 
 
@@ -47,6 +60,7 @@ class EvaluationResult:
     passed: bool
     failures: tuple[str, ...] = ()
     duration_ms: float | None = None
+    failure_categories: tuple[str, ...] = ()
 
 
 @dataclass
@@ -68,6 +82,23 @@ class EvaluationSummary:
     @property
     def accuracy(self) -> float:
         return self.passed / self.total if self.total else 0.0
+
+    @property
+    def failure_category_counts(self) -> dict[str, int]:
+        counts = {category: 0 for category in FAILURE_CATEGORIES}
+        for result in self.results:
+            for category in set(result.failure_categories):
+                counts[category] = counts.get(category, 0) + 1
+        return counts
+
+    @property
+    def failure_category_rates(self) -> dict[str, float]:
+        if not self.total:
+            return {category: 0.0 for category in FAILURE_CATEGORIES}
+        return {
+            category: count / self.total
+            for category, count in self.failure_category_counts.items()
+        }
 
     @property
     def durations_ms(self) -> list[float]:
