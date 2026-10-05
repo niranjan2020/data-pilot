@@ -604,3 +604,29 @@ def test_required_filters_preserves_resolver_filters_without_duplicates():
     assert len(filters) == 1
     assert filters[0]["column_name"] == "Color"
     assert filters[0]["value"] == "Red"
+
+
+def test_required_grouping_columns_treats_by_metric_as_ranking():
+    entities = [
+        {
+            "name": "Customer",
+            "synonyms": ["buyer"],
+            "display_column": "CustomerID",
+            "key_column": "CustomerID",
+            "attributes": [],
+        },
+        {
+            "name": "Sales Order",
+            "display_column": "SalesOrderID",
+            "key_column": "SalesOrderID",
+            "attributes": [],
+        },
+    ]
+    metrics = [{"name": "Order Count", "synonyms": ["number of orders"]}]
+
+    assert QueryOrchestrator._required_grouping_columns(
+        "Show top 10 customers by order count", entities, metrics=metrics
+    ) == ["CustomerID"]
+    assert QueryOrchestrator._required_grouping_columns(
+        "Show top 10 buyers by order count", entities, metrics=metrics
+    ) == ["CustomerID"]
