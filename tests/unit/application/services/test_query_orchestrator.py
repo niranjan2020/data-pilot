@@ -409,3 +409,71 @@ async def test_value_only_location_filter_ambiguity_uses_only_governed_attribute
         "Customer.City", "Customer.Country"
     }
     assert generator.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_follow_up_inherits_prior_attribute_clarification_without_reasking():
+    generator = FakeSQLGenerator()
+    orchestrator = QueryOrchestrator(
+        FakeDatabase(),
+        FakeValidator(),
+        generator,
+        FakeCatalog(SemanticCatalog()),
+        semantic_retriever=FakeSemanticRetriever(),
+        semantic_context_assembler=FakeAttributeSemanticContextAssembler(),
+    )
+    context = {
+        "previous_question": "Show customers by region",
+        "analytical_turns": ["Show customers by region"],
+        "clarification_selections": {"attribute": "Customer.Shipping Region"},
+    }
+
+    response = await orchestrator.query(
+        QueryRequest(question="Only active customers", source_name="AdventureWorks"),
+        conversation_context=context,
+    )
+
+    assert response.status == "completed"
+    assert response.clarification is None
+    assert generator.calls == 1
+    assert generator.contexts[0]["clarification_selections"] == {
+        "attribute": "Customer.Shipping Region"
+    }
+    selection = generator.contexts[0]["governed_semantic_context"]["resolved_attribute_selection"]
+    assert selection["attribute"] == "Shipping Region"
+    assert response.trace is not None
+    assert response.trace.clarification_selections == {
+        "attribute": "Customer.Shipping Region"
+    }
+
+
+@pytest.mark.asyncio
+async def test_current_clarification_overrides_inherited_follow_up_selection():
+    generator = FakeSQLGenerator()
+    orchestrator = QueryOrchestrator(
+        FakeDatabase(),
+        FakeValidator(),
+        generator,
+        FakeCatalog(SemanticCatalog()),
+        semantic_retriever=FakeSemanticRetriever(),
+        semantic_context_assembler=FakeAttributeSemanticContextAssembler(),
+    )
+    context = {
+        "previous_question": "Show customers by region",
+        "clarification_selections": {"attribute": "Customer.Shipping Region"},
+    }
+
+    response = await orchestrator.query(
+        QueryRequest(
+            question="Show customers by region",
+            source_name="AdventureWorks",
+            clarification_selections={"attribute": "Customer.Billing Region"},
+        ),
+        conversation_context=context,
+    )
+
+    assert response.status == "completed"
+    selection = generator.contexts[0]["governed_semantic_context"]["resolved_attribute_selection"]
+    assert selection["attribute"] == "Billing Region"
+    assert response.trace is not None
+    assert response.trace.clarification_selections["attribute"] == "Customer.Billing Region"
