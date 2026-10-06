@@ -89,6 +89,8 @@ def load_cases(path: Path) -> list[tuple[EvaluationCase, str]]:
                 require_completed=expected.get("require_completed", False),
                 require_sql=expected.get("require_sql", False),
                 expected_status=expected.get("expected_status"),
+                rejection_code=expected.get("rejection_code"),
+                require_no_sql=expected.get("require_no_sql", False),
                 clarification_kind=expected.get("clarification_kind"),
                 clarification_options=tuple(expected.get("clarification_options", [])),
                 sql_contains=tuple(expected.get("sql_contains", [])),
