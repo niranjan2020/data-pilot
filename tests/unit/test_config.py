@@ -1,6 +1,7 @@
 """Unit tests verifying configuration loading and validation."""
 
 import pytest
+from pydantic import ValidationError
 from datapilot.core.config import Settings, get_settings
 
 
@@ -51,3 +52,8 @@ def test_get_settings_cached():
     s1 = get_settings()
     s2 = get_settings()
     assert s1 is s2
+
+
+def test_database_query_timeout_must_be_positive():
+    with pytest.raises(ValidationError):
+        Settings(database_query_timeout_seconds=0, _env_file=None)
