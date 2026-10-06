@@ -265,6 +265,15 @@ async def test_entity_ambiguity_returns_structured_clarification_before_sql_gene
         "Customer Account", "Supplier Account"
     }
     assert generator.calls == 0
+    assert response.explanation is not None
+    assert response.explanation.outcome == "ambiguous"
+    clarification_step = next(
+        step for step in response.explanation.steps if step.stage == "clarification"
+    )
+    assert clarification_step.status == "clarification_required"
+    assert set(clarification_step.evidence["options"]) == {
+        "Customer Account", "Supplier Account"
+    }
 
 
 @pytest.mark.asyncio
@@ -791,6 +800,11 @@ async def test_invalid_metric_clarification_selection_is_rejected_before_generat
     assert response.status == "rejected"
     assert response.sql is None
     assert generator.calls == 0
+    assert response.explanation is not None
+    assert response.explanation.outcome == "rejected"
+    outcome = next(step for step in response.explanation.steps if step.stage == "outcome")
+    assert outcome.status == "rejected"
+    assert outcome.evidence["code"] == "invalid_metric_selection"
 
 
 @pytest.mark.asyncio
@@ -1543,6 +1557,15 @@ async def test_b1_correction_reapplies_resource_policy_before_execution(monkeypa
     assert database.executed == [response.sql]
     assert database.timeouts == [6.0]
     assert len(response.trace.correction_attempts) == 1
+    assert response.explanation is not None
+    assert any(
+        step.stage == "correction" and step.status == "corrected"
+        for step in response.explanation.steps
+    )
+    assert any(
+        item["stage"] == "b1_correction_1"
+        for item in response.explanation.sql_lineage
+    )
 
 
 @pytest.mark.asyncio
@@ -1765,6 +1788,15 @@ async def test_b2_recovery_reapplies_resource_policy_and_timeout():
     assert database.executed[0].endswith("LIMIT 40")
     assert database.executed[-1].endswith("LIMIT 40")
     assert database.timeouts == [7.5]
+    assert response.explanation is not None
+    assert any(
+        step.stage == "recovery" and step.status == "recovered"
+        for step in response.explanation.steps
+    )
+    assert any(
+        item["stage"] == "b2_recovery_1"
+        for item in response.explanation.sql_lineage
+    )
 
 
 @pytest.mark.asyncio
