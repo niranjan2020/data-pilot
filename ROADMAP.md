@@ -6,8 +6,8 @@
 
 **Last updated:** 2026-10-06  
 **Current focus:** Core OSS — Stage B: robustness and production-quality query engine  
-**Current semantic evaluation baseline:** 39/39 passed (100.0%) through the live production pipeline after B3 unsupported-question hardening (p50 3.157 s, p95 4.258 s).  
-**Current full automated regression baseline:** 316/316 passed after B3 hardening.
+**Current semantic evaluation baseline:** 39/39 passed (100.0%) through the live production pipeline after B4 dialect isolation (p50 2.986 s, p95 4.249 s).  
+**Current full automated regression baseline:** 331/331 passed after B4 dialect isolation.
 
 ---
 
@@ -259,7 +259,7 @@ Stage A is complete. Stage B hardens recovery, provider isolation, resource safe
 - Final live production-pipeline semantic benchmark: **39/39 passed (100.0%)**, latency **p50 3.157 s / p95 4.258 s**.
 - A preceding live run was blocked by a Gemini async transport ConnectError; direct REST and synchronous Gemini calls succeeded, and the unchanged benchmark subsequently returned 39/39. No correctness expectation was weakened.
 
-### B4. Stronger dialect isolation — CURRENT
+### B4. Stronger dialect isolation — COMPLETE
 Keep PostgreSQL first-class while preventing PostgreSQL-specific behavior from leaking into provider-independent query-engine contracts.
 
 #### B4.1. Dialect-isolation architecture audit — COMPLETE
@@ -300,14 +300,16 @@ B4 implementation order from this audit:
 - Missing/unknown provider classification remains terminal, preserving B2 fail-closed behavior and the single bounded recovery attempt.
 - Focused B4.4 regression checkpoint: **104/104 passed**.
 
-#### B4.5. Dialect/provider boundary regression gate — VALIDATING
+#### B4.5. Dialect/provider boundary regression gate — COMPLETE
 - Added architecture regressions that prevent hard-coded PostgreSQL SQLGlot dialects from returning to governed correctness.
 - The gate prevents the orchestrator from regaining a direct dependency on the concrete identifier-binding function.
 - The gate prevents PostgreSQL SQLSTATE tables from leaking back into the application recovery policy and verifies that PostgreSQL owns its recovery codes.
-- B4 remains open until the complete automated suite and unchanged 39-case live production-pipeline semantic benchmark pass.
+- B4 final automated regression: **331/331 passed**.
+- B4 final live production-pipeline semantic benchmark: **39/39 passed (100.0%)**, latency **p50 2.986 s / p95 4.249 s**.
+- No benchmark expectation was weakened and no second database provider was added merely to prove the abstraction.
+- **B4 exit criteria are satisfied.**
 
 Remaining:
-- Stronger dialect isolation while PostgreSQL remains the first-class provider.
 - Query timeout/resource-policy hardening.
 - Better diagnostic traces and explainability.
 - Regression corpus growth from real OSS usage.
