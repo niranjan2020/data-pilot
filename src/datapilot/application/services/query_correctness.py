@@ -132,8 +132,8 @@ def _grouping_checks(
     sql: str,
     *,
     required_grouping_columns: Iterable[str],
-,
-    dialect: str) -> list[dict[str, Any]]:
+    dialect: str,
+) -> list[dict[str, Any]]:
     required = {
         _normalise(column).rsplit(".", 1)[-1]
         for column in required_grouping_columns
@@ -186,8 +186,8 @@ def _filter_checks(
     sql: str,
     *,
     required_filters: Iterable[dict[str, Any]],
-,
-    dialect: str) -> list[dict[str, Any]]:
+    dialect: str,
+) -> list[dict[str, Any]]:
     """Verify deterministic semantic filters are represented in SQL predicates."""
     filters = [
         item for item in required_filters
@@ -292,8 +292,8 @@ def _relationship_checks(
     sql: str,
     *,
     required_relationships: Iterable[dict[str, Any]],
-,
-    dialect: str) -> list[dict[str, Any]]:
+    dialect: str,
+) -> list[dict[str, Any]]:
     """Verify governed relationships are represented by SQL equality joins."""
     relationships = [
         item for item in required_relationships
@@ -374,8 +374,8 @@ def _fanout_checks(
     *,
     governed_metrics: Iterable[dict[str, Any]],
     required_relationships: Iterable[dict[str, Any]],
-,
-    dialect: str) -> list[dict[str, Any]]:
+    dialect: str,
+) -> list[dict[str, Any]]:
     """Detect additive/non-distinct metrics crossing from a one-side entity to many.
 
     A correct join predicate can still multiply a metric when its owning entity is
@@ -481,8 +481,8 @@ def _time_checks(
     sql: str,
     *,
     required_time_plan: dict[str, Any] | None,
-,
-    dialect: str) -> list[dict[str, Any]]:
+    dialect: str,
+) -> list[dict[str, Any]]:
     """Verify resolved governed time filters and grouping grain in generated SQL."""
     plan = required_time_plan or {}
     if not plan or plan.get("status") != "resolved":
