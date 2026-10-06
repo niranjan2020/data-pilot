@@ -31,6 +31,7 @@ from datapilot.infrastructure.metadata.semantic_postgresql import PostgreSQLSema
 from datapilot.infrastructure.semantic.qdrant import QdrantSemanticIndex
 from datapilot.infrastructure.sql.llm_generator import LLMBackedSQLGenerator
 from datapilot.infrastructure.sql.validator import SQLGlotValidator
+from datapilot.infrastructure.sql.identifier_binding import SQLGlotIdentifierBinder
 
 from tests.evaluation.harness import (
     EvaluationCase,
@@ -144,6 +145,7 @@ async def build_orchestrator(settings: Settings) -> tuple[QueryOrchestrator, lis
         query_timeout_seconds=settings.database_query_timeout_seconds,
         semantic_retriever=retriever,
         semantic_context_assembler=SemanticContextAssembler(metadata_catalog),
+        sql_identifier_binder=SQLGlotIdentifierBinder(),
     )
     return orchestrator, [database, semantic_catalog, metadata_catalog]
 
