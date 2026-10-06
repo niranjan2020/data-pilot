@@ -12,6 +12,7 @@ from psycopg_pool import AsyncConnectionPool
 
 from datapilot.core.exceptions import DatabaseConnectionError, DatabaseExecutionError
 from datapilot.domain.interfaces.database import DatabaseProvider
+from datapilot.domain.execution_recovery import ExecutionRecoveryEvidence
 from datapilot.domain.models import (
     ColumnMetadata,
     ForeignKeyMetadata,
@@ -19,6 +20,59 @@ from datapilot.domain.models import (
     SchemaMetadata,
     TableMetadata,
 )
+
+
+_RECOVERABLE_SQLSTATE_PREFIXES = ("42",)
+_RECOVERABLE_SQLSTATES = frozenset({
+    "42703", "42P01", "42883", "42804", "42803", "42601",
+})
+_TERMINAL_SQLSTATES = frozenset({
+    "42501", "28000", "28P01", "57014", "53300", "53400",
+    "57P01", "57P02", "57P03",
+})
+
+
+def _classify_postgres_execution_error(details: Optional[Dict[str, Any]] = None) -> ExecutionRecoveryEvidence:
+    """Classify PostgreSQL SQLSTATE diagnostics without guessing from message text."""
+    payload = dict(details or {})
+    raw_sqlstate = (
+        payload.get("sqlstate")
+        or payload.get("sql_state")
+        or payload.get("pgcode")
+        or payload.get("code")
+    )
+    sqlstate = str(raw_sqlstate).strip().upper() if raw_sqlstate else None
+
+    if not sqlstate:
+        return ExecutionRecoveryEvidence(
+            recoverable=False,
+            category="unknown",
+            reason="Execution failure has no structured PostgreSQL error code.",
+            provider="postgresql",
+        )
+    if sqlstate in _TERMINAL_SQLSTATES or sqlstate.startswith(("08", "28", "53", "57", "58")):
+        return ExecutionRecoveryEvidence(
+            recoverable=False,
+            category="provider_runtime",
+            reason="PostgreSQL connection, authorization, cancellation, resource, or provider failure is terminal.",
+            provider="postgresql",
+            code=sqlstate,
+        )
+    if sqlstate in _RECOVERABLE_SQLSTATES or sqlstate.startswith(_RECOVERABLE_SQLSTATE_PREFIXES):
+        return ExecutionRecoveryEvidence(
+            recoverable=True,
+            category="sql_execution",
+            reason="PostgreSQL SQLSTATE indicates a correctable SQL execution failure.",
+            provider="postgresql",
+            code=sqlstate,
+        )
+    return ExecutionRecoveryEvidence(
+        recoverable=False,
+        category="unknown",
+        reason="PostgreSQL SQLSTATE is not explicitly eligible for SQL correction.",
+        provider="postgresql",
+        code=sqlstate,
+    )
 
 _FORBIDDEN_STATEMENT_RE = re.compile(
     r"\b(?:INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE|GRANT|REVOKE|MERGE|CALL|DO)\b",
@@ -81,6 +135,12 @@ class PostgreSQLDatabaseProvider(DatabaseProvider):
     @property
     def dialect(self) -> str:
         return "postgresql"
+
+    def classify_execution_error(
+        self,
+        details: Optional[Dict[str, Any]] = None,
+    ) -> ExecutionRecoveryEvidence:
+        return _classify_postgres_execution_error(details)
 
     async def _get_pool(self) -> AsyncConnectionPool:
         if self._closed:
