@@ -630,7 +630,15 @@ class QueryOrchestrator:
             sql: str,
             exc: DatabaseExecutionError,
         ) -> QueryResponse:
-            decision = classify_execution_error(details=exc.details)
+            classify_provider_error = getattr(
+                self._database, "classify_execution_error", None
+            )
+            evidence = (
+                classify_provider_error(dict(exc.details or {}))
+                if callable(classify_provider_error)
+                else None
+            )
+            decision = classify_execution_error(evidence=evidence)
             if not decision.recoverable:
                 raise exc
 
@@ -644,6 +652,8 @@ class QueryOrchestrator:
                     "recoverable": decision.recoverable,
                     "category": decision.category,
                     "reason": decision.reason,
+                    "provider": decision.provider,
+                    "code": decision.code,
                     "sqlstate": decision.sqlstate,
                 },
             }
