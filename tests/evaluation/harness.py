@@ -39,6 +39,7 @@ class EvaluationExpectation:
     require_sql: bool = False
     expected_status: str | None = None
     rejection_code: str | None = None
+    require_no_sql: bool = False
     clarification_kind: str | None = None
     clarification_options: tuple[str, ...] = ()
     sql_contains: tuple[str, ...] = ()
@@ -253,6 +254,8 @@ def evaluate_query_response(
                 )
     if expected.require_sql and not response.sql:
         _add_failure(failures, categories, "expected generated SQL", "sql_generation")
+    if expected.require_no_sql and response.sql:
+        _add_failure(failures, categories, "expected no generated SQL", "sql_generation")
     normalized_sql = (response.sql or "").lower()
     for fragment in expected.sql_contains:
         if fragment.lower() not in normalized_sql:
