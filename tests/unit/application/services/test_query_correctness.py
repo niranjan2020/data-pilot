@@ -614,3 +614,40 @@ def test_correctness_rejects_comparison_envelope_without_period_split():
     violation = next(item for item in checks if item["code"] == "time_comparison_violation")
     assert violation["status"] == "failed"
     assert violation["missing_period_boundaries"] == ["2026-10-01"]
+
+
+def test_correctness_honors_non_postgresql_dialect_for_scope_and_parsing():
+    checks = assess_query_correctness(
+        affected_tables=["analytics.orders"],
+        governed_tables=["analytics.orders"],
+        sql="SELECT `customer_id`, SUM(`amount`) FROM `analytics`.`orders` GROUP BY `customer_id`",
+        required_grouping_columns=["customer_id"],
+        dialect="mysql",
+    )
+
+    assert any(item["code"] == "grouping_dimension_alignment" for item in checks)
+    assert any(item["code"] == "physical_scope_alignment" for item in checks)
+    assert not any(
+        item["code"] == "grouping_verification_unavailable"
+        for item in checks
+    )
+
+
+def test_correctness_honors_non_postgresql_dialect_for_metric_expression():
+    checks = assess_query_correctness(
+        affected_tables=["analytics.orders"],
+        governed_tables=["analytics.orders"],
+        sql="SELECT SUM(`quantity` * `unit_price`) AS `revenue` FROM `analytics`.`orders`",
+        governed_metrics=[{
+            "name": "Revenue",
+            "aggregation": "sum",
+            "calculation_expression": "`quantity` * `unit_price`",
+        }],
+        dialect="mysql",
+    )
+
+    assert any(item["code"] == "metric_expression_alignment" for item in checks)
+    assert not any(
+        item["code"] == "metric_expression_verification_unavailable"
+        for item in checks
+    )
