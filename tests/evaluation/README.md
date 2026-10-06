@@ -56,3 +56,39 @@ The runner composes the normal Data Pilot adapters directly, so it exercises Qdr
 Each case prints `PASS` or `FAIL` with failure reasons. The process exits with code 0 only when every case passes; any failure returns code 1 so the command can later be used unchanged in CI.
 
 The semantic suite requires the configured source database, metadata PostgreSQL, Qdrant, embedding model, and current LLM provider credentials to be available. Expected answers remain evaluator-only and are never supplied to the SQL generator.
+
+
+## Promoting real usage into regression cases
+
+A reproducible OSS issue or field failure may be promoted into the evaluation corpus without changing runtime query models. Regression metadata is evaluator-only and supports two optional objects:
+
+- `provenance`: `origin`, `reference`, `discovered_version`, and `promoted_reason`.
+- `reproduction`: `dialect`, `provider`, `fixture`, and concise `notes`.
+
+Existing curated cases remain valid without either object. A promoted case should contain the smallest question, governed fixture/configuration, and deterministic expectation that reproduces the failure. Do not copy customer data, credentials, proprietary schema names, raw prompts, or sensitive query results into the repository. Generalize the reproducer to a safe fixture whenever possible.
+
+Example:
+
+```json
+{
+  "id": "grouping-regression-001",
+  "question": "Show revenue by region",
+  "provenance": {
+    "origin": "oss_issue",
+    "reference": "issue-123",
+    "discovered_version": "0.1.0",
+    "promoted_reason": "Required grouping dimension was omitted."
+  },
+  "reproduction": {
+    "dialect": "postgresql",
+    "provider": "postgresql",
+    "fixture": "tests/fixtures/postgresql"
+  },
+  "expected": {
+    "require_completed": true,
+    "required_correctness_codes": ["grouping_dimension_alignment"]
+  }
+}
+```
+
+Provenance explains why a regression exists; it must never alter query execution or expected behavior. Reproduction metadata records how to recreate the incident but is likewise not supplied to SQL generation.
