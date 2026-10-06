@@ -38,6 +38,8 @@ from tests.evaluation.harness import (
     EvaluationExpectation,
     EvaluationResult,
     EvaluationSummary,
+    RegressionProvenance,
+    RegressionReproduction,
     evaluate_query_response,
 )
 
@@ -99,6 +101,8 @@ def load_cases(path: Path) -> list[tuple[EvaluationCase, str]]:
                 forbidden_correctness_codes=tuple(expected.get("forbidden_correctness_codes", [])),
             ),
             conversation_id=item.get("conversation_id"),
+            provenance=RegressionProvenance(**item.get("provenance", {})),
+            reproduction=RegressionReproduction(**item.get("reproduction", {})),
         )
         cases.append((case, item.get("source_name", "")))
     return cases
