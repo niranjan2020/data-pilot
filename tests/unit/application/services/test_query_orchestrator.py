@@ -1512,3 +1512,97 @@ async def test_execution_recovery_failure_does_not_start_b1_correction(monkeypat
 
     assert generator.calls == 2
     assert database.attempts == 1
+
+
+class TrackingSQLIdentifierBinder:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def bind(self, sql, schema, dialect):
+        self.calls.append((sql, dialect))
+        return sql
+
+
+@pytest.mark.asyncio
+async def test_initial_generation_uses_identifier_binder_boundary():
+    binder = TrackingSQLIdentifierBinder()
+    orchestrator = QueryOrchestrator(
+        FakeDatabase(),
+        FakeValidator(),
+        FakeSQLGenerator("SELECT COUNT(*) AS count FROM records"),
+        FakeCatalog(SemanticCatalog()),
+        sql_identifier_binder=binder,
+    )
+
+    await orchestrator.query(QueryRequest(question="How many records exist?"))
+
+    assert binder.calls == [
+        ("SELECT COUNT(*) AS count FROM records", "postgresql")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_b1_correction_reuses_identifier_binder_boundary(monkeypatch):
+    binder = TrackingSQLIdentifierBinder()
+    generator = SequencedSQLGenerator([
+        "SELECT wrong FROM records",
+        "SELECT COUNT(*) AS count FROM records",
+    ])
+    orchestrator = QueryOrchestrator(
+        FakeDatabase(),
+        FakeValidator(),
+        generator,
+        FakeCatalog(SemanticCatalog()),
+        sql_identifier_binder=binder,
+    )
+    calls = {"count": 0}
+
+    def correctness(**kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return [{
+                "code": "filter_violation",
+                "status": "failed",
+                "severity": "error",
+                "message": "required governed filter missing",
+            }]
+        return [{
+            "code": "filter_alignment",
+            "status": "passed",
+            "severity": "info",
+        }]
+
+    monkeypatch.setattr(
+        "datapilot.application.services.query_orchestrator.assess_query_correctness",
+        correctness,
+    )
+
+    await orchestrator.query(QueryRequest(question="How many records exist?"))
+
+    assert binder.calls == [
+        ("SELECT wrong FROM records", "postgresql"),
+        ("SELECT COUNT(*) AS count FROM records", "postgresql"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_b2_recovery_reuses_identifier_binder_boundary():
+    binder = TrackingSQLIdentifierBinder()
+    generator = SequencedSQLGenerator([
+        "SELECT missing FROM records",
+        "SELECT COUNT(*) AS count FROM records",
+    ])
+    orchestrator = QueryOrchestrator(
+        RecoverableExecutionDatabase(),
+        FakeValidator(),
+        generator,
+        FakeCatalog(SemanticCatalog()),
+        sql_identifier_binder=binder,
+    )
+
+    await orchestrator.query(QueryRequest(question="How many records exist?"))
+
+    assert binder.calls == [
+        ("SELECT missing FROM records", "postgresql"),
+        ("SELECT COUNT(*) AS count FROM records", "postgresql"),
+    ]
