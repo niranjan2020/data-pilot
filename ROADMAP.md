@@ -262,6 +262,25 @@ Stage A is complete. Stage B hardens recovery, provider isolation, resource safe
 ### B4. Stronger dialect isolation — CURRENT
 Keep PostgreSQL first-class while preventing PostgreSQL-specific behavior from leaking into provider-independent query-engine contracts.
 
+#### B4.1. Dialect-isolation architecture audit — COMPLETE
+The audit found that the public ports are already mostly dialect-aware: `DatabaseProvider.dialect`, `SQLGenerator.generate(..., dialect=...)`, `SQLValidator.validate(..., dialect=...)`, and `SchemaMetadata.dialect` carry the target dialect through the main workflow. SQLGlot validation and identifier binding also already translate canonical Data Pilot dialect names through `infrastructure/sql/dialects.py`.
+
+The main isolation gaps are:
+1. **Governed correctness is hard-coded to PostgreSQL.** `application/services/query_correctness.py` parses and canonicalizes SQL with SQLGlot's `postgres` dialect instead of receiving the active database dialect. This is the highest-priority leak because deterministic correctness is part of the provider-independent application pipeline.
+2. **Execution recovery is PostgreSQL SQLSTATE policy in the application layer.** `application/services/execution_recovery.py` contains PostgreSQL-specific SQLSTATE codes/classes. Recovery classification needs provider/dialect-owned evidence or policy rather than pretending those codes are universal.
+3. **Identifier binding has PostgreSQL semantics in a generic SQL module.** The implementation correctly solves PostgreSQL case-folding/quoted-identifier behavior, but its contract/name currently suggests generic behavior. It should become an explicit dialect-aware binding strategy before another provider is added.
+4. **The orchestrator imports concrete SQL infrastructure behavior.** `QueryOrchestrator` directly calls `bind_physical_identifiers`; dialect-specific SQL normalization should enter through a port/strategy so the application layer does not choose infrastructure behavior.
+5. **PostgreSQL adapter internals are legitimate provider-specific code.** psycopg, `information_schema`/PostgreSQL catalog queries, read-only transactions, `statement_timeout`, and normalized PostgreSQL diagnostics belong in `infrastructure/database/postgresql.py` and should remain there.
+6. **PostgreSQL metadata persistence is platform infrastructure, not target-query dialect leakage.** The metadata/semantic catalog can remain PostgreSQL-backed while target databases eventually use other dialects.
+7. **Composition is intentionally PostgreSQL-only today.** The API composition root constructs `PostgreSQLDatabaseProvider`; this is acceptable while PostgreSQL is the only registered target provider, but provider selection should eventually be registry/factory based rather than spread into the core.
+8. **Default dialect values are PostgreSQL-biased but not yet harmful.** `SchemaMetadata.dialect` defaults to `postgresql` and `sqlglot_dialect(None)` defaults to `postgres`. Preserve compatibility now; require explicit dialect at execution/correctness boundaries as isolation improves.
+
+B4 implementation order from this audit:
+- **B4.2:** thread the active dialect into deterministic governed correctness and remove hard-coded PostgreSQL parsing/canonicalization.
+- **B4.3:** introduce a dialect-aware SQL binding/normalization boundary and remove the orchestrator's direct dependency on the concrete identifier-binding function.
+- **B4.4:** make execution-error recovery classification provider-aware without weakening B2 fail-closed semantics.
+- **B4.5:** add dialect-boundary regressions and close B4; do not add a second database provider merely to prove the abstraction.
+
 Remaining:
 - Stronger dialect isolation while PostgreSQL remains the first-class provider.
 - Query timeout/resource-policy hardening.
