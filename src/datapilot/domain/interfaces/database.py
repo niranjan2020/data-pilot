@@ -6,6 +6,7 @@ Decouples query execution and schema introspection from any specific database dr
 
 from typing import Any, Dict, Optional, Protocol, runtime_checkable
 from datapilot.domain.models import QueryResult, SchemaMetadata
+from datapilot.domain.execution_recovery import ExecutionRecoveryEvidence
 
 
 @runtime_checkable
@@ -36,6 +37,13 @@ class DatabaseProvider(Protocol):
         timeout_seconds: Optional[float] = None,
     ) -> QueryResult:
         """Execute a validated read-only SQL query and return structured results."""
+        ...
+
+    def classify_execution_error(
+        self,
+        details: Optional[Dict[str, Any]] = None,
+    ) -> ExecutionRecoveryEvidence:
+        """Classify provider-specific execution diagnostics for SQL recovery."""
         ...
 
     async def close(self) -> None:
