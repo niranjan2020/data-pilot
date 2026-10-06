@@ -142,6 +142,46 @@ async def test_non_aggregate_generator_query_receives_policy_limit():
 
 
 
+@pytest.mark.asyncio
+async def test_completed_response_exposes_deterministic_explanation():
+    orchestrator = QueryOrchestrator(
+        FakeDatabase(),
+        FakeValidator(),
+        FakeSQLGenerator("SELECT id FROM records"),
+        FakeCatalog(SemanticCatalog()),
+    )
+
+    response = await orchestrator.query(QueryRequest(question="show records"))
+
+    assert response.status == "completed"
+    assert response.explanation is not None
+    assert response.explanation.outcome == "completed"
+    assert any(step.stage == "validation" for step in response.explanation.steps)
+    assert any(step.stage == "policy" for step in response.explanation.steps)
+    assert any(step.stage == "execution" for step in response.explanation.steps)
+
+
+@pytest.mark.asyncio
+async def test_dry_run_response_explanation_records_no_execution():
+    orchestrator = QueryOrchestrator(
+        FakeDatabase(),
+        FakeValidator(),
+        FakeSQLGenerator("SELECT id FROM records"),
+        FakeCatalog(SemanticCatalog()),
+    )
+
+    response = await orchestrator.query(
+        QueryRequest(question="show records", dry_run=True)
+    )
+
+    assert response.status == "dry_run"
+    assert response.explanation is not None
+    execution = next(
+        step for step in response.explanation.steps if step.stage == "execution"
+    )
+    assert execution.status == "not_executed"
+
+
 def test_follow_up_contextualization_carries_semantics_without_sql():
     text = QueryOrchestrator._contextualize_follow_up(
         "Only red products",
