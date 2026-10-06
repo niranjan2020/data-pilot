@@ -350,7 +350,7 @@ Hardening gaps identified:
 - No live benchmark expectation was weakened.
 - **B5 exit criteria are satisfied.**
 
-### B6. Diagnostic traces and explainability — CURRENT
+### B6. Diagnostic traces and explainability — COMPLETE
 Make query decisions inspectable without exposing model chain-of-thought or duplicating orchestration logic.
 
 #### B6.1. Explainability architecture audit — COMPLETE
@@ -372,13 +372,28 @@ Gaps identified:
 7. **Explainability should be derived from the existing trace/response rather than maintained as a second orchestration state machine.**
 
 B6 implementation order:
-- **B6.2:** introduce a provider-independent deterministic explanation model/builder derived from `QueryResponse` + `QueryTrace`, covering outcome, governed interpretation, SQL lineage, checks, resource policy, recovery, and execution.
-- **B6.3:** expose a compact explanation on completed, dry-run, ambiguous, and rejected responses while keeping raw LLM messages/admin diagnostics separate.
-- **B6.4:** add regressions for normal, clarification, rejection, B1, B2, dry-run, and resource-policy paths; close only after full suite and unchanged live benchmark.
+- **B6.2 — COMPLETE:** introduced a provider-independent deterministic explanation model/builder derived from `QueryResponse` + `QueryTrace`, covering outcome, governed interpretation, SQL lineage, checks, resource policy, recovery, and execution.
+- **B6.3 — COMPLETE:** exposed the deterministic explanation on completed, dry-run, ambiguous, and rejected responses through a single response-boundary derivation path.
+- **B6.4 — COMPLETE:** regression coverage now protects normal, clarification, rejection, B1, B2, dry-run, and resource-policy explanation paths.
+
+B6 closure evidence:
+- Focused B6 regression gate: **90/90 passed**.
+- Full automated suite: **358 passed, 2 skipped**.
+- Unchanged live semantic benchmark: **39/39 passed (100.0%)**.
+- Live latency at closure: **p50 2954 ms, p95 4178 ms**.
+- Benchmark expectations were not weakened.
+
+### B7. Regression corpus growth from real OSS usage — CURRENT
+Turn realistic usage patterns and discovered failures into durable regression assets without hard-coding AdventureWorks or customer-specific semantics into the core.
+
+B7 implementation order:
+- **B7.1:** audit the current evaluation/regression corpus, fixtures, benchmark case schema, and failure-capture boundaries.
+- **B7.2:** define a provider/domain-neutral regression-case contract for promoting reproducible real-world failures into deterministic tests.
+- **B7.3:** add representative corpus coverage for semantic ambiguity, governed correctness, SQL policy, B1/B2 recovery, and explainability outcomes.
+- **B7.4:** document the OSS workflow for contributing a regression case and close only after focused tests, the full automated suite, and the unchanged live benchmark.
 
 Remaining:
-- Diagnostic traces and explainability (B6 current).
-- Regression corpus growth from real OSS usage.
+- Regression corpus growth from real OSS usage (B7 current).
 
 Avoid autonomous/unbounded agent loops.
 
