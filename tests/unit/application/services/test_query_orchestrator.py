@@ -98,6 +98,30 @@ async def test_aggregate_generator_query_does_not_receive_arbitrary_limit():
 
 
 @pytest.mark.asyncio
+async def test_effective_timeout_and_resource_budget_are_applied_and_traced():
+    database = FakeDatabase()
+    policy = QueryExecutionPolicy(
+        timeout_seconds=12.5,
+        max_result_rows=200,
+        default_limit=50,
+        max_limit=200,
+    )
+    orchestrator = QueryOrchestrator(
+        database,
+        FakeValidator(),
+        FakeSQLGenerator("SELECT id FROM records"),
+        FakeCatalog(SemanticCatalog()),
+        query_policy=policy,
+    )
+
+    response = await orchestrator.query(QueryRequest(question="show records"))
+
+    assert database.timeouts == [12.5]
+    assert response.sql.endswith("LIMIT 50")
+    assert response.trace.resource_budget == policy.resource_budget()
+
+
+@pytest.mark.asyncio
 async def test_non_aggregate_generator_query_receives_policy_limit():
     database = FakeDatabase()
     generator = FakeSQLGenerator("SELECT id, name FROM records")
@@ -1308,6 +1332,34 @@ async def test_orchestrator_does_not_retry_second_execution_failure():
 
     assert generator.calls == 2
     assert database.attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_timeout_cancellation_is_terminal_and_never_enters_b2_recovery():
+    database = TerminalExecutionDatabase()
+    generator = SequencedSQLGenerator([
+        "SELECT id FROM records",
+        "SELECT COUNT(*) AS count FROM records",
+    ])
+    orchestrator = QueryOrchestrator(
+        database,
+        FakeValidator(),
+        generator,
+        FakeCatalog(SemanticCatalog()),
+        query_policy=QueryExecutionPolicy(
+            timeout_seconds=0.25,
+            max_result_rows=100,
+            default_limit=100,
+            max_limit=100,
+        ),
+    )
+
+    with pytest.raises(DatabaseExecutionError) as exc_info:
+        await orchestrator.query(QueryRequest(question="show records"))
+
+    assert exc_info.value.details["sqlstate"] == "57014"
+    assert generator.calls == 1
+    assert len(database.executed) == 1
 
 
 @pytest.mark.asyncio
