@@ -315,3 +315,28 @@ def test_existing_cases_receive_safe_regression_metadata_defaults():
     assert case.provenance.reference is None
     assert case.reproduction.dialect is None
     assert case.reproduction.fixture is None
+
+
+def test_regression_metadata_is_evaluator_only_and_does_not_change_expectations():
+    from tests.evaluation.harness import RegressionProvenance, RegressionReproduction
+
+    expected = EvaluationExpectation(require_completed=True, require_sql=True)
+    case = EvaluationCase(
+        id="metadata-only",
+        question="Show records",
+        expected=expected,
+        provenance=RegressionProvenance(
+            origin="oss_issue",
+            reference="issue-42",
+            promoted_reason="Preserve a reproduced failure.",
+        ),
+        reproduction=RegressionReproduction(
+            dialect="postgresql",
+            provider="postgresql",
+            fixture="generic",
+        ),
+    )
+
+    assert case.expected is expected
+    assert not hasattr(case.expected, "provenance")
+    assert not hasattr(case.expected, "reproduction")
