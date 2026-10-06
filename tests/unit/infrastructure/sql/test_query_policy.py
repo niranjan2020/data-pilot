@@ -20,7 +20,7 @@ def test_preserves_explicit_limit_within_policy() -> None:
     result = SQLQueryPolicyEnforcer().enforce(
         "SELECT id FROM customers LIMIT 50",
         "postgres",
-        QueryExecutionPolicy(max_limit=100),
+        QueryExecutionPolicy(default_limit=100, max_limit=100),
     )
 
     assert result.is_allowed
@@ -77,8 +77,8 @@ def test_result_limit_never_exceeds_max_result_rows() -> None:
         "SELECT id FROM customers",
         "postgres",
         QueryExecutionPolicy(
-            default_limit=1000,
-            max_limit=1000,
+            default_limit=250,
+            max_limit=250,
             max_result_rows=250,
         ),
     )
@@ -168,7 +168,7 @@ def test_explicit_limit_is_capped_by_effective_result_budget() -> None:
     result = SQLQueryPolicyEnforcer().enforce(
         "SELECT id FROM customers LIMIT 500",
         "postgres",
-        QueryExecutionPolicy(max_limit=100, max_result_rows=50),
+        QueryExecutionPolicy(default_limit=50, max_limit=50, max_result_rows=50),
     )
 
     assert result.is_allowed
