@@ -88,6 +88,7 @@ async def test_versioned_fixture_unsupported_question_returns_structured_rejecti
         expected=EvaluationExpectation(
             expected_status="rejected",
             rejection_code="unsupported_question",
+            require_no_sql=True,
         ),
     )
     orchestrator = QueryOrchestrator(
@@ -105,6 +106,36 @@ async def test_versioned_fixture_unsupported_question_returns_structured_rejecti
     assert response.rejection is not None
     assert response.rejection.category == "semantic_resolution"
     assert response.rejection.retryable is False
+
+
+@pytest.mark.asyncio
+async def test_evaluation_fails_if_rejected_question_contains_sql():
+    from datapilot.domain.query import QueryRejection, QueryResponse
+
+    case = EvaluationCase(
+        id="unsupported-must-not-generate-sql",
+        question="What is the weather today?",
+        expected=EvaluationExpectation(
+            expected_status="rejected",
+            rejection_code="unsupported_question",
+            require_no_sql=True,
+        ),
+    )
+    response = QueryResponse(
+        question=case.question,
+        status="rejected",
+        sql="SELECT * FROM customers",
+        rejection=QueryRejection(
+            code="unsupported_question",
+            reason="Question is outside the governed semantic domain.",
+        ),
+    )
+
+    result = evaluate_query_response(case, response)
+
+    assert not result.passed
+    assert "sql_generation" in result.failure_categories
+    assert "expected no generated SQL" in result.failures
 
 
 @pytest.mark.asyncio
