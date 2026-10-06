@@ -208,6 +208,10 @@ class QueryOrchestrator:
                     question=request.question,
                     status="rejected",
                     trace=trace,
+                    rejection=QueryRejection(
+                        code="invalid_entity_selection",
+                        reason=f"The selected entity {selected_entity!r} is not present in the governed semantic catalog.",
+                    ),
                     message=(
                         f"The selected entity {selected_entity!r} is not present in the "
                         "governed semantic catalog. No SQL was generated."
@@ -279,6 +283,10 @@ class QueryOrchestrator:
                     confidence=intent.confidence,
                     resolved_intent=intent,
                     trace=trace,
+                    rejection=QueryRejection(
+                        code="invalid_metric_selection",
+                        reason=f"The selected metric {selected_metric!r} is not present in the governed semantic context.",
+                    ),
                     message=(
                         f"The selected metric {selected_metric!r} is not present in the "
                         "governed semantic context. No SQL was generated."
@@ -373,6 +381,10 @@ class QueryOrchestrator:
                     confidence=intent.confidence,
                     resolved_intent=intent,
                     trace=trace,
+                    rejection=QueryRejection(
+                        code="invalid_attribute_selection",
+                        reason=f"The selected attribute {selected_attribute!r} is not present in the governed semantic context.",
+                    ),
                     message=(
                         f"The selected attribute {selected_attribute!r} is not present in the "
                         "governed semantic context. No SQL was generated."
@@ -431,6 +443,25 @@ class QueryOrchestrator:
                 dimension for dimension in governed_time_dimensions
                 if str(dimension.get("name") or "").casefold() == selected_time_dimension.casefold()
             ]
+            if not governed_time_dimensions:
+                return QueryResponse(
+                    question=request.question,
+                    status="rejected",
+                    confidence=intent.confidence,
+                    resolved_intent=intent,
+                    trace=trace,
+                    rejection=QueryRejection(
+                        code="invalid_time_dimension_selection",
+                        reason=(
+                            f"The selected time dimension {selected_time_dimension!r} "
+                            "is not present in the governed semantic context."
+                        ),
+                    ),
+                    message=(
+                        f"The selected time dimension {selected_time_dimension!r} is not present "
+                        "in the governed semantic context. No SQL was generated."
+                    ),
+                )
         try:
             time_interpretation = resolve_time_semantics(
                 contextual_question, governed_time_dimensions
