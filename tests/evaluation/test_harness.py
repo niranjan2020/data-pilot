@@ -234,3 +234,31 @@ def test_runtime_exception_classification_distinguishes_pipeline_stages():
         )
     ) == ("governed_correctness",)
     assert classify_runtime_exception(RuntimeError("unknown")) == ()
+
+
+def test_semantic_case_loader_preserves_rejection_expectations(tmp_path):
+    import json
+    from tests.evaluation.run_semantic import load_cases
+
+    path = tmp_path / "cases.json"
+    path.write_text(
+        json.dumps([{
+            "id": "unsupported",
+            "question": "Tell me a joke",
+            "source_name": "demo",
+            "expected": {
+                "expected_status": "rejected",
+                "rejection_code": "unsupported_question",
+                "require_no_sql": True,
+            },
+        }]),
+        encoding="utf-8",
+    )
+
+    cases = load_cases(path)
+
+    case, source_name = cases[0]
+    assert source_name == "demo"
+    assert case.expected.expected_status == "rejected"
+    assert case.expected.rejection_code == "unsupported_question"
+    assert case.expected.require_no_sql is True
