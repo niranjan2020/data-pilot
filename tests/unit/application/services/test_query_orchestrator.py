@@ -1354,3 +1354,161 @@ async def test_execution_recovery_sql_must_repass_safety_validation():
     assert generator.calls == 2
     assert database.attempts == 1
     assert validator.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_execution_recovery_sql_must_repass_governed_correctness(monkeypatch):
+    database = RecoverableExecutionDatabase()
+    generator = SequencedSQLGenerator([
+        "SELECT missing FROM records",
+        "SELECT still_semantically_wrong FROM records",
+        "SELECT COUNT(*) AS count FROM records",
+    ])
+    orchestrator = QueryOrchestrator(
+        database, FakeValidator(), generator, FakeCatalog(SemanticCatalog())
+    )
+    calls = {"count": 0}
+
+    def correctness(**kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return []
+        return [{
+            "code": "relationship_violation",
+            "status": "failed",
+            "severity": "error",
+            "message": "recovered SQL violates governed relationship",
+        }]
+
+    monkeypatch.setattr(
+        "datapilot.application.services.query_orchestrator.assess_query_correctness",
+        correctness,
+    )
+
+    with pytest.raises(SQLValidationError):
+        await orchestrator.query(QueryRequest(question="How many records exist?"))
+
+    assert generator.calls == 2
+    assert database.attempts == 1
+    assert calls["count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_b1_correction_can_have_at_most_one_independent_b2_recovery(monkeypatch):
+    database = RecoverableExecutionDatabase()
+    generator = SequencedSQLGenerator([
+        "SELECT governed_wrong FROM records",
+        "SELECT execution_wrong FROM records",
+        "SELECT COUNT(*) AS count FROM records",
+    ])
+    orchestrator = QueryOrchestrator(
+        database, FakeValidator(), generator, FakeCatalog(SemanticCatalog())
+    )
+    calls = {"count": 0}
+
+    def correctness(**kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return [{
+                "code": "filter_violation",
+                "status": "failed",
+                "severity": "error",
+                "message": "required governed filter missing",
+            }]
+        return [{
+            "code": "filter_alignment",
+            "status": "passed",
+            "severity": "info",
+        }]
+
+    monkeypatch.setattr(
+        "datapilot.application.services.query_orchestrator.assess_query_correctness",
+        correctness,
+    )
+
+    response = await orchestrator.query(QueryRequest(question="How many records exist?"))
+
+    assert response.status == "completed"
+    assert generator.calls == 3
+    assert database.attempts == 2
+    assert len(response.trace.correction_attempts) == 1
+    assert len(response.trace.execution_recovery_attempts) == 1
+    assert "sql_correction" in generator.contexts[1]
+    assert "execution_recovery" in generator.contexts[2]
+
+
+@pytest.mark.asyncio
+async def test_b1_then_b2_second_database_failure_is_terminal(monkeypatch):
+    database = RecoverableExecutionDatabase(fail_every_time=True)
+    generator = SequencedSQLGenerator([
+        "SELECT governed_wrong FROM records",
+        "SELECT execution_wrong FROM records",
+        "SELECT still_execution_wrong FROM records",
+        "SELECT COUNT(*) AS count FROM records",
+    ])
+    orchestrator = QueryOrchestrator(
+        database, FakeValidator(), generator, FakeCatalog(SemanticCatalog())
+    )
+    calls = {"count": 0}
+
+    def correctness(**kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return [{
+                "code": "physical_scope_violation",
+                "status": "failed",
+                "severity": "error",
+                "message": "outside governed physical scope",
+            }]
+        return [{
+            "code": "physical_scope_alignment",
+            "status": "passed",
+            "severity": "info",
+        }]
+
+    monkeypatch.setattr(
+        "datapilot.application.services.query_orchestrator.assess_query_correctness",
+        correctness,
+    )
+
+    with pytest.raises(DatabaseExecutionError):
+        await orchestrator.query(QueryRequest(question="How many records exist?"))
+
+    assert generator.calls == 3
+    assert database.attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_execution_recovery_failure_does_not_start_b1_correction(monkeypatch):
+    database = RecoverableExecutionDatabase()
+    generator = SequencedSQLGenerator([
+        "SELECT execution_wrong FROM records",
+        "SELECT governed_wrong_after_recovery FROM records",
+        "SELECT should_never_be_generated FROM records",
+    ])
+    orchestrator = QueryOrchestrator(
+        database, FakeValidator(), generator, FakeCatalog(SemanticCatalog())
+    )
+    calls = {"count": 0}
+
+    def correctness(**kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return []
+        return [{
+            "code": "time_grain_violation",
+            "status": "failed",
+            "severity": "error",
+            "message": "execution-recovery SQL has wrong governed grain",
+        }]
+
+    monkeypatch.setattr(
+        "datapilot.application.services.query_orchestrator.assess_query_correctness",
+        correctness,
+    )
+
+    with pytest.raises(SQLValidationError):
+        await orchestrator.query(QueryRequest(question="How many records exist?"))
+
+    assert generator.calls == 2
+    assert database.attempts == 1
