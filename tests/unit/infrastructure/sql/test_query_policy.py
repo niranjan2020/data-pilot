@@ -164,7 +164,7 @@ def test_mixed_aggregate_projection_is_bounded_fail_safe() -> None:
     assert "LIMIT 100" in result.sql.upper()
 
 
-def test_explicit_limit_is_capped_by_max_limit() -> None:
+def test_explicit_limit_is_capped_by_effective_result_budget() -> None:
     result = SQLQueryPolicyEnforcer().enforce(
         "SELECT id FROM customers LIMIT 500",
         "postgres",
@@ -172,4 +172,4 @@ def test_explicit_limit_is_capped_by_max_limit() -> None:
     )
 
     assert result.is_allowed
-    assert "LIMIT 100" in result.sql.upper()
+    assert "LIMIT 50" in result.sql.upper()
