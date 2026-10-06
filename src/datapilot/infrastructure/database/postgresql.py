@@ -27,6 +27,34 @@ _FORBIDDEN_STATEMENT_RE = re.compile(
 _COMMENT_OR_LITERAL_RE = re.compile(r"(--[^\n]*|/\*.*?\*/|'(?:''|[^'])*')", re.DOTALL)
 
 
+def _postgres_execution_error_details(exc: Exception, sql: str) -> Dict[str, Any]:
+    """Normalize safe psycopg execution diagnostics for application recovery policy."""
+    details: Dict[str, Any] = {
+        "provider": "postgresql",
+        "error_type": type(exc).__name__,
+        "sql": sql,
+    }
+    sqlstate = getattr(exc, "sqlstate", None)
+    if sqlstate:
+        details["sqlstate"] = str(sqlstate).upper()
+
+    diagnostic = getattr(exc, "diag", None)
+    if diagnostic is not None:
+        message = getattr(diagnostic, "message_primary", None)
+        if message:
+            details["database_message"] = message
+        for source, target in (
+            ("schema_name", "schema_name"),
+            ("table_name", "table_name"),
+            ("column_name", "column_name"),
+            ("constraint_name", "constraint_name"),
+        ):
+            value = getattr(diagnostic, source, None)
+            if value:
+                details[target] = value
+    return details
+
+
 class PostgreSQLDatabaseProvider(DatabaseProvider):
     """Async PostgreSQL database adapter backed by psycopg 3 connection pooling."""
 
@@ -303,21 +331,7 @@ class PostgreSQLDatabaseProvider(DatabaseProvider):
         except DatabaseConnectionError:
             raise
         except Exception as exc:
-            diagnostic = getattr(exc, "diag", None)
-            details = {
-                "error_type": type(exc).__name__,
-                # Safe for developer diagnostics: Data Pilot only permits
-                # read-only generated SQL here. Including the exact statement
-                # makes AST/binding/policy failures reproducible without
-                # exposing connection credentials or database contents.
-                "sql": sql,
-            }
-            message = getattr(diagnostic, "message_primary", None)
-            if message:
-                details["database_message"] = message
-            sqlstate = getattr(exc, "sqlstate", None)
-            if sqlstate:
-                details["sqlstate"] = sqlstate
+            details = _postgres_execution_error_details(exc, sql)
             raise DatabaseExecutionError(
                 "PostgreSQL query execution failed",
                 details=details,
