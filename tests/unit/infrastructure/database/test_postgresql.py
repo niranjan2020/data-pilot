@@ -6,7 +6,7 @@ import pytest
 
 from datapilot.core.exceptions import DatabaseExecutionError
 from datapilot.domain.interfaces.database import DatabaseProvider
-from datapilot.infrastructure.database.postgresql import PostgreSQLDatabaseProvider
+from datapilot.infrastructure.database.postgresql import PostgreSQLDatabaseProvider, _postgres_execution_error_details
 
 
 def provider() -> PostgreSQLDatabaseProvider:
@@ -100,3 +100,46 @@ async def test_close_closes_pool() -> None:
 
     pool.close.assert_awaited_once()
     assert p._pool is None
+
+
+def test_execution_error_details_include_structured_postgres_diagnostics() -> None:
+    class Diagnostic:
+        message_primary = "unknown field"
+        schema_name = "public"
+        table_name = "orders"
+        column_name = "missing"
+        constraint_name = None
+
+    class DriverError(Exception):
+        sqlstate = "42703"
+        diag = Diagnostic()
+
+    details = _postgres_execution_error_details(
+        DriverError("driver text"),
+        "SELECT missing FROM orders",
+    )
+
+    assert details["provider"] == "postgresql"
+    assert details["error_type"] == "DriverError"
+    assert details["sqlstate"] == "42703"
+    assert details["database_message"] == "unknown field"
+    assert details["schema_name"] == "public"
+    assert details["table_name"] == "orders"
+    assert details["column_name"] == "missing"
+
+
+def test_execution_error_details_fail_closed_without_sqlstate() -> None:
+    details = _postgres_execution_error_details(RuntimeError("opaque"), "SELECT 1")
+    assert details["provider"] == "postgresql"
+    assert details["error_type"] == "RuntimeError"
+    assert "sqlstate" not in details
+    assert "database_message" not in details
+
+
+def test_execution_error_details_normalize_sqlstate_case() -> None:
+    class DriverError(Exception):
+        sqlstate = "42p01"
+        diag = None
+
+    details = _postgres_execution_error_details(DriverError(), "SELECT 1")
+    assert details["sqlstate"] == "42P01"
