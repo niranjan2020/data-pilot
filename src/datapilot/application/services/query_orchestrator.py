@@ -764,6 +764,7 @@ class QueryOrchestrator:
             required_filters=required_filters or [],
             required_relationships=required_relationships or [],
             required_time_plan=required_time_plan,
+            dialect=self._database.dialect,
         )
         if trace is not None:
             trace.correctness_checks = correctness_checks
