@@ -34,3 +34,19 @@ def test_query_trace_preserves_structured_execution_recovery_diagnostics():
     assert attempt["database_error"]["sqlstate"] == "42703"
     assert attempt["classification"]["recoverable"] is True
     assert attempt["corrected_sql"] == "SELECT id FROM orders"
+
+
+def test_query_trace_preserves_effective_resource_budget():
+    trace = QueryTrace(
+        resource_budget={
+            "timeout_seconds": 15.0,
+            "max_result_rows": 500,
+            "max_query_length": 100000,
+            "require_limit_for_non_aggregate": True,
+            "default_limit": 100,
+            "max_limit": 500,
+        }
+    )
+
+    assert trace.resource_budget["timeout_seconds"] == 15.0
+    assert trace.resource_budget["max_result_rows"] == 500
