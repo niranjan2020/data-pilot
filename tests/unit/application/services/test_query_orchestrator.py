@@ -7,6 +7,7 @@ import pytest
 from datapilot.core.exceptions import DatabaseExecutionError, SemanticRetrievalError, SQLValidationError, TimeInterpretationError
 from datapilot.application.services.query_orchestrator import QueryOrchestrator
 from datapilot.domain.models import SchemaMetadata
+from datapilot.domain.execution_recovery import ExecutionRecoveryEvidence
 from datapilot.domain.policies import QueryExecutionPolicy
 from datapilot.domain.query import QueryRequest
 from datapilot.domain.semantic import EntityDefinition, SemanticCatalog
@@ -18,6 +19,18 @@ class FakeDatabase:
     def __init__(self) -> None:
         self.executed: list[str] = []
         self.timeouts: list[float | None] = []
+
+    def classify_execution_error(self, details=None):
+        payload = dict(details or {})
+        sqlstate = payload.get("sqlstate")
+        recoverable = sqlstate in {"42703", "42P01", "42883", "42804", "42803", "42601"}
+        return ExecutionRecoveryEvidence(
+            recoverable=recoverable,
+            category="sql_execution" if recoverable else "provider_runtime",
+            reason="fake provider recovery classification",
+            provider=self.dialect,
+            code=sqlstate,
+        )
 
     async def introspect_schema(self, schema_name=None):
         return SchemaMetadata(schema_name=schema_name, dialect=self.dialect)
