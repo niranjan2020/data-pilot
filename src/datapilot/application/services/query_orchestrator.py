@@ -15,6 +15,7 @@ from datapilot.application.services.result_summary import summarize_result
 from datapilot.application.services.query_correctness import assess_query_correctness
 from datapilot.application.services.sql_correction import classify_sql_correction
 from datapilot.application.services.execution_recovery import classify_execution_error
+from datapilot.application.services.query_explanation import build_query_explanation
 from datapilot.core.exceptions import DatabaseExecutionError, SemanticRetrievalError, SQLValidationError, TimeInterpretationError
 from datapilot.core.logging import get_logger
 from datapilot.domain.interfaces.database import DatabaseProvider
@@ -76,6 +77,12 @@ class QueryOrchestrator:
         if self._sql_identifier_binder is None:
             return sql
         return self._sql_identifier_binder.bind(sql, schema, self._database.dialect)
+
+    @staticmethod
+    def _with_explanation(response: QueryResponse) -> QueryResponse:
+        """Attach deterministic explainability once at each response boundary."""
+        response.explanation = build_query_explanation(response)
+        return response
 
     async def query(
         self,
@@ -214,7 +221,7 @@ class QueryOrchestrator:
             str(metric.get("name") or "").casefold() == selected_metric.casefold()
             for metric in governed_metrics
         ):
-            return QueryResponse(
+            return self._with_explanation(QueryResponse(
                 question=request.question,
                 status="rejected",
                 trace=trace,
@@ -226,7 +233,7 @@ class QueryOrchestrator:
                     f"The selected metric {selected_metric!r} is not present in the "
                     "governed semantic context. No SQL was generated."
                 ),
-            )
+            ))
 
         selected_attribute = effective_clarifications.get("attribute")
         if selected_attribute:
@@ -236,7 +243,7 @@ class QueryOrchestrator:
                 for attribute in entity.get("attributes", [])
             }
             if selected_attribute.casefold() not in governed_attribute_values:
-                return QueryResponse(
+                return self._with_explanation(QueryResponse(
                     question=request.question,
                     status="rejected",
                     trace=trace,
@@ -248,14 +255,14 @@ class QueryOrchestrator:
                         f"The selected attribute {selected_attribute!r} is not present in the "
                         "governed semantic context. No SQL was generated."
                     ),
-                )
+                ))
 
         selected_time_dimension = effective_clarifications.get("time_dimension")
         if selected_time_dimension and not any(
             str(dimension.get("name") or "").casefold() == selected_time_dimension.casefold()
             for dimension in governed_context.get("time_dimensions", [])
         ):
-            return QueryResponse(
+            return self._with_explanation(QueryResponse(
                 question=request.question,
                 status="rejected",
                 trace=trace,
@@ -270,7 +277,7 @@ class QueryOrchestrator:
                     f"The selected time dimension {selected_time_dimension!r} is not present "
                     "in the governed semantic context. No SQL was generated."
                 ),
-            )
+            ))
 
         resolver_catalog = catalog
         selected_entity = effective_clarifications.get("entity")
@@ -280,7 +287,7 @@ class QueryOrchestrator:
                 if entity.name.casefold() == selected_entity.casefold()
             ]
             if not selected_entities:
-                return QueryResponse(
+                return self._with_explanation(QueryResponse(
                     question=request.question,
                     status="rejected",
                     trace=trace,
@@ -292,7 +299,7 @@ class QueryOrchestrator:
                         f"The selected entity {selected_entity!r} is not present in the "
                         "governed semantic catalog. No SQL was generated."
                     ),
-                )
+                ))
             resolver_catalog = catalog.model_copy(update={"entities": selected_entities})
 
         intent = self._entity_resolver.resolve(contextual_question, resolver_catalog, schema)
@@ -301,7 +308,7 @@ class QueryOrchestrator:
             and intent.entity is None
             and not intent.ambiguities
         ):
-            return QueryResponse(
+            return self._with_explanation(QueryResponse(
                 question=request.question,
                 status="rejected",
                 confidence=intent.confidence,
@@ -318,7 +325,7 @@ class QueryOrchestrator:
                     "I could not map this question to a governed business entity. "
                     "No SQL was generated."
                 ),
-            )
+            ))
         if intent.ambiguities:
             entity_by_name = {entity.name: entity for entity in catalog.entities}
             options = [
@@ -329,7 +336,7 @@ class QueryOrchestrator:
                 )
                 for name in intent.ambiguities
             ]
-            return QueryResponse(
+            return self._with_explanation(QueryResponse(
                 question=request.question,
                 status="ambiguous",
                 confidence=intent.confidence,
@@ -343,7 +350,7 @@ class QueryOrchestrator:
                 resolved_intent=intent,
                 trace=trace,
                 message="I found more than one governed entity that could match this question.",
-            )
+            ))
 
         selected_metric = effective_clarifications.get("metric")
         governed_metrics = governed_context.get("metrics", [])
@@ -353,7 +360,7 @@ class QueryOrchestrator:
                 if str(metric.get("name") or "").casefold() == selected_metric.casefold()
             ]
             if not selected_metrics:
-                return QueryResponse(
+                return self._with_explanation(QueryResponse(
                     question=request.question,
                     status="rejected",
                     confidence=intent.confidence,
@@ -367,7 +374,7 @@ class QueryOrchestrator:
                         f"The selected metric {selected_metric!r} is not present in the "
                         "governed semantic context. No SQL was generated."
                     ),
-                )
+                ))
             governed_metrics = selected_metrics
             governed_context["metrics"] = governed_metrics
             trace.governed_metrics = [str(metric.get("name") or "") for metric in governed_metrics]
@@ -378,7 +385,7 @@ class QueryOrchestrator:
                 None,
             )
             if ambiguous_group:
-                return QueryResponse(
+                return self._with_explanation(QueryResponse(
                     question=request.question,
                     status="ambiguous",
                     confidence=intent.confidence,
@@ -402,7 +409,7 @@ class QueryOrchestrator:
                     resolved_intent=intent,
                     trace=trace,
                     message="The metric wording matches more than one governed business metric.",
-                )
+                ))
 
             # Multiple distinct explicit metric references are composition, not
             # ambiguity. For example, "revenue and units sold" intentionally asks
@@ -451,7 +458,7 @@ class QueryOrchestrator:
                     if selected is not None:
                         break
             if selected is None:
-                return QueryResponse(
+                return self._with_explanation(QueryResponse(
                     question=request.question,
                     status="rejected",
                     confidence=intent.confidence,
@@ -465,10 +472,10 @@ class QueryOrchestrator:
                         f"The selected attribute {selected_attribute!r} is not present in the "
                         "governed semantic context. No SQL was generated."
                     ),
-                )
+                ))
             governed_context["resolved_attribute_selection"] = selected
         elif len(attribute_candidates) > 1:
-            return QueryResponse(
+            return self._with_explanation(QueryResponse(
                 question=request.question,
                 status="ambiguous",
                 confidence=intent.confidence,
@@ -492,7 +499,7 @@ class QueryOrchestrator:
                 resolved_intent=intent,
                 trace=trace,
                 message="The filter wording can refer to more than one governed attribute.",
-            )
+            ))
 
         governed_filters = self._required_filters(
             contextual_question,
@@ -520,7 +527,7 @@ class QueryOrchestrator:
                 if str(dimension.get("name") or "").casefold() == selected_time_dimension.casefold()
             ]
             if not governed_time_dimensions:
-                return QueryResponse(
+                return self._with_explanation(QueryResponse(
                     question=request.question,
                     status="rejected",
                     confidence=intent.confidence,
@@ -537,7 +544,7 @@ class QueryOrchestrator:
                         f"The selected time dimension {selected_time_dimension!r} is not present "
                         "in the governed semantic context. No SQL was generated."
                     ),
-                )
+                ))
         try:
             time_interpretation = resolve_time_semantics(
                 contextual_question, governed_time_dimensions
@@ -555,7 +562,7 @@ class QueryOrchestrator:
         if time_interpretation:
             trace.time_interpretation = time_interpretation
             if time_interpretation.get("status") == "ambiguous":
-                return QueryResponse(
+                return self._with_explanation(QueryResponse(
                     question=request.question,
                     status="ambiguous",
                     confidence=intent.confidence,
@@ -575,7 +582,7 @@ class QueryOrchestrator:
                     resolved_intent=intent,
                     trace=trace,
                     message="The time reference matches more than one governed date/time role.",
-                )
+                ))
             governed_context["resolved_time_filter"] = time_interpretation
         generation_context = {
             "governed_semantic_context": governed_context,
@@ -827,7 +834,7 @@ class QueryOrchestrator:
         if not execute:
             if trace is not None:
                 trace.execution = {"executed": False}
-            return QueryResponse(
+            return self._with_explanation(QueryResponse(
                 question=question,
                 status="dry_run",
                 source=source,
@@ -839,7 +846,7 @@ class QueryOrchestrator:
                 validation_warnings=[*validation.warnings, *policy_result.warnings],
                 trace=trace,
                 message="Dry run completed. SQL was generated, bound, validated and policy-checked without execution.",
-            )
+            ))
 
         result = await self._database.execute_query(
             policy_result.sql,
@@ -873,7 +880,7 @@ class QueryOrchestrator:
 
         result_summary = summarize_result(question, result, presentation)
 
-        return QueryResponse(
+        return self._with_explanation(QueryResponse(
             question=question,
             status="completed",
             source=source,
@@ -886,7 +893,7 @@ class QueryOrchestrator:
             trace=trace,
             presentation=presentation,
             result_summary=result_summary,
-        )
+        ))
 
     async def _load_relevant_schema(
         self,
