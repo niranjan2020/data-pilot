@@ -77,10 +77,12 @@ class SQLQueryPolicyEnforcer:
                         "policy can deterministically bound result rows"
                     ],
                 )
-            if requested > policy.max_limit:
-                statement = self._replace_limit(statement, policy.max_limit)
+            effective_max_limit = min(policy.max_limit, policy.max_result_rows)
+            if requested > effective_max_limit:
+                statement = self._replace_limit(statement, effective_max_limit)
                 warnings.append(
-                    f"Reduced requested LIMIT {requested} to policy maximum {policy.max_limit}."
+                    "Reduced requested LIMIT "
+                    f"{requested} to effective policy maximum {effective_max_limit}."
                 )
         elif self._requires_result_limit(statement, policy):
             result_limit = min(policy.default_limit, policy.max_limit, policy.max_result_rows)
