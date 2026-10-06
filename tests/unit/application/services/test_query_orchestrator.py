@@ -1567,7 +1567,7 @@ async def test_b1_correction_reapplies_resource_policy_before_execution(monkeypa
         for item in response.explanation.sql_lineage
     )
     assert response.explanation.resource_policy == response.trace.resource_budget
-    assert any(step.stage == "correctness" for step in response.explanation.steps)
+    assert response.trace.correctness_checks == []
 
 
 @pytest.mark.asyncio
