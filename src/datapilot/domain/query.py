@@ -124,6 +124,50 @@ class QueryRejection(BaseModel):
     retryable: bool = False
 
 
+class QueryExplanationStep(BaseModel):
+    """One deterministic, user-safe explanation step derived from query evidence."""
+
+    stage: Literal[
+        "retrieval",
+        "governance",
+        "clarification",
+        "time",
+        "generation",
+        "binding",
+        "validation",
+        "correctness",
+        "policy",
+        "correction",
+        "recovery",
+        "execution",
+        "outcome",
+    ]
+    status: Literal[
+        "selected",
+        "passed",
+        "applied",
+        "clarification_required",
+        "rejected",
+        "corrected",
+        "recovered",
+        "executed",
+        "not_executed",
+    ]
+    summary: str
+    evidence: Dict[str, Any] = Field(default_factory=dict)
+
+
+class QueryExplanation(BaseModel):
+    """Deterministic explanation assembled from QueryResponse and QueryTrace."""
+
+    outcome: Literal["completed", "dry_run", "ambiguous", "rejected"]
+    summary: str
+    steps: List[QueryExplanationStep] = Field(default_factory=list)
+    sql_lineage: List[Dict[str, str]] = Field(default_factory=list)
+    governed_interpretation: Dict[str, List[str]] = Field(default_factory=dict)
+    resource_policy: Dict[str, Any] = Field(default_factory=dict)
+
+
 class QueryResponse(BaseModel):
     """End-to-end result of the Data Pilot query orchestration workflow."""
 
