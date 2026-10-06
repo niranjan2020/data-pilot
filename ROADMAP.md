@@ -118,7 +118,7 @@ Benchmark
   -> record new baseline
 ```
 
-### Current checkpoint — 2026-10-05
+### Current checkpoint — 2026-10-06
 
 Evaluation V2 progression:
 - Initial run: **0/20**. Canonical SQL table/identifier differences caused systemic false correctness failures.
@@ -309,7 +309,7 @@ B4 implementation order from this audit:
 - No benchmark expectation was weakened and no second database provider was added merely to prove the abstraction.
 - **B4 exit criteria are satisfied.**
 
-### B5. Query timeout and resource-policy hardening — CURRENT
+### B5. Query timeout and resource-policy hardening — COMPLETE
 Protect connected databases and the Data Pilot process from expensive or unexpectedly large generated queries without changing governed analytical semantics.
 
 #### B5.1. Resource-policy architecture audit — COMPLETE
@@ -330,13 +330,27 @@ Hardening gaps identified:
 6. **Current trace records policy SQL/warnings and execution timing, but not the effective resource budget.** Diagnostics should make the applied timeout/row/limit budget visible.
 7. **SQL length is bounded, but query-shape cost is intentionally not estimated yet.** Do not introduce unreliable heuristic cost scoring or EXPLAIN-based autonomous decisions in this milestone.
 
-B5 implementation order:
-- **B5.2:** make row/limit policy deterministic and fail-closed, including aggregate/grouped result bounding and non-literal LIMIT handling.
-- **B5.3:** validate policy configuration invariants and make the effective timeout/resource budget explicit in composition and trace.
-- **B5.4:** add timeout/cancellation and bounded-result regressions across normal execution, B1, and B2; close B5 only after the full suite and unchanged live benchmark pass.
+#### B5.2. Deterministic row/limit policy — COMPLETE
+- Row-producing queries are bounded before execution, including grouped aggregates, DISTINCT queries, and set operations.
+- Scalar aggregates remain unmodified when they are provably single-row.
+- Non-literal/dynamic LIMIT expressions fail closed rather than bypassing deterministic row controls.
+- Explicit and injected limits respect the coherent result-row budget.
+
+#### B5.3. Coherent effective resource budget — COMPLETE
+- Query execution policy validates `default_limit <= max_limit <= max_result_rows` at configuration time.
+- Query timeout configuration must be positive.
+- `QueryTrace.resource_budget` records the effective timeout, row, SQL-length, and LIMIT controls applied to the query.
+
+#### B5.4. Timeout/recovery regression gate — COMPLETE
+- PostgreSQL cancellation/timeout SQLSTATE `57014` remains terminal and cannot trigger B2 regeneration/retry.
+- Normal execution, B1 correction, and B2 recovery all re-enter the same resource-policy boundary before execution.
+- Focused B5 regression checkpoint: **129/129 passed**.
+- B5 final automated regression: **351 passed, 2 skipped**.
+- B5 final live production-pipeline semantic benchmark: **39/39 passed (100.0%)**.
+- No live benchmark expectation was weakened.
+- **B5 exit criteria are satisfied.**
 
 Remaining:
-- Query timeout/resource-policy hardening.
 - Better diagnostic traces and explainability.
 - Regression corpus growth from real OSS usage.
 
