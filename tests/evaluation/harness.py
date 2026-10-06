@@ -49,11 +49,33 @@ class EvaluationExpectation:
 
 
 @dataclass(frozen=True)
+class RegressionProvenance:
+    """Reviewable origin metadata for a promoted regression case."""
+
+    origin: str = "curated"
+    reference: str | None = None
+    discovered_version: str | None = None
+    promoted_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class RegressionReproduction:
+    """Minimal environment facts required to reproduce a regression safely."""
+
+    dialect: str | None = None
+    provider: str | None = None
+    fixture: str | None = None
+    notes: str | None = None
+
+
+@dataclass(frozen=True)
 class EvaluationCase:
     id: str
     question: str
     expected: EvaluationExpectation
     conversation_id: str | None = None
+    provenance: RegressionProvenance = field(default_factory=RegressionProvenance)
+    reproduction: RegressionReproduction = field(default_factory=RegressionReproduction)
 
 
 @dataclass(frozen=True)
