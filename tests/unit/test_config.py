@@ -4,9 +4,10 @@ import pytest
 from datapilot.core.config import Settings, get_settings
 
 
-def test_default_settings():
-    """Verify default configuration values."""
-    settings = Settings()
+def test_default_settings(monkeypatch):
+    """Verify declared defaults independently of developer-machine environment."""
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    settings = Settings(_env_file=None)
     assert settings.app_name == "Data Pilot"
     assert settings.app_version == "0.1.0"
     assert settings.environment == "development"
@@ -36,9 +37,11 @@ def test_custom_settings_override():
     assert custom.gemini_api_key.get_secret_value() == "super-secret-key"
 
 
-def test_cors_defaults_secure():
+def test_cors_defaults_secure(monkeypatch):
     """Verify default CORS configuration does not enable open credentials."""
-    settings = Settings()
+    monkeypatch.delenv("CORS_ALLOW_CREDENTIALS", raising=False)
+    monkeypatch.delenv("CORS_ORIGINS", raising=False)
+    settings = Settings(_env_file=None)
     assert settings.cors_allow_credentials is False
     assert any("localhost" in origin for origin in settings.cors_origins)
 
