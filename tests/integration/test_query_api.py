@@ -9,7 +9,7 @@ from datapilot.domain.query import QueryResponse
 
 
 class FakeOrchestrator:
-    async def query(self, request):
+    async def query(self, request, *, conversation_context=None):
         return QueryResponse(
             question=request.question,
             status="completed",
