@@ -173,3 +173,36 @@ def test_explicit_limit_is_capped_by_effective_result_budget() -> None:
 
     assert result.is_allowed
     assert "LIMIT 50" in result.sql.upper()
+
+
+def test_window_aggregate_is_bounded_as_row_producing() -> None:
+    result = SQLQueryPolicyEnforcer().enforce(
+        "SELECT employee_id, SUM(salary) OVER (PARTITION BY department_id) AS department_total FROM employees",
+        "postgres",
+        QueryExecutionPolicy(default_limit=100),
+    )
+
+    assert result.is_allowed
+    assert "LIMIT 100" in result.sql.upper()
+
+
+def test_window_aggregate_only_projection_is_still_bounded() -> None:
+    result = SQLQueryPolicyEnforcer().enforce(
+        "SELECT SUM(salary) OVER () FROM employees",
+        "postgres",
+        QueryExecutionPolicy(default_limit=100),
+    )
+
+    assert result.is_allowed
+    assert "LIMIT 100" in result.sql.upper()
+
+
+def test_nested_aggregate_subquery_is_bounded_by_outer_cardinality() -> None:
+    result = SQLQueryPolicyEnforcer().enforce(
+        "SELECT (SELECT MAX(price) FROM products WHERE products.category_id = categories.id) AS max_price FROM categories",
+        "postgres",
+        QueryExecutionPolicy(default_limit=100),
+    )
+
+    assert result.is_allowed
+    assert "LIMIT 100" in result.sql.upper()
