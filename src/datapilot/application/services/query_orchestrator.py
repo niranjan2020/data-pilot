@@ -201,6 +201,7 @@ class QueryOrchestrator:
             },
             conversation_context=conversation_context,
             clarification_selections=effective_clarifications,
+            resource_budget=self._query_policy.resource_budget(),
         )
         catalog = catalog or await self._semantic_catalog_provider.get_catalog()
 
