@@ -1566,6 +1566,8 @@ async def test_b1_correction_reapplies_resource_policy_before_execution(monkeypa
         item["stage"] == "b1_correction_1"
         for item in response.explanation.sql_lineage
     )
+    assert response.explanation.resource_policy == response.trace.resource_budget
+    assert any(step.stage == "correctness" for step in response.explanation.steps)
 
 
 @pytest.mark.asyncio
@@ -1797,6 +1799,9 @@ async def test_b2_recovery_reapplies_resource_policy_and_timeout():
         item["stage"] == "b2_recovery_1"
         for item in response.explanation.sql_lineage
     )
+    assert response.explanation.resource_policy == response.trace.resource_budget
+    assert any(step.stage == "policy" for step in response.explanation.steps)
+    assert any(step.stage == "execution" for step in response.explanation.steps)
 
 
 @pytest.mark.asyncio
