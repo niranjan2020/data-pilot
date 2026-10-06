@@ -262,3 +262,56 @@ def test_semantic_case_loader_preserves_rejection_expectations(tmp_path):
     assert case.expected.expected_status == "rejected"
     assert case.expected.rejection_code == "unsupported_question"
     assert case.expected.require_no_sql is True
+
+
+def test_semantic_case_loader_preserves_regression_provenance_and_reproduction(tmp_path):
+    import json
+    from tests.evaluation.run_semantic import load_cases
+
+    path = tmp_path / "cases.json"
+    path.write_text(
+        json.dumps([{
+            "id": "real-usage-regression",
+            "question": "Show revenue by region",
+            "source_name": "demo",
+            "provenance": {
+                "origin": "oss_issue",
+                "reference": "issue-123",
+                "discovered_version": "0.1.0",
+                "promoted_reason": "Wrong grouping survived generation.",
+            },
+            "reproduction": {
+                "dialect": "postgresql",
+                "provider": "postgresql",
+                "fixture": "tests/fixtures/postgresql",
+                "notes": "Reproduces with the generic fixture.",
+            },
+            "expected": {"require_completed": True},
+        }]),
+        encoding="utf-8",
+    )
+
+    cases = load_cases(path)
+
+    case, _ = cases[0]
+    assert case.provenance.origin == "oss_issue"
+    assert case.provenance.reference == "issue-123"
+    assert case.provenance.discovered_version == "0.1.0"
+    assert case.provenance.promoted_reason == "Wrong grouping survived generation."
+    assert case.reproduction.dialect == "postgresql"
+    assert case.reproduction.provider == "postgresql"
+    assert case.reproduction.fixture == "tests/fixtures/postgresql"
+    assert case.reproduction.notes == "Reproduces with the generic fixture."
+
+
+def test_existing_cases_receive_safe_regression_metadata_defaults():
+    case = EvaluationCase(
+        id="curated",
+        question="Show records",
+        expected=EvaluationExpectation(require_completed=True),
+    )
+
+    assert case.provenance.origin == "curated"
+    assert case.provenance.reference is None
+    assert case.reproduction.dialect is None
+    assert case.reproduction.fixture is None
