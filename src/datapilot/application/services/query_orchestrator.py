@@ -196,6 +196,73 @@ class QueryOrchestrator:
         )
         catalog = catalog or await self._semantic_catalog_provider.get_catalog()
 
+        # Explicit clarification selections are user-supplied governed identifiers.
+        # Validate them before generic unsupported-question detection so an invalid
+        # selection receives its precise deterministic rejection contract.
+        selected_metric = effective_clarifications.get("metric")
+        governed_metrics = governed_context.get("metrics", [])
+        if selected_metric and not any(
+            str(metric.get("name") or "").casefold() == selected_metric.casefold()
+            for metric in governed_metrics
+        ):
+            return QueryResponse(
+                question=request.question,
+                status="rejected",
+                trace=trace,
+                rejection=QueryRejection(
+                    code="invalid_metric_selection",
+                    reason=f"The selected metric {selected_metric!r} is not present in the governed semantic context.",
+                ),
+                message=(
+                    f"The selected metric {selected_metric!r} is not present in the "
+                    "governed semantic context. No SQL was generated."
+                ),
+            )
+
+        selected_attribute = effective_clarifications.get("attribute")
+        if selected_attribute:
+            governed_attribute_values = {
+                f"{entity.get('name')}.{attribute.get('name')}".casefold()
+                for entity in governed_context.get("entities", [])
+                for attribute in entity.get("attributes", [])
+            }
+            if selected_attribute.casefold() not in governed_attribute_values:
+                return QueryResponse(
+                    question=request.question,
+                    status="rejected",
+                    trace=trace,
+                    rejection=QueryRejection(
+                        code="invalid_attribute_selection",
+                        reason=f"The selected attribute {selected_attribute!r} is not present in the governed semantic context.",
+                    ),
+                    message=(
+                        f"The selected attribute {selected_attribute!r} is not present in the "
+                        "governed semantic context. No SQL was generated."
+                    ),
+                )
+
+        selected_time_dimension = effective_clarifications.get("time_dimension")
+        if selected_time_dimension and not any(
+            str(dimension.get("name") or "").casefold() == selected_time_dimension.casefold()
+            for dimension in governed_context.get("time_dimensions", [])
+        ):
+            return QueryResponse(
+                question=request.question,
+                status="rejected",
+                trace=trace,
+                rejection=QueryRejection(
+                    code="invalid_time_dimension_selection",
+                    reason=(
+                        f"The selected time dimension {selected_time_dimension!r} "
+                        "is not present in the governed semantic context."
+                    ),
+                ),
+                message=(
+                    f"The selected time dimension {selected_time_dimension!r} is not present "
+                    "in the governed semantic context. No SQL was generated."
+                ),
+            )
+
         resolver_catalog = catalog
         selected_entity = effective_clarifications.get("entity")
         if selected_entity:
