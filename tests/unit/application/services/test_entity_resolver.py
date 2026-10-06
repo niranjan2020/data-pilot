@@ -104,3 +104,43 @@ def test_ambiguous_entity_is_not_silently_selected() -> None:
 
     assert intent.entity is None
     assert intent.ambiguities == ["account", "customer"]
+
+
+def test_shared_exact_synonym_is_ambiguous_even_when_it_is_other_entity_name() -> None:
+    catalog = SemanticCatalog(
+        entities=[
+            EntityDefinition(
+                name="customer",
+                synonyms=["account"],
+                table_name="customers",
+                key_column="id",
+            ),
+            EntityDefinition(
+                name="account",
+                synonyms=[],
+                table_name="accounts",
+                key_column="id",
+            ),
+        ]
+    )
+
+    intent = DeterministicEntityResolver().resolve(
+        "show account details",
+        catalog,
+        SchemaMetadata(),
+    )
+
+    assert intent.entity is None
+    assert intent.ambiguities == ["account", "customer"]
+
+
+def test_distinct_exact_entity_terms_are_not_made_ambiguous() -> None:
+    intent = DeterministicEntityResolver().resolve(
+        "show customer details",
+        _catalog(),
+        SchemaMetadata(),
+    )
+
+    assert intent.entity is not None
+    assert intent.entity.name == "customer"
+    assert intent.ambiguities == []
