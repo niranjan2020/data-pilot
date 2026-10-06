@@ -48,7 +48,7 @@ def test_catalog_ddl_contains_versioned_snapshot_tables() -> None:
     from datapilot.infrastructure.metadata.postgresql import _CATALOG_DDL
 
     assert "datapilot_catalog.schema_snapshots" in _CATALOG_DDL
-    assert "UNIQUE (schema_name, version)" in _CATALOG_DDL
+    assert "UNIQUE (data_source_id, schema_name, version)" in _CATALOG_DDL
     assert "datapilot_catalog.columns" in _CATALOG_DDL
     assert "datapilot_catalog.foreign_keys" in _CATALOG_DDL
     assert "JSONB" in _CATALOG_DDL
