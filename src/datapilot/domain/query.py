@@ -108,6 +108,21 @@ class ClarificationRequest(BaseModel):
     options: List[ClarificationOption] = Field(default_factory=list)
 
 
+class QueryRejection(BaseModel):
+    """Structured reason why a natural-language question cannot be executed."""
+
+    code: Literal[
+        "unsupported_question",
+        "invalid_entity_selection",
+        "invalid_metric_selection",
+        "invalid_attribute_selection",
+        "invalid_time_dimension_selection",
+    ]
+    category: Literal["semantic_resolution"] = "semantic_resolution"
+    reason: str
+    retryable: bool = False
+
+
 class QueryResponse(BaseModel):
     """End-to-end result of the Data Pilot query orchestration workflow."""
 
@@ -118,6 +133,10 @@ class QueryResponse(BaseModel):
     result: Optional[Any] = None
     confidence: float = 0.0
     semantic_ambiguities: List[str] = Field(default_factory=list)
+    rejection: Optional[QueryRejection] = Field(
+        default=None,
+        description="Structured non-executable semantic outcome; present when status is rejected.",
+    )
     clarification: Optional[ClarificationRequest] = None
     resolved_intent: Optional[QueryIntent] = None
     retrieved_context: List[Dict[str, Any]] = Field(default_factory=list)
