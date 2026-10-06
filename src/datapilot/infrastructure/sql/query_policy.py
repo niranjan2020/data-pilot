@@ -142,13 +142,19 @@ class SQLQueryPolicyEnforcer:
 
     @staticmethod
     def _select_projection_is_aggregate_only(statement: exp.Select) -> bool:
+        """Return True only for direct top-level aggregate projections.
+
+        Descendant aggregates are not enough to prove scalar cardinality. Window
+        functions preserve input-row cardinality, and an aggregate inside a
+        projected subquery can still yield one value per outer row.
+        """
         expressions = list(statement.expressions)
         if not expressions:
             return False
 
         for projection in expressions:
             value = projection.this if isinstance(projection, exp.Alias) else projection
-            if value.find(exp.AggFunc) is None:
+            if not isinstance(value, exp.AggFunc):
                 return False
         return True
 
