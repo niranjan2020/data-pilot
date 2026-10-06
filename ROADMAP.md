@@ -4,10 +4,10 @@
 >
 > **Rule:** update this file whenever a milestone is completed, reprioritized, or a benchmark exposes a new reliability gap. Benchmark evidence, not feature speculation, drives Stage A.
 
-**Last updated:** 2026-10-05  
-**Current focus:** Core OSS — Stage A: NL-to-SQL correctness and evaluation  
-**Current semantic evaluation baseline:** 25/25 passed (100.0%) after the first A2 coverage-expansion slice.  
-**Current targeted correctness/orchestrator unit baseline:** 51/51 expected after the latest composed-grouping regression addition; prior run 50/50 passing.
+**Last updated:** 2026-10-06  
+**Current focus:** Core OSS — Stage B: robustness and production-quality query engine  
+**Current semantic evaluation baseline:** 39/39 passed (100.0%) through the live production pipeline after B2 bounded execution-error recovery.  
+**Current full automated regression baseline:** 101/101 passed after B2 hardening.
 
 ---
 
@@ -235,11 +235,22 @@ Stage A is complete. Stage B hardens recovery, provider isolation, resource safe
 - Full Stage A + B1 regression: **151/151 passed**.
 - Live production-pipeline semantic benchmark: **39/39 passed**.
 
-### B2. Bounded execution-error recovery — CURRENT
-Start by deterministically classifying database execution failures into safe-to-correct versus terminal. Do not add execution retry until that policy is regression-covered.
+### B2. Bounded execution-error recovery — COMPLETE
+- Deterministically classifies structured database execution failures into recoverable versus terminal categories and fails closed when provider evidence is missing or unknown.
+- PostgreSQL execution failures expose normalized, structured provider diagnostics including SQLSTATE without parsing opaque exception messages.
+- Exactly one execution-recovery generation is allowed for eligible SQL execution failures.
+- Recovered SQL is rebound and must pass the complete safety, governed-correctness, and resource-policy pipeline before execution.
+- Connection, authorization, privilege, timeout/cancellation, resource, provider-runtime, unknown, and unstructured failures remain terminal.
+- B1 governed-correctness correction and B2 execution recovery have explicit ownership boundaries: B1 may be followed by one independent B2 recovery, but B2 failures cannot re-enter B1 or B2.
+- Execution recovery is recorded separately in QueryTrace for explainability and diagnostics.
+- Final focused/full automated regression: **101/101 passed**.
+- Final live production-pipeline semantic benchmark: **39/39 passed (100.0%)**.
+- One preceding benchmark run produced 38/39 solely because Gemini returned a provider ConnectError during SQL generation; rerunning the unchanged code produced 39/39, so no correctness expectation was weakened.
+
+### B3. Explicit unsupported-question handling — CURRENT
+Make unsupported or out-of-governance questions explicit and diagnosable across semantic resolution, orchestration, API response, and evaluation without allowing them to fall through into speculative SQL generation.
 
 Remaining:
-- Explicit unsupported-question handling.
 - Stronger dialect isolation while PostgreSQL remains the first-class provider.
 - Query timeout/resource-policy hardening.
 - Better diagnostic traces and explainability.
