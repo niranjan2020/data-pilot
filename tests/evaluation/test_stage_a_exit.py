@@ -46,6 +46,10 @@ def test_stage_a_exit_gate_preserves_clarification_unsupported_and_followup_cove
     assert "entity_ambiguity_uses_real_orchestrator" in fixture_pipeline
     assert "stops_before_sql_for_non_executable_semantics" in fixture_pipeline
     assert "clarification_resumes_real_orchestrator" in fixture_pipeline
+    assert "unsupported_question_returns_structured_rejection" in fixture_pipeline
+    assert "invalid_semantic_selection_returns_structured_rejection" in fixture_pipeline
+    assert "irrelevant_retrieval_candidate_cannot_make_unsupported_question_executable" in fixture_pipeline
+    assert "evaluation_fails_if_rejected_question_contains_sql" in fixture_pipeline
 
     conversations: dict[str, int] = {}
     for case in cases:
