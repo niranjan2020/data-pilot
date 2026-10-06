@@ -106,6 +106,12 @@ async def test_versioned_fixture_unsupported_question_returns_structured_rejecti
     assert response.rejection is not None
     assert response.rejection.category == "semantic_resolution"
     assert response.rejection.retryable is False
+    assert response.explanation is not None
+    assert response.explanation.outcome == "rejected"
+    assert any(
+        step.stage == "outcome" and step.status == "rejected"
+        for step in response.explanation.steps
+    )
 
 
 @pytest.mark.asyncio
@@ -218,6 +224,12 @@ async def test_versioned_fixture_entity_clarification_resumes_real_orchestrator(
     assert generator.contexts[0]["clarification_selections"] == {
         "entity": "Customer"
     }
+    assert response.explanation is not None
+    assert response.explanation.outcome == "dry_run"
+    assert any(
+        step.stage == "execution" and step.status == "not_executed"
+        for step in response.explanation.steps
+    )
     assert response.trace is not None
     assert response.trace.clarification_selections == {"entity": "Customer"}
 
