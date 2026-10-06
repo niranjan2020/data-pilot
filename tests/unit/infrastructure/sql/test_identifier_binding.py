@@ -1,7 +1,7 @@
 """Tests for physical SQL identifier binding."""
 
 from datapilot.domain.models import ColumnMetadata, SchemaMetadata, TableMetadata
-from datapilot.infrastructure.sql.identifier_binding import bind_physical_identifiers
+from datapilot.infrastructure.sql.identifier_binding import SQLGlotIdentifierBinder, bind_physical_identifiers
 
 
 def _schema() -> SchemaMetadata:
@@ -102,3 +102,15 @@ def test_removes_schema_name_used_as_column_qualifier() -> None:
     bound = bind_physical_identifiers(sql, _schema(), "postgresql")
 
     assert bound == 'SELECT AVG("TotalDue") FROM "Sales"."SalesOrderHeader"'
+
+
+def test_sqlglot_binder_adapter_preserves_existing_binding_behavior() -> None:
+    binder = SQLGlotIdentifierBinder()
+
+    bound = binder.bind(
+        "SELECT productid FROM Production.Product",
+        _schema(),
+        "postgresql",
+    )
+
+    assert bound == 'SELECT "ProductID" FROM "Production"."Product"'
