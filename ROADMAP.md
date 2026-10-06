@@ -225,9 +225,20 @@ Do **not** weaken expectations to preserve a headline benchmark score. Correctne
 
 Stage A is complete. Stage B hardens recovery, provider isolation, resource safety, and diagnostics without weakening deterministic correctness.
 
-Planned:
-- Bounded SQL correction/retry using structured validator feedback.
-- Execution-error recovery where correction is safe.
+### B1. Bounded SQL correction/retry — COMPLETE
+- Exactly one correction attempt is allowed for deterministic recoverable governed-correctness violations.
+- Correction receives the original governed context, failed SQL, and structured correctness feedback.
+- Corrected SQL is rebound and must pass the complete safety validation, governed correctness, and execution-policy pipeline again.
+- Safety/policy failures, unverifiable correctness, and unknown correctness failures remain terminal.
+- Correction attempts are captured in the query trace for diagnostics and explainability.
+- Focused B1 regression: **49/49 passed**.
+- Full Stage A + B1 regression: **151/151 passed**.
+- Live production-pipeline semantic benchmark: **39/39 passed**.
+
+### B2. Bounded execution-error recovery — CURRENT
+Start by deterministically classifying database execution failures into safe-to-correct versus terminal. Do not add execution retry until that policy is regression-covered.
+
+Remaining:
 - Explicit unsupported-question handling.
 - Stronger dialect isolation while PostgreSQL remains the first-class provider.
 - Query timeout/resource-policy hardening.
