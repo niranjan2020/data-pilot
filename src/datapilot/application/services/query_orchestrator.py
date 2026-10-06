@@ -14,7 +14,8 @@ from datapilot.application.services.result_presentation import plan_result_prese
 from datapilot.application.services.result_summary import summarize_result
 from datapilot.application.services.query_correctness import assess_query_correctness
 from datapilot.application.services.sql_correction import classify_sql_correction
-from datapilot.core.exceptions import SemanticRetrievalError, SQLValidationError, TimeInterpretationError
+from datapilot.application.services.execution_recovery import classify_execution_error
+from datapilot.core.exceptions import DatabaseExecutionError, SemanticRetrievalError, SQLValidationError, TimeInterpretationError
 from datapilot.core.logging import get_logger
 from datapilot.domain.interfaces.database import DatabaseProvider
 from datapilot.domain.interfaces.entity_resolver import EntityResolver
@@ -512,8 +513,54 @@ class QueryOrchestrator:
             "required_relationships": self._required_relationships(governed_context),
             "required_time_plan": time_interpretation,
         }
+        async def run_with_execution_recovery(sql: str) -> QueryResponse:
+            try:
+                return await self._validate_and_execute(sql=sql, **validation_args)
+            except DatabaseExecutionError as exc:
+                decision = classify_execution_error(details=exc.details)
+                if not decision.recoverable:
+                    raise
+
+                recovery_context = dict(generation_context)
+                recovery_context["execution_recovery"] = {
+                    "attempt": 1,
+                    "max_attempts": 1,
+                    "failed_sql": sql,
+                    "database_error": dict(exc.details or {}),
+                    "classification": {
+                        "recoverable": decision.recoverable,
+                        "category": decision.category,
+                        "reason": decision.reason,
+                        "sqlstate": decision.sqlstate,
+                    },
+                }
+                corrected = await self._sql_generator.generate(
+                    question=request.question,
+                    schema=schema,
+                    context=recovery_context,
+                    dialect=self._database.dialect,
+                )
+                corrected_bound_sql = bind_physical_identifiers(
+                    corrected, schema, self._database.dialect
+                )
+                trace.execution_recovery_attempts.append({
+                    **recovery_context["execution_recovery"],
+                    "corrected_sql": corrected,
+                    "corrected_bound_sql": corrected_bound_sql,
+                })
+                logger.info(
+                    "query execution_recovery_attempt=1 corrected_sql=%s",
+                    corrected_bound_sql,
+                )
+                # Direct validation call is intentional: a second database failure
+                # is terminal and cannot enter another execution-recovery attempt.
+                return await self._validate_and_execute(
+                    sql=corrected_bound_sql,
+                    **validation_args,
+                )
+
         try:
-            return await self._validate_and_execute(sql=bound_sql, **validation_args)
+            return await run_with_execution_recovery(bound_sql)
         except SQLValidationError as exc:
             checks = tuple((exc.details or {}).get("checks") or ())
             decision = classify_sql_correction(correctness_checks=checks)
@@ -549,12 +596,9 @@ class QueryOrchestrator:
                 "query correction_attempt=1 corrected_sql=%s",
                 corrected_bound_sql,
             )
-            # Deliberately call validation directly: a corrected proposal gets the
-            # full pipeline again, but a second failure is terminal.
-            return await self._validate_and_execute(
-                sql=corrected_bound_sql,
-                **validation_args,
-            )
+            # A B1-corrected proposal may still encounter one independently
+            # classified database execution error, but neither mechanism loops.
+            return await run_with_execution_recovery(corrected_bound_sql)
 
     async def _validate_and_execute(
         self,
