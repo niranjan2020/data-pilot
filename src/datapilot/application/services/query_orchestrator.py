@@ -23,13 +23,13 @@ from datapilot.domain.interfaces.query_policy import QueryPolicyEnforcer
 from datapilot.domain.interfaces.semantic import SemanticCatalogProvider
 from datapilot.domain.interfaces.semantic_retriever import SemanticRetriever
 from datapilot.domain.interfaces.sql_generator import SQLGenerator
+from datapilot.domain.interfaces.sql_binder import SQLIdentifierBinder
 from datapilot.domain.interfaces.sql_validator import SQLValidator
 from datapilot.domain.models import SchemaMetadata
 from datapilot.domain.policies import QueryExecutionPolicy
 from datapilot.domain.query import ClarificationOption, ClarificationRequest, QueryRejection, QueryRequest, QueryResponse, QueryTrace
 from datapilot.domain.semantic import QueryIntent, SemanticCatalog
 from datapilot.infrastructure.sql.query_policy import SQLQueryPolicyEnforcer
-from datapilot.infrastructure.sql.identifier_binding import bind_physical_identifiers
 
 
 logger = get_logger("datapilot.query")
@@ -51,6 +51,7 @@ class QueryOrchestrator:
         semantic_retriever: Optional[SemanticRetriever] = None,
         semantic_retrieval_limit: int = 8,
         semantic_context_assembler: Optional[SemanticContextAssembler] = None,
+        sql_identifier_binder: Optional[SQLIdentifierBinder] = None,
         context_budget_chars: int = 24000,
     ) -> None:
         self._database = database_provider
@@ -60,6 +61,7 @@ class QueryOrchestrator:
         self._semantic_retriever = semantic_retriever
         self._semantic_retrieval_limit = semantic_retrieval_limit
         self._semantic_context_assembler = semantic_context_assembler
+        self._sql_identifier_binder = sql_identifier_binder
         self._context_budgeter = ContextBudgeter(context_budget_chars)
         self._entity_resolver = entity_resolver or DeterministicEntityResolver()
         self._query_policy = query_policy or QueryExecutionPolicy()
@@ -68,6 +70,12 @@ class QueryOrchestrator:
                 update={"timeout_seconds": query_timeout_seconds}
             )
         self._query_policy_enforcer = query_policy_enforcer or SQLQueryPolicyEnforcer()
+
+    def _bind_identifiers(self, sql: str, schema: SchemaMetadata) -> str:
+        """Bind physical identifiers through the configured dialect-aware port."""
+        if self._sql_identifier_binder is None:
+            return sql
+        return self._sql_identifier_binder.bind(sql, schema, self._database.dialect)
 
     async def query(
         self,
@@ -600,7 +608,7 @@ class QueryOrchestrator:
         )
         logger.info("query generated_sql=%s", generated)
         trace.generated_sql = generated
-        bound_sql = bind_physical_identifiers(generated, schema, self._database.dialect)
+        bound_sql = self._bind_identifiers(generated, schema)
         trace.bound_sql = bound_sql
         logger.info("query catalog_bound_sql=%s", bound_sql)
         validation_args = {
@@ -645,9 +653,7 @@ class QueryOrchestrator:
                 context=recovery_context,
                 dialect=self._database.dialect,
             )
-            corrected_bound_sql = bind_physical_identifiers(
-                corrected, schema, self._database.dialect
-            )
+            corrected_bound_sql = self._bind_identifiers(corrected, schema)
             trace.execution_recovery_attempts.append({
                 **recovery_context["execution_recovery"],
                 "corrected_sql": corrected,
@@ -688,9 +694,7 @@ class QueryOrchestrator:
                 context=correction_context,
                 dialect=self._database.dialect,
             )
-            corrected_bound_sql = bind_physical_identifiers(
-                corrected, schema, self._database.dialect
-            )
+            corrected_bound_sql = self._bind_identifiers(corrected, schema)
             trace.correction_attempts.append({
                 "attempt": 1,
                 "failed_sql": bound_sql,
