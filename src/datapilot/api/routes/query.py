@@ -15,6 +15,7 @@ from datapilot.infrastructure.metadata.semantic_postgresql import PostgreSQLSema
 from datapilot.infrastructure.metadata.postgresql import PostgreSQLMetadataProvider
 from datapilot.infrastructure.metadata.query_history import PostgreSQLQueryHistoryStore
 from datapilot.infrastructure.sql.llm_generator import LLMBackedSQLGenerator
+from datapilot.infrastructure.sql.identifier_binding import SQLGlotIdentifierBinder
 from datapilot.infrastructure.semantic.qdrant import QdrantSemanticIndex
 from datapilot.infrastructure.sql.validator import SQLGlotValidator
 
@@ -101,6 +102,7 @@ async def get_query_orchestrator(
         query_timeout_seconds=settings.database_query_timeout_seconds,
         semantic_retriever=semantic_retriever,
         semantic_context_assembler=semantic_context_assembler,
+        sql_identifier_binder=SQLGlotIdentifierBinder(),
     )
 
     request.app.state.query_database = database
