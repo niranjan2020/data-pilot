@@ -80,6 +80,7 @@ class QueryTrace(BaseModel):
     correctness_checks: List[Dict[str, Any]] = Field(default_factory=list, description="Deterministic semantic/physical alignment checks performed before execution")
     policy_sql: Optional[str] = None
     policy_warnings: List[str] = Field(default_factory=list)
+    resource_budget: Dict[str, Any] = Field(default_factory=dict, description="Effective deterministic execution resource budget applied to this query")
     execution: Dict[str, Any] = Field(default_factory=dict)
     clarification_selections: Dict[str, str] = Field(
         default_factory=dict,
