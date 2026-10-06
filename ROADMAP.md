@@ -309,6 +309,32 @@ B4 implementation order from this audit:
 - No benchmark expectation was weakened and no second database provider was added merely to prove the abstraction.
 - **B4 exit criteria are satisfied.**
 
+### B5. Query timeout and resource-policy hardening — CURRENT
+Protect connected databases and the Data Pilot process from expensive or unexpectedly large generated queries without changing governed analytical semantics.
+
+#### B5.1. Resource-policy architecture audit — COMPLETE
+The existing engine already has a useful first layer:
+- `QueryExecutionPolicy` defines timeout, maximum result rows, SQL length, and LIMIT controls.
+- `SQLQueryPolicyEnforcer` parses the validated SQL AST, adds a default LIMIT to non-aggregate queries, and caps oversized literal LIMIT values.
+- Policy enforcement occurs after safety/governed-correctness validation and before every execution, including B1/B2 regenerated SQL through the shared execution path.
+- The orchestrator passes `timeout_seconds` explicitly to the database provider.
+- PostgreSQL applies transaction-local `statement_timeout` and executes on a read-only connection.
+- The orchestrator also rejects a returned result whose `row_count` exceeds `max_result_rows`.
+
+Hardening gaps identified:
+1. **Result-row protection is partly post-execution.** Aggregate/grouped queries are exempt from automatic LIMIT injection, so a high-cardinality GROUP BY can still return an excessive result set and consume transfer/memory before the post-execution row-count check rejects it.
+2. **Non-literal LIMIT values are not fail-closed.** A LIMIT expression/parameter that cannot be deterministically evaluated is currently left unchanged rather than rejected or safely bounded.
+3. **Policy invariants are not validated as a coherent contract.** `default_limit`, `max_limit`, and `max_result_rows` can be configured inconsistently.
+4. **Timeout configuration is split between provider default and execution policy.** Runtime execution correctly receives the policy timeout, but composition/configuration should establish one explicit effective query timeout and regression-test it.
+5. **Timeout/cancellation must remain terminal.** PostgreSQL SQLSTATE `57014` is already terminal in B2; B5 must preserve that and must never regenerate/retry a query merely because it exceeded its resource budget.
+6. **Current trace records policy SQL/warnings and execution timing, but not the effective resource budget.** Diagnostics should make the applied timeout/row/limit budget visible.
+7. **SQL length is bounded, but query-shape cost is intentionally not estimated yet.** Do not introduce unreliable heuristic cost scoring or EXPLAIN-based autonomous decisions in this milestone.
+
+B5 implementation order:
+- **B5.2:** make row/limit policy deterministic and fail-closed, including aggregate/grouped result bounding and non-literal LIMIT handling.
+- **B5.3:** validate policy configuration invariants and make the effective timeout/resource budget explicit in composition and trace.
+- **B5.4:** add timeout/cancellation and bounded-result regressions across normal execution, B1, and B2; close B5 only after the full suite and unchanged live benchmark pass.
+
 Remaining:
 - Query timeout/resource-policy hardening.
 - Better diagnostic traces and explainability.
