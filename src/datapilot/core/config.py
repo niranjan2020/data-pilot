@@ -36,7 +36,7 @@ class Settings(BaseSettings):
         description="Default connection string for the primary analytical/transactional database (e.g. postgresql://...)",
     )
     database_pool_size: int = Field(default=5, description="Connection pool size for database connections")
-    database_query_timeout_seconds: float = Field(default=30.0, description="Default timeout for query execution")
+    database_query_timeout_seconds: float = Field(default=30.0, gt=0, description="Effective timeout budget for analytical query execution")
     metadata_database_url: Optional[str] = Field(
         default=None,
         description="Optional PostgreSQL URL for the Data Pilot metadata catalog; defaults to the primary database when omitted",
