@@ -1,4 +1,4 @@
-from datapilot.domain.query import QueryTrace
+from datapilot.domain.query import QueryResponse, QueryTrace
 
 
 def test_query_trace_starts_with_no_correction_attempts():
@@ -50,3 +50,8 @@ def test_query_trace_preserves_effective_resource_budget():
 
     assert trace.resource_budget["timeout_seconds"] == 15.0
     assert trace.resource_budget["max_result_rows"] == 500
+
+
+def test_query_response_explanation_is_optional_for_compatibility():
+    response = QueryResponse(question="show records", status="completed")
+    assert response.explanation is None
