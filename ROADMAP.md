@@ -350,8 +350,34 @@ Hardening gaps identified:
 - No live benchmark expectation was weakened.
 - **B5 exit criteria are satisfied.**
 
+### B6. Diagnostic traces and explainability — CURRENT
+Make query decisions inspectable without exposing model chain-of-thought or duplicating orchestration logic.
+
+#### B6.1. Explainability architecture audit — COMPLETE
+Existing trace coverage is already substantial:
+- retrieval candidates include selected/rejected governance decisions and reasons;
+- governed datasets, entities, relationships, metrics, rules, and time dimensions are recorded;
+- physical tables/columns, resolved parameters, clarification selections, follow-up context, time interpretation, and context-budget diagnostics are recorded;
+- generated, identifier-bound, validated, and policy SQL are recorded;
+- deterministic correctness checks, B1 correction attempts, B2 execution-recovery attempts, resource budget, and execution timing/row count are recorded;
+- exact LLM messages are retained for admin diagnostics.
+
+Gaps identified:
+1. **Trace data is diagnostic but not organized as an explanation contract.** Consumers must understand internal fields and reconstruct the decision path themselves.
+2. **No deterministic stage/outcome timeline exists.** There is no compact representation of which stages were reached, passed, clarified, rejected, corrected, recovered, skipped, or executed.
+3. **Ambiguous/rejected outcomes have useful structured response data, but the trace does not summarize why processing stopped.**
+4. **Raised validation/execution failures can carry details through exceptions, but they do not produce the same complete explanation shape as successful responses.** Do not redesign API error handling until the explanation contract is stable.
+5. **Raw LLM messages are admin-only diagnostics, not user explainability.** User-facing explanations must be derived from governed/deterministic evidence and must never expose hidden reasoning or imply that model prose is correctness authority.
+6. **SQL lineage exists as separate fields but lacks explicit transformation labels.** Consumers should be able to distinguish generated -> bound -> validated -> policy SQL and B1/B2 proposals without guessing.
+7. **Explainability should be derived from the existing trace/response rather than maintained as a second orchestration state machine.**
+
+B6 implementation order:
+- **B6.2:** introduce a provider-independent deterministic explanation model/builder derived from `QueryResponse` + `QueryTrace`, covering outcome, governed interpretation, SQL lineage, checks, resource policy, recovery, and execution.
+- **B6.3:** expose a compact explanation on completed, dry-run, ambiguous, and rejected responses while keeping raw LLM messages/admin diagnostics separate.
+- **B6.4:** add regressions for normal, clarification, rejection, B1, B2, dry-run, and resource-policy paths; close only after full suite and unchanged live benchmark.
+
 Remaining:
-- Better diagnostic traces and explainability.
+- Diagnostic traces and explainability (B6 current).
 - Regression corpus growth from real OSS usage.
 
 Avoid autonomous/unbounded agent loops.
