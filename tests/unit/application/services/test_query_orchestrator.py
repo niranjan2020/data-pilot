@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from datapilot.core.exceptions import SemanticRetrievalError, SQLValidationError, TimeInterpretationError
+from datapilot.core.exceptions import DatabaseExecutionError, SemanticRetrievalError, SQLValidationError, TimeInterpretationError
 from datapilot.application.services.query_orchestrator import QueryOrchestrator
 from datapilot.domain.models import SchemaMetadata
 from datapilot.domain.policies import QueryExecutionPolicy
@@ -1222,3 +1222,135 @@ async def test_corrected_sql_must_pass_safety_validation_before_execution(monkey
     assert generator.calls == 2
     assert validator.calls == 2
     assert database.executed == []
+
+
+class RecoverableExecutionDatabase(FakeDatabase):
+    def __init__(self, fail_every_time=False):
+        super().__init__()
+        self.fail_every_time = fail_every_time
+        self.attempts = 0
+
+    async def execute_query(self, sql: str, params=None, timeout_seconds=None):
+        self.attempts += 1
+        self.executed.append(sql)
+        if self.attempts == 1 or self.fail_every_time:
+            raise DatabaseExecutionError(
+                "PostgreSQL query execution failed",
+                details={
+                    "provider": "postgresql",
+                    "sqlstate": "42703",
+                    "column_name": "missing",
+                    "sql": sql,
+                },
+            )
+        return await super().execute_query(sql, params, timeout_seconds)
+
+
+class TerminalExecutionDatabase(FakeDatabase):
+    async def execute_query(self, sql: str, params=None, timeout_seconds=None):
+        self.executed.append(sql)
+        raise DatabaseExecutionError(
+            "PostgreSQL query execution failed",
+            details={"provider": "postgresql", "sqlstate": "57014", "sql": sql},
+        )
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_attempts_one_recovery_for_recoverable_execution_error():
+    database = RecoverableExecutionDatabase()
+    generator = SequencedSQLGenerator([
+        "SELECT missing FROM records",
+        "SELECT COUNT(*) AS count FROM records",
+    ])
+    orchestrator = QueryOrchestrator(
+        database, FakeValidator(), generator, FakeCatalog(SemanticCatalog())
+    )
+
+    response = await orchestrator.query(QueryRequest(question="How many records exist?"))
+
+    assert response.status == "completed"
+    assert generator.calls == 2
+    assert database.attempts == 2
+    assert len(response.trace.execution_recovery_attempts) == 1
+    attempt = response.trace.execution_recovery_attempts[0]
+    assert attempt["database_error"]["sqlstate"] == "42703"
+    assert attempt["classification"]["recoverable"] is True
+    assert generator.contexts[1]["execution_recovery"]["failed_sql"].endswith("FROM records")
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_does_not_retry_second_execution_failure():
+    database = RecoverableExecutionDatabase(fail_every_time=True)
+    generator = SequencedSQLGenerator([
+        "SELECT missing FROM records",
+        "SELECT still_missing FROM records",
+        "SELECT COUNT(*) AS count FROM records",
+    ])
+    orchestrator = QueryOrchestrator(
+        database, FakeValidator(), generator, FakeCatalog(SemanticCatalog())
+    )
+
+    with pytest.raises(DatabaseExecutionError):
+        await orchestrator.query(QueryRequest(question="How many records exist?"))
+
+    assert generator.calls == 2
+    assert database.attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_does_not_recover_terminal_execution_error():
+    database = TerminalExecutionDatabase()
+    generator = SequencedSQLGenerator([
+        "SELECT id FROM records",
+        "SELECT COUNT(*) AS count FROM records",
+    ])
+    orchestrator = QueryOrchestrator(
+        database, FakeValidator(), generator, FakeCatalog(SemanticCatalog())
+    )
+
+    with pytest.raises(DatabaseExecutionError):
+        await orchestrator.query(QueryRequest(question="show records"))
+
+    assert generator.calls == 1
+    assert len(database.executed) == 1
+
+
+@pytest.mark.asyncio
+async def test_execution_recovery_sql_must_repass_safety_validation():
+    from datapilot.domain.models import SQLValidationResult
+
+    class RejectSecondValidation:
+        def __init__(self):
+            self.calls = 0
+
+        async def validate(self, sql, dialect=None, enforce_read_only=True):
+            self.calls += 1
+            if self.calls == 2:
+                return SQLValidationResult(
+                    is_valid=False,
+                    is_read_only=False,
+                    sanitized_sql=None,
+                    errors=["unsafe corrected SQL"],
+                )
+            return SQLValidationResult(
+                is_valid=True,
+                is_read_only=True,
+                sanitized_sql=sql,
+            )
+
+    database = RecoverableExecutionDatabase()
+    generator = SequencedSQLGenerator([
+        "SELECT missing FROM records",
+        "DELETE FROM records",
+    ])
+    validator = RejectSecondValidation()
+    orchestrator = QueryOrchestrator(
+        database, validator, generator, FakeCatalog(SemanticCatalog())
+    )
+
+    with pytest.raises(SQLValidationError):
+        await orchestrator.query(QueryRequest(question="How many records exist?"))
+
+    assert generator.calls == 2
+    assert database.attempts == 1
+    assert validator.calls == 2
