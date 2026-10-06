@@ -49,6 +49,12 @@ class DeterministicEntityResolver:
             return QueryIntent()
 
         top = matches[0]
+        shared_exact_matches = self._shared_exact_entity_matches(question, catalog)
+        if len(shared_exact_matches) > 1:
+            return QueryIntent(
+                confidence=round(top.score, 4),
+                ambiguities=shared_exact_matches[:5],
+            )
         if len(matches) > 1 and (top.score - matches[1].score) < self._ambiguity_margin:
             return QueryIntent(
                 confidence=round(top.score, 4),
@@ -76,6 +82,33 @@ class DeterministicEntityResolver:
             filters=filters,
             confidence=round((top.score + filter_confidence) / 2, 4),
         )
+
+    def _shared_exact_entity_matches(
+        self,
+        question: str,
+        catalog: SemanticCatalog,
+    ) -> list[str]:
+        """Return entities sharing the same exact governed phrase in the question.
+
+        An exact phrase that is configured for multiple entities is genuine
+        semantic ambiguity even when it is one entity's canonical name and only
+        a synonym of another. Token-overlap scoring must not break that tie.
+        """
+        normalized_question = " " + " ".join(_TOKEN_RE.findall(question.casefold())) + " "
+        phrase_to_entities: dict[str, set[str]] = {}
+
+        for entity in catalog.entities:
+            for term in [entity.name, *entity.synonyms]:
+                normalized_term = " ".join(_TOKEN_RE.findall(term.casefold()))
+                if normalized_term and f" {normalized_term} " in normalized_question:
+                    phrase_to_entities.setdefault(normalized_term, set()).add(entity.name)
+
+        ambiguous_entities: set[str] = set()
+        for entity_names in phrase_to_entities.values():
+            if len(entity_names) > 1:
+                ambiguous_entities.update(entity_names)
+
+        return sorted(ambiguous_entities, key=str.casefold)
 
     def _match_entities(self, question: str, catalog: SemanticCatalog) -> list[EntityMatch]:
         question_tokens = self._tokens(question)
