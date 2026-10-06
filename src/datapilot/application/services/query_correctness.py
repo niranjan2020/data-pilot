@@ -6,18 +6,20 @@ from typing import Any, Iterable
 
 from sqlglot import exp, parse_one
 
+from datapilot.infrastructure.sql.dialects import sqlglot_dialect
+
 
 def _normalise(name: str) -> str:
     return str(name or "").strip().strip('"').casefold()
 
 
-def _canonical_table_name(table: str) -> str:
+def _canonical_table_name(table: str, *, dialect: str) -> str:
     """Return schema-qualified table identity without SQL quoting or aliases."""
     value = str(table or "").strip()
     if not value:
         return ""
     try:
-        parsed = parse_one(value, read="postgres", into=exp.Table)
+        parsed = parse_one(value, read=sqlglot_dialect(dialect), into=exp.Table)
         table_name = _normalise(parsed.name)
         schema_name = _normalise(parsed.db)
         return f"{schema_name}.{table_name}" if schema_name else table_name
@@ -32,11 +34,11 @@ def _canonical_table_name(table: str) -> str:
         )
 
 
-def _within_governed_scope(table: str, governed_tables: Iterable[str]) -> bool:
-    candidate = _canonical_table_name(table)
+def _within_governed_scope(table: str, governed_tables: Iterable[str], *, dialect: str) -> bool:
+    candidate = _canonical_table_name(table, dialect=dialect)
     candidate_leaf = candidate.rsplit(".", 1)[-1]
     for governed in governed_tables:
-        allowed = _canonical_table_name(governed)
+        allowed = _canonical_table_name(governed, dialect=dialect)
         if candidate == allowed:
             return True
         # Validators may report either schema-qualified or unqualified names.
@@ -45,7 +47,7 @@ def _within_governed_scope(table: str, governed_tables: Iterable[str]) -> bool:
     return False
 
 
-def _canonical_expression(expression: exp.Expression) -> str:
+def _canonical_expression(expression: exp.Expression, *, dialect: str) -> str:
     """Canonicalize a row-level expression while ignoring SQL aliases/qualifiers."""
     copy = expression.copy()
     for column in copy.find_all(exp.Column):
@@ -55,10 +57,10 @@ def _canonical_expression(expression: exp.Expression) -> str:
         # Governed metadata may store identifiers unquoted while generated SQL
         # quotes them. Identifier quoting/case is not part of metric semantics.
         column.set("this", exp.to_identifier(_normalise(column.name), quoted=False))
-    return copy.sql(dialect="postgres").casefold().replace(" ", "")
+    return copy.sql(dialect=sqlglot_dialect(dialect)).casefold().replace(" ", "")
 
 
-def _metric_expression_checks(sql: str, governed_metrics: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+def _metric_expression_checks(sql: str, governed_metrics: Iterable[dict[str, Any]], *, dialect: str) -> list[dict[str, Any]]:
     derived = [
         metric for metric in governed_metrics
         if str(metric.get("calculation_expression") or "").strip()
@@ -67,7 +69,7 @@ def _metric_expression_checks(sql: str, governed_metrics: Iterable[dict[str, Any
         return []
 
     try:
-        tree = parse_one(sql, read="postgres")
+        tree = parse_one(sql, read=sqlglot_dialect(dialect))
     except Exception:
         return [{
             "code": "metric_expression_verification_unavailable",
@@ -83,7 +85,7 @@ def _metric_expression_checks(sql: str, governed_metrics: Iterable[dict[str, Any
         expression_sql = str(metric.get("calculation_expression") or "").strip()
         aggregation = str(metric.get("aggregation") or "").strip().casefold()
         try:
-            expected = _canonical_expression(parse_one(expression_sql, read="postgres"))
+            expected = _canonical_expression(parse_one(expression_sql, read=sqlglot_dialect(dialect)), dialect=dialect)
         except Exception:
             checks.append({
                 "code": "metric_expression_verification_unavailable",
@@ -99,7 +101,7 @@ def _metric_expression_checks(sql: str, governed_metrics: Iterable[dict[str, Any
             if node.key.casefold() != aggregation:
                 continue
             argument = node.this
-            if argument is not None and _canonical_expression(argument) == expected:
+            if argument is not None and _canonical_expression(argument, dialect=dialect) == expected:
                 matched = True
                 break
 
@@ -130,7 +132,8 @@ def _grouping_checks(
     sql: str,
     *,
     required_grouping_columns: Iterable[str],
-) -> list[dict[str, Any]]:
+,
+    dialect: str) -> list[dict[str, Any]]:
     required = {
         _normalise(column).rsplit(".", 1)[-1]
         for column in required_grouping_columns
@@ -140,7 +143,7 @@ def _grouping_checks(
         return []
 
     try:
-        tree = parse_one(sql, read="postgres")
+        tree = parse_one(sql, read=sqlglot_dialect(dialect))
     except Exception:
         return [{
             "code": "grouping_verification_unavailable",
@@ -183,7 +186,8 @@ def _filter_checks(
     sql: str,
     *,
     required_filters: Iterable[dict[str, Any]],
-) -> list[dict[str, Any]]:
+,
+    dialect: str) -> list[dict[str, Any]]:
     """Verify deterministic semantic filters are represented in SQL predicates."""
     filters = [
         item for item in required_filters
@@ -193,7 +197,7 @@ def _filter_checks(
         return []
 
     try:
-        tree = parse_one(sql, read="postgres")
+        tree = parse_one(sql, read=sqlglot_dialect(dialect))
     except Exception:
         return [{
             "code": "filter_verification_unavailable",
@@ -288,7 +292,8 @@ def _relationship_checks(
     sql: str,
     *,
     required_relationships: Iterable[dict[str, Any]],
-) -> list[dict[str, Any]]:
+,
+    dialect: str) -> list[dict[str, Any]]:
     """Verify governed relationships are represented by SQL equality joins."""
     relationships = [
         item for item in required_relationships
@@ -299,7 +304,7 @@ def _relationship_checks(
         return []
 
     try:
-        tree = parse_one(sql, read="postgres")
+        tree = parse_one(sql, read=sqlglot_dialect(dialect))
     except Exception:
         return [{
             "code": "relationship_verification_unavailable",
@@ -369,7 +374,8 @@ def _fanout_checks(
     *,
     governed_metrics: Iterable[dict[str, Any]],
     required_relationships: Iterable[dict[str, Any]],
-) -> list[dict[str, Any]]:
+,
+    dialect: str) -> list[dict[str, Any]]:
     """Detect additive/non-distinct metrics crossing from a one-side entity to many.
 
     A correct join predicate can still multiply a metric when its owning entity is
@@ -382,7 +388,7 @@ def _fanout_checks(
         return []
 
     try:
-        tree = parse_one(sql, read="postgres")
+        tree = parse_one(sql, read=sqlglot_dialect(dialect))
     except Exception:
         return [{
             "code": "fanout_verification_unavailable",
@@ -475,14 +481,15 @@ def _time_checks(
     sql: str,
     *,
     required_time_plan: dict[str, Any] | None,
-) -> list[dict[str, Any]]:
+,
+    dialect: str) -> list[dict[str, Any]]:
     """Verify resolved governed time filters and grouping grain in generated SQL."""
     plan = required_time_plan or {}
     if not plan or plan.get("status") != "resolved":
         return []
 
     try:
-        tree = parse_one(sql, read="postgres")
+        tree = parse_one(sql, read=sqlglot_dialect(dialect))
     except Exception:
         return [{
             "code": "time_verification_unavailable",
@@ -635,6 +642,7 @@ def assess_query_correctness(
     required_filters: Iterable[dict[str, Any]] = (),
     required_relationships: Iterable[dict[str, Any]] = (),
     required_time_plan: dict[str, Any] | None = None,
+    dialect: str = "postgresql",
 ) -> list[dict[str, Any]]:
     """Return deterministic pre-execution alignment checks.
 
@@ -645,15 +653,16 @@ def assess_query_correctness(
     affected = [str(item) for item in affected_tables if str(item or "").strip()]
     governed = [str(item) for item in governed_tables if str(item or "").strip()]
 
-    metric_checks = _metric_expression_checks(sql, governed_metrics) if sql else []
+    metric_checks = _metric_expression_checks(sql, governed_metrics, dialect=dialect) if sql else []
     grouping_checks = _grouping_checks(
         sql,
         required_grouping_columns=required_grouping_columns,
+        dialect=dialect,
     ) if sql else []
-    filter_checks = _filter_checks(sql, required_filters=required_filters) if sql else []
-    relationship_checks = _relationship_checks(sql, required_relationships=required_relationships) if sql else []
-    fanout_checks = _fanout_checks(sql, governed_metrics=governed_metrics, required_relationships=required_relationships) if sql else []
-    time_checks = _time_checks(sql, required_time_plan=required_time_plan) if sql else []
+    filter_checks = _filter_checks(sql, required_filters=required_filters, dialect=dialect) if sql else []
+    relationship_checks = _relationship_checks(sql, required_relationships=required_relationships, dialect=dialect) if sql else []
+    fanout_checks = _fanout_checks(sql, governed_metrics=governed_metrics, required_relationships=required_relationships, dialect=dialect) if sql else []
+    time_checks = _time_checks(sql, required_time_plan=required_time_plan, dialect=dialect) if sql else []
     semantic_checks = metric_checks + grouping_checks + filter_checks + relationship_checks + fanout_checks + time_checks
 
     if not governed:
@@ -666,7 +675,7 @@ def assess_query_correctness(
 
     unexpected = [
         table for table in affected
-        if not _within_governed_scope(table, governed)
+        if not _within_governed_scope(table, governed, dialect=dialect)
     ]
     if unexpected:
         return semantic_checks + [{
