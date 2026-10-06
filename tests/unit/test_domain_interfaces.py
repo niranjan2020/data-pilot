@@ -9,6 +9,7 @@ from datapilot.domain.interfaces.metadata import MetadataProvider
 from datapilot.domain.interfaces.sql_generator import SQLGenerator
 from datapilot.domain.interfaces.sql_binder import SQLIdentifierBinder
 from datapilot.domain.interfaces.sql_validator import SQLValidator
+from datapilot.domain.execution_recovery import ExecutionRecoveryEvidence
 from datapilot.domain.models import (
     ColumnMetadata,
     LLMMessage,
@@ -28,6 +29,14 @@ class DummyDatabaseProvider:
     @property
     def dialect(self) -> str:
         return "postgresql"
+
+    def classify_execution_error(self, details=None) -> ExecutionRecoveryEvidence:
+        return ExecutionRecoveryEvidence(
+            recoverable=False,
+            category="unknown",
+            reason="dummy provider classification",
+            provider=self.dialect,
+        )
 
     async def ping(self) -> bool:
         return True
