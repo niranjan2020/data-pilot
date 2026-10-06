@@ -26,7 +26,7 @@ from datapilot.domain.interfaces.sql_generator import SQLGenerator
 from datapilot.domain.interfaces.sql_validator import SQLValidator
 from datapilot.domain.models import SchemaMetadata
 from datapilot.domain.policies import QueryExecutionPolicy
-from datapilot.domain.query import ClarificationOption, ClarificationRequest, QueryRequest, QueryResponse, QueryTrace
+from datapilot.domain.query import ClarificationOption, ClarificationRequest, QueryRejection, QueryRequest, QueryResponse, QueryTrace
 from datapilot.domain.semantic import QueryIntent, SemanticCatalog
 from datapilot.infrastructure.sql.query_policy import SQLQueryPolicyEnforcer
 from datapilot.infrastructure.sql.identifier_binding import bind_physical_identifiers
@@ -227,6 +227,13 @@ class QueryOrchestrator:
                 confidence=intent.confidence,
                 resolved_intent=intent,
                 trace=trace,
+                rejection=QueryRejection(
+                    code="unsupported_question",
+                    reason=(
+                        "The question could not be mapped to any governed business "
+                        "entity in the semantic catalog."
+                    ),
+                ),
                 message=(
                     "I could not map this question to a governed business entity. "
                     "No SQL was generated."
