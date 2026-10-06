@@ -269,3 +269,40 @@ async def test_current_entity_selection_overrides_stale_inherited_selection():
     assert response.trace is not None
     assert response.trace.clarification_selections == {"entity": "Customer"}
     assert generator.calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("selection", "value", "expected_code"),
+    [
+        ("entity", "Missing Entity", "invalid_entity_selection"),
+        ("metric", "Missing Metric", "invalid_metric_selection"),
+        ("attribute", "Customer.Missing Attribute", "invalid_attribute_selection"),
+        ("time_dimension", "Missing Date", "invalid_time_dimension_selection"),
+    ],
+)
+async def test_invalid_semantic_selection_returns_structured_rejection(
+    selection,
+    value,
+    expected_code,
+):
+    orchestrator = QueryOrchestrator(
+        NoExecutionDatabase(),
+        NoValidation(),
+        NoGeneration(),
+        FixtureCatalog(load_catalog()),
+    )
+
+    response = await orchestrator.query(
+        QueryRequest(
+            question="Show customers",
+            clarification_selections={selection: value},
+        )
+    )
+
+    assert response.status == "rejected"
+    assert response.sql is None
+    assert response.rejection is not None
+    assert response.rejection.code == expected_code
+    assert response.rejection.category == "semantic_resolution"
+    assert response.rejection.retryable is False
