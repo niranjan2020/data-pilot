@@ -92,3 +92,36 @@ Example:
 ```
 
 Provenance explains why a regression exists; it must never alter query execution or expected behavior. Reproduction metadata records how to recreate the incident but is likewise not supplied to SQL generation.
+
+
+## Regression contribution workflow
+
+When an OSS report exposes a query-quality failure, promote it only when the behavior is reproducible and the expected outcome can be stated deterministically.
+
+1. **Reproduce first.** Confirm the failure against a supported fixture or create the smallest safe generic fixture needed to reproduce it.
+2. **Sanitize the reproducer.** Remove customer data, credentials, proprietary identifiers, sensitive results, and unnecessary schema detail. Prefer generic entities such as customers, orders, and products.
+3. **Choose the narrowest durable layer.**
+   - Deterministic engine behavior belongs in unit/fixture tests.
+   - Semantic selection or end-to-end configured-source behavior belongs in an evaluation case.
+   - Provider-specific behavior belongs in provider integration tests.
+4. **Record provenance.** Add `provenance.origin`, a non-sensitive issue/reference when available, the version where the failure was observed, and a concise reason the case is worth retaining.
+5. **Record reproduction facts.** Add only the dialect/provider/fixture/notes required to recreate the behavior. These fields are documentation and must not influence orchestration.
+6. **Assert behavior, not an implementation accident.** Prefer status, governed objects, correctness codes, SQL invariants, clarification, rejection, and deterministic result assertions. Avoid exact generated SQL unless exact text is itself the contract.
+7. **Prove the regression.** When practical, verify the new test/case fails before the fix and passes after it.
+8. **Run the relevant focused gate, then the full automated suite.** Changes that affect live semantic behavior must also preserve the unchanged live benchmark.
+
+A regression case should be rejected during review if it cannot be reproduced, contains sensitive/proprietary material, weakens an existing expectation merely to make a failure pass, duplicates an existing case without adding coverage, or encodes source-specific semantics in core runtime code.
+
+### Review checklist
+
+- [ ] Stable, unique case/test identifier.
+- [ ] Minimal sanitized question and fixture/configuration.
+- [ ] Deterministic expectation that captures the original failure.
+- [ ] Provenance explains why the regression exists.
+- [ ] Reproduction metadata is sufficient but non-sensitive.
+- [ ] No evaluator ground truth is supplied to SQL generation.
+- [ ] No customer credentials/data or proprietary schema details are committed.
+- [ ] Correct test layer chosen.
+- [ ] Focused regression tests pass.
+- [ ] Full automated suite passes.
+- [ ] Live semantic benchmark remains unchanged when the change can affect it.
