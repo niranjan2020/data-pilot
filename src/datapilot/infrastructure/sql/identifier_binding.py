@@ -130,3 +130,10 @@ def bind_physical_identifiers(sql: str, schema: SchemaMetadata, dialect: str) ->
                 column.set("table", None)
 
     return statement.sql(dialect=target)
+
+
+class SQLGlotIdentifierBinder:
+    """Dialect-aware SQLGlot adapter for physical catalog identifier binding."""
+
+    def bind(self, sql: str, schema: SchemaMetadata, dialect: str) -> str:
+        return bind_physical_identifiers(sql, schema, dialect)
