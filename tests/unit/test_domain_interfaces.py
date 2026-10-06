@@ -7,6 +7,7 @@ from datapilot.domain.interfaces.database import DatabaseProvider
 from datapilot.domain.interfaces.llm import LLMProvider
 from datapilot.domain.interfaces.metadata import MetadataProvider
 from datapilot.domain.interfaces.sql_generator import SQLGenerator
+from datapilot.domain.interfaces.sql_binder import SQLIdentifierBinder
 from datapilot.domain.interfaces.sql_validator import SQLValidator
 from datapilot.domain.models import (
     ColumnMetadata,
@@ -102,6 +103,13 @@ class DummySQLGenerator:
         return "SELECT count(*) FROM vessels WHERE status = 'on-order';"
 
 
+class DummySQLIdentifierBinder:
+    """Mock implementation satisfying SQLIdentifierBinder protocol."""
+
+    def bind(self, sql: str, schema: SchemaMetadata, dialect: str) -> str:
+        return sql
+
+
 class DummySQLValidator:
     """Mock implementation satisfying SQLValidator protocol for verification."""
 
@@ -138,6 +146,11 @@ def test_sql_generator_protocol_conformance():
     """Verify that a compliant class satisfies SQLGenerator protocol."""
     generator = DummySQLGenerator()
     assert isinstance(generator, SQLGenerator)
+
+
+def test_sql_identifier_binder_protocol_conformance():
+    binder = DummySQLIdentifierBinder()
+    assert isinstance(binder, SQLIdentifierBinder)
 
 
 def test_sql_validator_protocol_conformance():
