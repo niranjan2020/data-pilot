@@ -1459,6 +1459,53 @@ async def test_execution_recovery_sql_must_repass_governed_correctness(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_b1_correction_reapplies_resource_policy_before_execution(monkeypatch):
+    database = FakeDatabase()
+    generator = SequencedSQLGenerator([
+        "SELECT governed_wrong FROM records",
+        "SELECT id FROM records",
+    ])
+    policy = QueryExecutionPolicy(
+        timeout_seconds=6.0,
+        max_result_rows=30,
+        default_limit=30,
+        max_limit=30,
+    )
+    orchestrator = QueryOrchestrator(
+        database,
+        FakeValidator(),
+        generator,
+        FakeCatalog(SemanticCatalog()),
+        query_policy=policy,
+    )
+    calls = {"count": 0}
+
+    def correctness(**kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return [{
+                "code": "filter_violation",
+                "status": "failed",
+                "severity": "error",
+                "message": "required governed filter missing",
+            }]
+        return []
+
+    monkeypatch.setattr(
+        "datapilot.application.services.query_orchestrator.assess_query_correctness",
+        correctness,
+    )
+
+    response = await orchestrator.query(QueryRequest(question="show records"))
+
+    assert response.status == "completed"
+    assert response.sql.endswith("LIMIT 30")
+    assert database.executed == [response.sql]
+    assert database.timeouts == [6.0]
+    assert len(response.trace.correction_attempts) == 1
+
+
+@pytest.mark.asyncio
 async def test_b1_correction_can_have_at_most_one_independent_b2_recovery(monkeypatch):
     database = RecoverableExecutionDatabase()
     generator = SequencedSQLGenerator([
@@ -1648,6 +1695,36 @@ async def test_b1_correction_reuses_identifier_binder_boundary(monkeypatch):
         ("SELECT wrong FROM records", "postgresql"),
         ("SELECT COUNT(*) AS count FROM records", "postgresql"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_b2_recovery_reapplies_resource_policy_and_timeout():
+    database = RecoverableExecutionDatabase()
+    generator = SequencedSQLGenerator([
+        "SELECT missing FROM records",
+        "SELECT id FROM records",
+    ])
+    policy = QueryExecutionPolicy(
+        timeout_seconds=7.5,
+        max_result_rows=40,
+        default_limit=40,
+        max_limit=40,
+    )
+    orchestrator = QueryOrchestrator(
+        database,
+        FakeValidator(),
+        generator,
+        FakeCatalog(SemanticCatalog()),
+        query_policy=policy,
+    )
+
+    response = await orchestrator.query(QueryRequest(question="show records"))
+
+    assert response.status == "completed"
+    assert response.sql.endswith("LIMIT 40")
+    assert database.executed[0].endswith("LIMIT 40")
+    assert database.executed[-1].endswith("LIMIT 40")
+    assert database.timeouts == [7.5]
 
 
 @pytest.mark.asyncio
