@@ -281,6 +281,31 @@ B4 implementation order from this audit:
 - **B4.4:** make execution-error recovery classification provider-aware without weakening B2 fail-closed semantics.
 - **B4.5:** add dialect-boundary regressions and close B4; do not add a second database provider merely to prove the abstraction.
 
+#### B4.2. Governed correctness dialect isolation — IMPLEMENTED
+- The active target database dialect is now threaded from the database provider into deterministic governed correctness.
+- SQLGlot parsing and expression/table canonicalization use the shared dialect mapper rather than hard-coded PostgreSQL.
+- PostgreSQL remains the compatibility default for direct callers, while production orchestration supplies the provider dialect explicitly.
+- Focused B4.2 regression checkpoint: **90/90 passed**, including non-PostgreSQL syntax coverage.
+
+#### B4.3. SQL binding/normalization boundary — IMPLEMENTED
+- Added a provider-independent `SQLIdentifierBinder` port and a dialect-aware SQLGlot adapter.
+- `QueryOrchestrator` no longer imports the concrete physical identifier-binding function.
+- Initial generation, B1 correction, and B2 recovery all pass through the same injected binding boundary.
+- API and live-evaluation composition explicitly install the SQLGlot binder.
+- Focused B4.3 regression checkpoint: **107/107 passed**.
+
+#### B4.4. Provider-aware execution recovery — IMPLEMENTED
+- PostgreSQL SQLSTATE interpretation moved out of the application layer and into the PostgreSQL database adapter.
+- Providers expose normalized `ExecutionRecoveryEvidence`; the application recovery gate consumes that evidence without interpreting vendor codes.
+- Missing/unknown provider classification remains terminal, preserving B2 fail-closed behavior and the single bounded recovery attempt.
+- Focused B4.4 regression checkpoint: **104/104 passed**.
+
+#### B4.5. Dialect/provider boundary regression gate — VALIDATING
+- Added architecture regressions that prevent hard-coded PostgreSQL SQLGlot dialects from returning to governed correctness.
+- The gate prevents the orchestrator from regaining a direct dependency on the concrete identifier-binding function.
+- The gate prevents PostgreSQL SQLSTATE tables from leaking back into the application recovery policy and verifies that PostgreSQL owns its recovery codes.
+- B4 remains open until the complete automated suite and unchanged 39-case live production-pipeline semantic benchmark pass.
+
 Remaining:
 - Stronger dialect isolation while PostgreSQL remains the first-class provider.
 - Query timeout/resource-policy hardening.
