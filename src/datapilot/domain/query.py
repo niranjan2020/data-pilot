@@ -189,6 +189,10 @@ class QueryResponse(BaseModel):
     trace: Optional[QueryTrace] = None
     presentation: Optional[Dict[str, Any]] = Field(default=None, description="Deterministic result-presentation plan derived from result shape and query semantics")
     result_summary: Optional[Dict[str, Any]] = Field(default=None, description="Grounded natural-language answer derived only from executed result rows")
+    explanation: Optional[QueryExplanation] = Field(
+        default=None,
+        description="Deterministic user-safe explanation derived from governed query evidence",
+    )
     message: Optional[str] = None
     history_id: Optional[int] = Field(
         default=None,
