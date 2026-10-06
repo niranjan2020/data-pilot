@@ -397,7 +397,7 @@ B7 implementation order:
   - Current gap for B7.2: cases are evaluation-oriented but do not yet carry provenance/reproduction metadata needed to promote real OSS incidents into a durable, reviewable regression corpus.
 - **B7.2:** define a provider/domain-neutral regression-case contract for promoting reproducible real-world failures into deterministic tests.
 - **B7.3 — COMPLETE:** strengthened durable regression coverage across semantic ambiguity/rejection, governed correctness, SQL resource policy, B1 correction, B2 recovery, dry-run behavior, and deterministic explainability. Coverage remains split intentionally: domain-neutral deterministic fixtures/unit regressions protect engine behavior, while the configured-source 39-case live corpus protects end-to-end semantic quality without moving AdventureWorks semantics into core code.
-- **B7.4:** document the OSS workflow for contributing a regression case and close only after focused tests, the full automated suite, and the unchanged live benchmark.
+- **B7.4 — VALIDATION:** documented the OSS regression-contribution workflow and review checklist, including reproduction-first promotion, sanitization, correct test-layer selection, provenance/reproduction metadata, deterministic expectations, and explicit prohibition on weakening expectations to make failures pass. Final closure requires the focused gate, full automated suite, and unchanged live semantic benchmark.
 
 Remaining:
 - Regression corpus growth from real OSS usage (B7 current).
