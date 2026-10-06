@@ -81,6 +81,33 @@ async def test_versioned_fixture_entity_ambiguity_uses_real_orchestrator():
 
 
 @pytest.mark.asyncio
+async def test_versioned_fixture_unsupported_question_returns_structured_rejection():
+    case = EvaluationCase(
+        id="unsupported-weather",
+        question="What is the weather today?",
+        expected=EvaluationExpectation(
+            expected_status="rejected",
+            rejection_code="unsupported_question",
+        ),
+    )
+    orchestrator = QueryOrchestrator(
+        NoExecutionDatabase(),
+        NoValidation(),
+        NoGeneration(),
+        FixtureCatalog(load_catalog()),
+    )
+
+    response = await orchestrator.query(QueryRequest(question=case.question))
+    result = evaluate_query_response(case, response)
+
+    assert result.passed, result.failures
+    assert response.sql is None
+    assert response.rejection is not None
+    assert response.rejection.category == "semantic_resolution"
+    assert response.rejection.retryable is False
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("question", "expected_status"),
     [
