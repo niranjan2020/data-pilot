@@ -6,7 +6,7 @@ import pytest
 
 from datapilot.core.exceptions import DatabaseExecutionError
 from datapilot.domain.interfaces.database import DatabaseProvider
-from datapilot.infrastructure.database.postgresql import PostgreSQLDatabaseProvider, _postgres_execution_error_details
+from datapilot.infrastructure.database.postgresql import PostgreSQLDatabaseProvider, _classify_postgres_execution_error, _postgres_execution_error_details
 
 
 def provider() -> PostgreSQLDatabaseProvider:
@@ -143,3 +143,45 @@ def test_execution_error_details_normalize_sqlstate_case() -> None:
 
     details = _postgres_execution_error_details(DriverError(), "SELECT 1")
     assert details["sqlstate"] == "42P01"
+
+
+@pytest.mark.parametrize("sqlstate", ["42601", "42703", "42P01", "42883", "42804", "42803"])
+def test_postgres_sql_shape_errors_are_recoverable(sqlstate) -> None:
+    evidence = _classify_postgres_execution_error({"sqlstate": sqlstate})
+    assert evidence.recoverable is True
+    assert evidence.category == "sql_execution"
+    assert evidence.provider == "postgresql"
+    assert evidence.code == sqlstate
+
+
+@pytest.mark.parametrize(
+    "sqlstate",
+    ["42501", "28000", "28P01", "57014", "53300", "53400", "57P01", "08006"],
+)
+def test_postgres_runtime_auth_resource_and_connection_errors_are_terminal(sqlstate) -> None:
+    evidence = _classify_postgres_execution_error({"sqlstate": sqlstate})
+    assert evidence.recoverable is False
+    assert evidence.category == "provider_runtime"
+    assert evidence.code == sqlstate
+
+
+def test_postgres_unknown_error_code_fails_closed() -> None:
+    evidence = _classify_postgres_execution_error({"sqlstate": "XX999"})
+    assert evidence.recoverable is False
+    assert evidence.category == "unknown"
+
+
+def test_postgres_missing_structured_code_fails_closed_even_with_sql_like_message() -> None:
+    evidence = _classify_postgres_execution_error(
+        {"message": 'column "missing" does not exist'}
+    )
+    assert evidence.recoverable is False
+    assert evidence.category == "unknown"
+    assert evidence.code is None
+
+
+@pytest.mark.parametrize("key", ["sql_state", "pgcode", "code"])
+def test_postgres_common_code_fields_are_normalized(key) -> None:
+    evidence = _classify_postgres_execution_error({key: "42p01"})
+    assert evidence.recoverable is True
+    assert evidence.code == "42P01"
