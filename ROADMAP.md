@@ -422,28 +422,383 @@ Avoid autonomous/unbounded agent loops.
 
 ## Next — Stage C: Open-source product experience
 
-Make the reliable engine usable by people who did not build it.
+Stage C is the **face of Data Pilot**. The production-grade engine from Stage B is valuable only if a new OSS user can experience it without understanding Data Pilot internals, editing configuration files, manually provisioning infrastructure, or reading architecture documentation first.
 
-Planned flow:
+### Stage C north star
+
+**Clean machine -> connected database -> first trustworthy governed answer in <= 5 minutes.**
+
+Non-negotiable product metrics:
+- **Time to First Answer (TTFA): <= 5 minutes** for the supported happy path.
+- **Manual configuration files required before first answer: 0.**
+- A technically competent user unfamiliar with Data Pilot should reach a successful query without reading architecture documentation.
+- Onboarding quality is a product capability, not just documentation.
+
+### Product positioning
+
+Competitors such as Wren AI and Vanna AI are useful onboarding-friction benchmarks. Data Pilot should not differentiate merely by having a UI or Docker packaging. For every setup step a comparable product exposes, ask: **can Data Pilot safely remove or automate this step?**
+
+The user's conceptual model should be:
+
 ```text
-Connect database
-  -> discover schema
-  -> configure/approve semantic model
-  -> ask questions
-  -> clarify ambiguity
-  -> generate and validate SQL
-  -> inspect results/chart/explanation
+Data Pilot
+    |
+    v
+Your Database
 ```
 
-Planned work:
-- Connection/onboarding experience.
-- Schema browser.
-- Semantic model/business-rule configuration UI.
-- Metric/entity/relationship/time-dimension management.
-- Query trace/explainability UI.
-- Result visualization.
-- Easy local Docker startup.
-- Sample database and guided demo.
+PostgreSQL metadata storage, Qdrant, migrations, indexing, internal service URLs, model adapters, and other implementation details should remain behind the product experience wherever possible.
+
+### Core experience principles
+
+1. **Zero configuration files for first-time users.**
+   - No mandatory `.env`, YAML, JSON, semantic files, Qdrant configuration, or Python edits before the first answer.
+   - Advanced configuration may remain available later, but the UI owns first-run setup.
+
+2. **Connect -> Discover -> Review -> Ask.**
+   - Keep onboarding short and explicit.
+   - Target wizard: **Connection -> Data -> Business Context -> Ready**.
+   - Always show setup progress and actionable status.
+
+3. **Automatic semantic bootstrap, with human approval.**
+   - Use discovered schemas, tables/views, columns, types, PK/FK/constraints, and safe metadata to suggest entities, attributes, relationships, metrics, time dimensions, and business terminology.
+   - AI/model output is a suggestion, never silent governance authority.
+   - Users can **Approve / Edit / Reject** suggestions.
+   - Approved semantic configuration becomes authoritative for the deterministic governed engine.
+   - Do not reintroduce the removed saved-query/template approach.
+
+4. **Progressive governance instead of configure-everything-first.**
+   - Let users obtain value from a small approved starting model.
+   - When a later question exposes missing business meaning, ask for the smallest clarification/configuration needed.
+   - Example: if "active customer" is undefined, present candidate definitions or allow a custom rule; once approved, persist the governed definition for future questions.
+
+5. **Visible Data Readiness.**
+   - Provide a readiness view covering connection, schema discovery, relationships, entities, metrics, time dimensions, and business rules.
+   - Surface unresolved ambiguity such as competing revenue definitions, missing relationships, or multiple candidate time dimensions.
+   - Explain why certain questions may not yet be answerable reliably.
+
+6. **Errors become actions, not stack traces.**
+   - Connection failures should identify whether network, authentication, database, permissions, or schema access failed.
+   - Internal Qdrant/indexing/platform failures should be translated into user-facing states with retry/remediation actions.
+   - Do not expose infrastructure exceptions as the normal onboarding UX.
+
+7. **Bring-your-own-model-provider configuration.**
+   - Gemini remains the currently implemented provider, but Stage C must not make Gemini a product-level requirement.
+   - Users should be able to configure their own supported provider credentials through the UI, beginning with a clean provider abstraction and expanding adapters incrementally.
+   - Planned provider choices include **Gemini / Google AI, OpenAI, Anthropic Claude, and Azure OpenAI**; additional providers can be added behind the same contract when justified.
+   - Provider setup UX: choose provider -> enter API key/endpoint where applicable -> choose/validate model -> **Test** -> ready.
+   - Secrets must never be written to semantic configuration, query traces, normal logs, or committed configuration files.
+   - Do not hard-code provider-specific model names into the core orchestration layer.
+   - Supporting multiple providers does **not** mean all providers must be implemented at once; preserve a stable provider boundary and add adapters with focused compatibility tests.
+
+### Target first-five-minute journey
+
+```text
+1. Start Data Pilot
+2. Welcome / first-run screen
+3. Configure AI provider using user's own key
+4. Connect PostgreSQL and test connection
+5. Discover schemas/tables/relationships automatically
+6. Select a recommended/small starting table set
+7. Review and approve semantic suggestions
+8. Index/bootstrap automatically
+9. Land in Ask Data Pilot with suggested questions
+10. Receive first governed answer with result + explanation + optional SQL
+```
+
+No manual creation of Data Pilot's internal PostgreSQL database, Qdrant collections, migrations, embeddings, or service URLs should be required on the supported local path.
+
+### C1 — First-run product architecture and UX contract
+
+Define onboarding as a stable product workflow before allowing frontend screens to invent orchestration rules.
+
+Deliverables:
+- First-run detection.
+- Setup-state/state-machine contract.
+- Onboarding/status API.
+- System readiness API.
+- Configuration persistence boundary.
+- Setup progress and resumability after restart/failure.
+- Provider-independent AI configuration contract.
+- Secret-handling boundary.
+- Explicit TTFA instrumentation points.
+- Screen-by-screen first-five-minute UX specification.
+
+Exit criteria:
+- Backend exposes enough deterministic state for the UI to render every onboarding step without guessing.
+- Setup can resume safely after an interrupted step.
+- Provider credentials are never returned through normal read APIs or logs.
+- No runtime query-engine behavior is duplicated in the UI.
+
+### C2 — One-command local deployment
+
+Target happy path:
+
+```text
+git clone ...
+docker compose up
+```
+
+The local stack may internally include:
+- Data Pilot Web.
+- Data Pilot API.
+- Platform PostgreSQL.
+- Qdrant.
+
+But startup must automatically handle:
+- health/dependency ordering;
+- platform database initialization;
+- migrations;
+- Qdrant collection/index initialization;
+- internal service discovery/default URLs;
+- first-run detection.
+
+Exit criteria:
+- A clean supported machine reaches the Welcome screen with one documented startup command.
+- Users do not manually provision internal Postgres/Qdrant resources.
+- Startup failures produce actionable health information.
+
+### C3 — AI provider + PostgreSQL connection wizard
+
+#### AI provider
+Initial UX supports bring-your-own credentials:
+- Gemini / Google AI.
+- OpenAI.
+- Anthropic Claude.
+- Azure OpenAI.
+
+Implementation may land incrementally; the UI/provider contract must not assume Gemini.
+
+Provider diagnostics:
+- credentials accepted/rejected;
+- endpoint/deployment validation where applicable;
+- selected model availability/compatibility;
+- safe test request;
+- actionable quota/rate-limit/authentication feedback.
+
+#### Target database
+PostgreSQL remains the first supported target database for Stage C. Do not dilute onboarding quality by adding many database providers at once.
+
+Connection wizard:
+- host;
+- port;
+- database;
+- username;
+- password;
+- SSL/options where needed;
+- **Test Connection**.
+
+Diagnostics should distinguish:
+- network reachability;
+- authentication;
+- database selection;
+- permissions;
+- schema visibility.
+
+Credentials/secrets must not leak into traces/logs/semantic metadata.
+
+### C4 — Automatic schema discovery and data selection
+
+After a successful target connection:
+- discover schemas, tables, views, columns, data types, PKs, FKs, and deterministic relationship metadata;
+- present a searchable/selectable schema browser;
+- recommend a small starting set rather than blindly onboarding hundreds of tables;
+- support re-scan/refresh when schema changes;
+- make large-schema progress visible.
+
+Example UX:
+```text
+247 tables discovered.
+Recommended starting set: 12.
+[Review tables]
+```
+
+Exit criteria:
+- User can understand what Data Pilot will govern/index before continuing.
+- Large databases do not force an all-or-nothing first run.
+
+### C5 — AI-assisted semantic bootstrap
+
+This is a strategic Stage C capability.
+
+From discovered metadata, propose:
+- entities;
+- attributes;
+- relationships;
+- metrics;
+- time dimensions;
+- business terminology/rules where evidence is sufficient.
+
+Every model-generated item is visibly **Suggested by Data Pilot** until approved.
+
+Admin actions:
+- Approve.
+- Edit.
+- Reject.
+
+Principles:
+- LLM/provider helps create candidate configuration.
+- Deterministic approved configuration remains query-time authority.
+- Suggestions must carry enough evidence/source mapping for review.
+- Ambiguous definitions must be surfaced rather than guessed.
+- Semantic bootstrap must work with any supported AI provider through the provider abstraction.
+
+### C6 — Admin Studio and Data Readiness
+
+Provide the long-term configuration surface rather than forcing users back to files.
+
+Proposed navigation:
+```text
+Overview
+Data Sources
+Schema
+
+Semantic Model
+  Entities
+  Relationships
+  Metrics
+  Time Dimensions
+  Business Rules
+
+AI Settings
+Query Playground
+Evaluation
+System
+```
+
+Data Readiness should show:
+- connection health;
+- schema state;
+- confirmed/unconfirmed relationships;
+- semantic coverage;
+- metric/business-rule coverage;
+- unresolved ambiguity;
+- indexing state;
+- issues requiring action.
+
+The UI should explain why a question may be unreliable or unsupported rather than presenting semantic setup as opaque configuration.
+
+### C7 — Production-quality Ask Data Pilot experience
+
+Keep the normal-user surface simple.
+
+Core response experience:
+- natural-language question;
+- concise answer/summary where supported;
+- result table;
+- appropriate chart/visualization;
+- deterministic **Why this answer** section;
+- governed metric/entity/time/rule evidence;
+- optional **View SQL**;
+- clarification UI when semantics are ambiguous;
+- clear rejection/unsupported-question UX;
+- visible correction/recovery outcome where useful without exposing hidden chain-of-thought.
+
+Reuse the deterministic B6 explanation contract. Do not create a second explanation system in the frontend.
+
+Suggested starter questions should be generated from the approved semantic model, not hard-coded domain examples.
+
+### C8 — Onboarding resilience, guided demo, and clean-machine validation
+
+Treat onboarding as an engineering quality gate.
+
+Test at minimum:
+- fresh Windows;
+- fresh macOS;
+- fresh Linux;
+- empty/small/large target databases;
+- wrong database password;
+- insufficient permissions;
+- unreachable target database;
+- Qdrant/platform database unavailable;
+- invalid/expired AI key;
+- unsupported/unavailable model;
+- AI quota/rate-limit failure;
+- schema with no foreign keys;
+- schema with hundreds of tables;
+- interrupted/restarted onboarding.
+
+Measure:
+- installation/startup time;
+- time to provider readiness;
+- time to database connection;
+- schema discovery duration;
+- semantic bootstrap duration;
+- **Time to First Answer**;
+- setup failure/recovery rate.
+
+Also provide:
+- a reproducible sample database;
+- guided demo path;
+- concise quickstart;
+- screenshots/GIF/video showing **Connect -> Discover -> Review -> Ask -> Explain**.
+
+### README / GitHub first impression
+
+The README should lead with user value and a short quickstart before architecture detail.
+
+Target shape:
+```text
+DATA PILOT
+
+Ask your database questions.
+Governed SQL. Your data stays with you.
+
+Get started:
+git clone ...
+docker compose up
+
+Open the local Data Pilot UI.
+
+1. Configure your AI provider
+2. Connect PostgreSQL
+3. Select your data
+4. Review Data Pilot suggestions
+5. Ask your first question
+
+Target: <= 5 minutes
+```
+
+Architecture, correctness internals, and contributor details remain available below the first-run path rather than blocking it.
+
+### Stage C implementation order
+
+- **C1:** First-run/onboarding architecture + UX contract.
+- **C2:** One-command Docker Compose local installation.
+- **C3:** Bring-your-own AI provider configuration + PostgreSQL connection wizard/diagnostics.
+- **C4:** Automatic schema discovery + table selection.
+- **C5:** AI-assisted semantic bootstrap + human approval.
+- **C6:** Admin Studio + Data Readiness.
+- **C7:** Production-quality Ask Data Pilot experience.
+- **C8:** Onboarding resilience, sample DB, docs, and clean-machine testing.
+
+### Stage C exit gate
+
+Stage C is complete only when:
+1. A new user can start Data Pilot with the documented one-command local path.
+2. No manual configuration-file editing is required before the first answer.
+3. User can configure their own supported AI provider credentials through the product.
+4. User can connect PostgreSQL, discover/select data, review semantic suggestions, and ask a governed question through the UI.
+5. The first answer includes understandable result/explanation behavior and ambiguity is handled interactively rather than guessed.
+6. Happy-path **TTFA is <= 5 minutes** on the reference setup.
+7. Onboarding failures are actionable and resumable.
+8. Stage B correctness/safety/recovery regressions remain green.
+9. The unchanged live semantic benchmark remains a release gate where relevant.
+
+### Explicitly out of Stage C scope
+
+Do not turn Stage C into SaaS or infrastructure expansion. Defer:
+- multi-tenancy;
+- billing/subscriptions;
+- organizations and enterprise RBAC;
+- Kubernetes/cloud control plane;
+- many target database providers at once;
+- autonomous/unbounded agents;
+- dashboard-builder complexity;
+- broad MCP/plugin ecosystem;
+- enterprise SSO/SCIM/private networking.
+
+Stage C has one mission: **make the production-grade governed engine we already built exceptionally easy to experience.**
 
 ---
 
