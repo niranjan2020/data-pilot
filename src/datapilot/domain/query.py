@@ -66,6 +66,14 @@ class QueryTrace(BaseModel):
             "structured failure feedback, and corrected SQL when a correction is attempted."
         ),
     )
+    execution_recovery_attempts: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "Bounded execution-recovery diagnostics. Each entry records the failed "
+            "executed SQL, normalized database failure, recovery classification, "
+            "and corrected SQL when execution recovery is attempted."
+        ),
+    )
     validated_sql: Optional[str] = None
     validation_affected_tables: List[str] = Field(default_factory=list)
     validation_warnings: List[str] = Field(default_factory=list)
