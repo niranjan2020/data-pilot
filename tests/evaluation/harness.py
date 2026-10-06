@@ -38,6 +38,7 @@ class EvaluationExpectation:
     require_completed: bool = False
     require_sql: bool = False
     expected_status: str | None = None
+    rejection_code: str | None = None
     clarification_kind: str | None = None
     clarification_options: tuple[str, ...] = ()
     sql_contains: tuple[str, ...] = ()
@@ -220,6 +221,15 @@ def evaluate_query_response(
         _add_failure(failures, categories, f"expected status {expected.expected_status!r}, got {response.status!r}", "semantic_resolution")
     if expected.require_completed and response.status != "completed":
         _add_failure(failures, categories, f"expected completed status, got {response.status!r}", "semantic_resolution")
+    if expected.rejection_code is not None:
+        if response.rejection is None:
+            _add_failure(failures, categories, "expected structured rejection", "semantic_resolution")
+        elif response.rejection.code != expected.rejection_code:
+            _add_failure(
+                failures, categories,
+                f"expected rejection code {expected.rejection_code!r}, got {response.rejection.code!r}",
+                "semantic_resolution",
+            )
     if expected.clarification_kind is not None:
         if response.clarification is None:
             _add_failure(failures, categories, "expected structured clarification", "ambiguity_clarification")
