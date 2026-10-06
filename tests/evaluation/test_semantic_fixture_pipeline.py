@@ -306,3 +306,68 @@ async def test_invalid_semantic_selection_returns_structured_rejection(
     assert response.rejection.code == expected_code
     assert response.rejection.category == "semantic_resolution"
     assert response.rejection.retryable is False
+
+
+class IrrelevantHighSimilarityRetriever:
+    async def search(self, source_name, question, limit):
+        return [
+            {
+                "kind": "entity",
+                "name": "Customer",
+                "score": 0.99,
+                "metadata": {"id": 1},
+            }
+        ]
+
+
+class MisleadingRetrievedContextAssembler:
+    async def assemble(self, source_name, retrieved_context, question):
+        # Simulate approximate retrieval returning a highly ranked governed object
+        # for a question that contains no governed business vocabulary.
+        return {
+            "datasets": [
+                {"schema_name": "public", "table_name": "customers", "name": "public.customers"}
+            ],
+            "entities": [
+                {
+                    "id": 1,
+                    "name": "Customer",
+                    "schema_name": "public",
+                    "table_name": "customers",
+                    "attributes": [],
+                }
+            ],
+            "relationships": [],
+            "metrics": [],
+            "business_rules": [],
+            "time_dimensions": [],
+        }
+
+    async def carry_forward(self, source_name, governed_context, conversation_context):
+        return governed_context
+
+
+@pytest.mark.asyncio
+async def test_irrelevant_retrieval_candidate_cannot_make_unsupported_question_executable():
+    orchestrator = QueryOrchestrator(
+        NoExecutionDatabase(),
+        NoValidation(),
+        NoGeneration(),
+        FixtureCatalog(load_catalog()),
+        semantic_retriever=IrrelevantHighSimilarityRetriever(),
+        semantic_context_assembler=MisleadingRetrievedContextAssembler(),
+    )
+
+    response = await orchestrator.query(
+        QueryRequest(
+            question="What is the weather today?",
+            source_name="Fixture",
+        )
+    )
+
+    assert response.status == "rejected"
+    assert response.sql is None
+    assert response.rejection is not None
+    assert response.rejection.code == "unsupported_question"
+    assert response.trace is not None
+    assert response.trace.governed_entities == ["Customer"]
