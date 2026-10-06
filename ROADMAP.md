@@ -6,8 +6,8 @@
 
 **Last updated:** 2026-10-06  
 **Current focus:** Core OSS — Stage B: robustness and production-quality query engine  
-**Current semantic evaluation baseline:** 39/39 passed (100.0%) through the live production pipeline after B2 bounded execution-error recovery.  
-**Current full automated regression baseline:** 101/101 passed after B2 hardening.
+**Current semantic evaluation baseline:** 39/39 passed (100.0%) through the live production pipeline after B3 unsupported-question hardening (p50 3.157 s, p95 4.258 s).  
+**Current full automated regression baseline:** 316/316 passed after B3 hardening.
 
 ---
 
@@ -247,8 +247,20 @@ Stage A is complete. Stage B hardens recovery, provider isolation, resource safe
 - Final live production-pipeline semantic benchmark: **39/39 passed (100.0%)**.
 - One preceding benchmark run produced 38/39 solely because Gemini returned a provider ConnectError during SQL generation; rerunning the unchanged code produced 39/39, so no correctness expectation was weakened.
 
-### B3. Explicit unsupported-question handling — CURRENT
-Make unsupported or out-of-governance questions explicit and diagnosable across semantic resolution, orchestration, API response, and evaluation without allowing them to fall through into speculative SQL generation.
+### B3. Explicit unsupported-question handling — COMPLETE
+- Added structured rejection codes for unsupported questions and invalid explicit entity, metric, attribute, and time-dimension selections.
+- Preserved governed ambiguity as clarification while unsupported/out-of-governance questions are deterministically rejected.
+- Invalid explicit selections take precedence over generic unsupported detection.
+- Unsupported questions fail closed before SQL generation/execution; evaluation can require rejected responses to contain no SQL.
+- Adversarial coverage proves irrelevant high-similarity retrieval cannot authorize an unsupported question against the authoritative semantic catalog.
+- Shared exact governed entity terms remain ambiguous rather than being silently selected.
+- B3 focused hardening regression: **89/89 passed**.
+- Full automated regression after B3: **316/316 passed**.
+- Final live production-pipeline semantic benchmark: **39/39 passed (100.0%)**, latency **p50 3.157 s / p95 4.258 s**.
+- A preceding live run was blocked by a Gemini async transport ConnectError; direct REST and synchronous Gemini calls succeeded, and the unchanged benchmark subsequently returned 39/39. No correctness expectation was weakened.
+
+### B4. Stronger dialect isolation — CURRENT
+Keep PostgreSQL first-class while preventing PostgreSQL-specific behavior from leaking into provider-independent query-engine contracts.
 
 Remaining:
 - Stronger dialect isolation while PostgreSQL remains the first-class provider.
