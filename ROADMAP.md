@@ -387,7 +387,14 @@ B6 closure evidence:
 Turn realistic usage patterns and discovered failures into durable regression assets without hard-coding AdventureWorks or customer-specific semantics into the core.
 
 B7 implementation order:
-- **B7.1:** audit the current evaluation/regression corpus, fixtures, benchmark case schema, and failure-capture boundaries.
+- **B7.1 — COMPLETE:** audited the current evaluation/regression corpus, fixtures, benchmark case schema, and failure-capture boundaries.
+  - The live semantic corpus is 39 configured-source cases in `tests/evaluation/semantic_cases.json`; it is intentionally source-specific evaluation data, not core product logic.
+  - A separate generic deterministic fixture already exists under `tests/fixtures/postgresql` with the smaller provider-independent `tests/evaluation/cases.json` corpus.
+  - `EvaluationExpectation` already models semantic selection/exclusion, status, clarification, SQL presence/fragments, governed-correctness codes, and optional result ground truth.
+  - Runtime failures are classified by pipeline stage and summaries retain category rates plus latency percentiles.
+  - The runner directly composes normal adapters, so the live gate does not duplicate orchestration logic.
+  - Audit found one contract-loading gap: `rejection_code` and `require_no_sql` existed in the evaluator but were not loaded from JSON by the live runner. This was fixed with a loader regression.
+  - Current gap for B7.2: cases are evaluation-oriented but do not yet carry provenance/reproduction metadata needed to promote real OSS incidents into a durable, reviewable regression corpus.
 - **B7.2:** define a provider/domain-neutral regression-case contract for promoting reproducible real-world failures into deterministic tests.
 - **B7.3:** add representative corpus coverage for semantic ambiguity, governed correctness, SQL policy, B1/B2 recovery, and explainability outcomes.
 - **B7.4:** document the OSS workflow for contributing a regression case and close only after focused tests, the full automated suite, and the unchanged live benchmark.
