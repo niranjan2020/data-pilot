@@ -51,6 +51,9 @@ async def configure_ai_provider(payload: AIProviderSetupRequest, request: Reques
     metadata, owns_metadata = await _setup_metadata(request)
     secret_store = getattr(request.app.state, "ai_secret_store", LocalEnvAIProviderSecretStore())
     try:
+        # Any provider/model change invalidates previously validated readiness before
+        # persisting or testing the replacement configuration.
+        await metadata.update_setup_facts(ai_provider_ready=False)
         safe = AIProviderConfiguration(
             provider=payload.provider,
             model=payload.model,
