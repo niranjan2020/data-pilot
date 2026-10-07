@@ -29,6 +29,12 @@ class AIProviderSecretInput(BaseModel):
     api_key: str = Field(min_length=1)
 
 
+class AIProviderConnectionValidator(Protocol):
+    async def validate(self, configuration: AIProviderConfiguration) -> None:
+        """Raise when the configured provider/model cannot be used."""
+        ...
+
+
 class AIProviderConfigurationStore(Protocol):
     async def get_ai_provider_configuration(self) -> AIProviderConfiguration | None:
         """Return safe provider configuration without credential material."""
