@@ -9,6 +9,7 @@ import sys
 from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field
 from datapilot.core.config import Settings, get_settings
+from datapilot.domain.interfaces.runtime_health import RuntimeHealthChecker
 
 
 class ComponentStatus(BaseModel):
@@ -33,8 +34,9 @@ class HealthReport(BaseModel):
 class HealthService:
     """Application service for monitoring platform health and readiness."""
 
-    def __init__(self, settings: Optional[Settings] = None):
+    def __init__(self, settings: Optional[Settings] = None, runtime_checker: Optional[RuntimeHealthChecker] = None):
         self._settings = settings or get_settings()
+        self._runtime_checker = runtime_checker
         self._start_time = datetime.now(timezone.utc)
 
     def get_liveness(self) -> Dict[str, Any]:
@@ -47,54 +49,17 @@ class HealthService:
         }
 
     async def get_readiness(self) -> HealthReport:
-        """Detailed readiness check assessing configuration, providers, and environment."""
+        """Report runtime infrastructure health independently from onboarding state."""
         components: Dict[str, ComponentStatus] = {}
+        if self._runtime_checker is not None:
+            checked = await self._runtime_checker.check()
+            components = {
+                name: ComponentStatus(status=value.status, details=value.details)
+                for name, value in checked.items()
+            }
 
-        # Check Database configuration presence
-        # NOTE: In Phase 1 foundation, this checks only whether the database
-        # connection URL is provided in configuration. It does NOT attempt or
-        # verify actual network connectivity to the database.
-        if self._settings.default_database_url:
-            components["database"] = ComponentStatus(
-                status="configured",
-                details={
-                    "configured": True,
-                    "description": "Database URL configuration is present (live connection verification is not implemented in Phase 1)",
-                },
-            )
-        else:
-            components["database"] = ComponentStatus(
-                status="unconfigured",
-                details={
-                    "configured": False,
-                    "description": "No database URL configured in environment",
-                },
-            )
-
-        # Check LLM provider configuration presence
-        # NOTE: In Phase 1 foundation, this checks only whether an API key/provider
-        # is specified in configuration. It does NOT attempt live LLM API calls,
-        # nor does it expose secret key values.
-        has_llm_key = bool(
-            self._settings.gemini_api_key
-            or self._settings.openai_api_key
-            or self._settings.anthropic_api_key
-        )
-        components["llm"] = ComponentStatus(
-            status="configured" if has_llm_key else "unconfigured",
-            details={
-                "provider": self._settings.default_llm_provider,
-                "configured": has_llm_key,
-                "description": (
-                    "LLM provider configuration is present (live provider integration is not implemented in Phase 1)"
-                    if has_llm_key
-                    else "No LLM provider API key configured in environment"
-                ),
-            },
-        )
-
-        # Core engine is healthy if configuration loaded properly
-        overall_status = "healthy"
+        statuses = {component.status for component in components.values()}
+        overall_status = "unhealthy" if "unhealthy" in statuses else ("degraded" if "degraded" in statuses else "healthy")
 
         return HealthReport(
             status=overall_status,
