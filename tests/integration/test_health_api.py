@@ -55,6 +55,7 @@ def test_health_readiness_unconfigured_components():
         app_name="Data Pilot Minimal",
         environment="test",
         default_database_url=None,
+        metadata_database_url=None,
         gemini_api_key=None,
         openai_api_key=None,
         anthropic_api_key=None,
