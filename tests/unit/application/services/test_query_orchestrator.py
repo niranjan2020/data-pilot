@@ -1881,3 +1881,12 @@ def test_orchestrator_revalidates_runtime_timeout_override():
             FakeCatalog(SemanticCatalog()),
             query_timeout_seconds=0,
         )
+
+
+def test_required_filters_can_use_physical_column_type():
+    from datapilot.domain.models import ColumnMetadata, SchemaMetadata, TableMetadata
+    entities = [{"name": "Vehicle", "table_name": "Vehicle", "attributes": [{"name": "Fuel", "column_name": "Fuel"}]}]
+    schema = SchemaMetadata(tables=[TableMetadata(name="Vehicle", columns=[ColumnMetadata(name="Fuel", data_type="varchar")])])
+    filters = QueryOrchestrator._required_filters("Show electric vehicles", entities, [], schema=schema)
+    assert filters[0]["column_name"] == "Fuel"
+    assert filters[0]["value"] == "electric"
