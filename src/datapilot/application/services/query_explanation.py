@@ -191,31 +191,26 @@ def build_query_explanation(response: QueryResponse) -> QueryExplanation:
 
 
 def _sql_lineage(trace: QueryTrace) -> list[dict[str, str]]:
+    """Show proposal order without presenting final policy SQL as an early step."""
     lineage: list[dict[str, str]] = []
-    values = (
-        ("generated", trace.generated_sql),
-        ("bound", trace.bound_sql),
-        ("validated", trace.validated_sql),
-        ("policy", trace.policy_sql),
-    )
-    previous: str | None = None
-    for stage, sql in values:
-        if not sql:
-            continue
-        if sql == previous:
-            previous = sql
-            continue
-        lineage.append({"stage": stage, "sql": sql})
-        previous = sql
 
+    def add(stage: str, sql: str | None) -> None:
+        if sql and (not lineage or lineage[-1]["sql"] != sql):
+            lineage.append({"stage": stage, "sql": sql})
+
+    add("generated", trace.generated_sql)
+    add("bound", trace.bound_sql)
+
+    # Each bounded correction follows the proposal that failed. The final
+    # validation/policy fields represent the latest proposal, not necessarily
+    # the original SQL; place them after any corrections/recoveries.
     for index, attempt in enumerate(trace.correction_attempts, start=1):
-        corrected = attempt.get("corrected_bound_sql") or attempt.get("corrected_sql")
-        if corrected:
-            lineage.append({"stage": f"b1_correction_{index}", "sql": str(corrected)})
+        add(f"b1_correction_{index}", attempt.get("corrected_bound_sql") or attempt.get("corrected_sql"))
     for index, attempt in enumerate(trace.execution_recovery_attempts, start=1):
-        corrected = attempt.get("corrected_bound_sql") or attempt.get("corrected_sql")
-        if corrected:
-            lineage.append({"stage": f"b2_recovery_{index}", "sql": str(corrected)})
+        add(f"b2_recovery_{index}", attempt.get("corrected_bound_sql") or attempt.get("corrected_sql"))
+
+    add("validated", trace.validated_sql)
+    add("policy", trace.policy_sql)
     return lineage
 
 
