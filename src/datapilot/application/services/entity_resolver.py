@@ -115,20 +115,28 @@ class DeterministicEntityResolver:
         matches: list[EntityMatch] = []
 
         for entity in catalog.entities:
-            term_tokens = set().union(
-                *(self._tokens(term) for term in [entity.name, *entity.synonyms])
-            )
-            if not term_tokens:
-                continue
+            # Synonyms are alternative governed names, not extra words that the
+            # question must collectively match. Score each configured term on
+            # its own and keep the strongest match so adding legitimate synonyms
+            # cannot dilute an otherwise exact entity reference.
+            best_score = 0.0
+            best_overlap: set[str] = set()
+            for term in [entity.name, *entity.synonyms]:
+                term_tokens = self._tokens(term)
+                if not term_tokens:
+                    continue
+                overlap = question_tokens.intersection(term_tokens)
+                score = len(overlap) / len(term_tokens)
+                if score > best_score:
+                    best_score = score
+                    best_overlap = overlap
 
-            overlap = question_tokens.intersection(term_tokens)
-            score = len(overlap) / max(len(term_tokens), 1)
-            if score >= self._minimum_entity_score:
+            if best_score >= self._minimum_entity_score:
                 matches.append(
                     EntityMatch(
                         entity=entity,
-                        score=round(score, 4),
-                        matched_terms=tuple(sorted(overlap)),
+                        score=round(best_score, 4),
+                        matched_terms=tuple(sorted(best_overlap)),
                     )
                 )
 
