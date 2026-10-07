@@ -114,3 +114,18 @@ def test_sqlglot_binder_adapter_preserves_existing_binding_behavior() -> None:
     )
 
     assert bound == 'SELECT "ProductID" FROM "Production"."Product"'
+
+
+def test_preserves_unaliased_table_qualifiers_across_join() -> None:
+    sql = (
+        "SELECT Product.ProductID, SalesOrderDetail.ProductID "
+        "FROM Production.Product "
+        "JOIN Sales.SalesOrderDetail "
+        "ON Product.ProductID = SalesOrderDetail.ProductID"
+    )
+
+    bound = bind_physical_identifiers(sql, _schema_with_sales_detail(), "postgresql")
+
+    assert '"Product"."ProductID"' in bound
+    assert '"SalesOrderDetail"."ProductID"' in bound
+    assert '"Product"."ProductID" = "SalesOrderDetail"."ProductID"' in bound
