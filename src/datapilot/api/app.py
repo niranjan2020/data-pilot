@@ -11,6 +11,7 @@ from datapilot.api.routes.health import router as health_router
 from datapilot.api.routes.data_sources import router as data_sources_router
 from datapilot.api.routes.semantic import router as semantic_router
 from datapilot.api.routes.query import router as query_router
+from datapilot.api.routes.setup import router as setup_router
 from datapilot.core.config import Settings, get_settings
 from datapilot.core.exceptions import DataPilotError
 from datapilot.core.logging import get_logger, setup_logging
@@ -101,5 +102,6 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     app.include_router(data_sources_router)
     app.include_router(semantic_router)
     app.include_router(query_router)
+    app.include_router(setup_router)
 
     return app
