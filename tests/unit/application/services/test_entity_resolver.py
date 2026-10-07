@@ -144,3 +144,49 @@ def test_distinct_exact_entity_terms_are_not_made_ambiguous() -> None:
     assert intent.entity is not None
     assert intent.entity.name == "customer"
     assert intent.ambiguities == []
+
+
+def test_many_synonyms_do_not_dilute_exact_entity_match() -> None:
+    catalog = SemanticCatalog(
+        entities=[
+            EntityDefinition(
+                name="customer",
+                synonyms=["buyer", "client", "account", "purchaser", "subscriber"],
+                table_name="customers",
+                key_column="id",
+            ),
+        ]
+    )
+
+    intent = DeterministicEntityResolver().resolve(
+        "list customer details",
+        catalog,
+        SchemaMetadata(),
+    )
+
+    assert intent.entity is not None
+    assert intent.entity.name == "customer"
+    assert intent.entity.confidence == 1.0
+
+
+def test_exact_synonym_is_scored_as_alternative_entity_name() -> None:
+    catalog = SemanticCatalog(
+        entities=[
+            EntityDefinition(
+                name="customer",
+                synonyms=["buyer", "client", "account", "purchaser", "subscriber"],
+                table_name="customers",
+                key_column="id",
+            ),
+        ]
+    )
+
+    intent = DeterministicEntityResolver().resolve(
+        "show purchaser details",
+        catalog,
+        SchemaMetadata(),
+    )
+
+    assert intent.entity is not None
+    assert intent.entity.name == "customer"
+    assert intent.entity.confidence == 1.0
