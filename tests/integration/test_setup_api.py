@@ -42,3 +42,30 @@ def test_setup_status_requires_platform_metadata_storage():
 
     assert response.status_code == 503
     assert response.json()["detail"] == "Platform metadata storage is not configured."
+
+
+def test_product_readiness_uses_persisted_setup_facts_not_environment_presence():
+    settings = Settings(
+        environment="test",
+        metadata_database_url="postgresql://unused",
+        default_database_url="postgresql://configured-but-not-approved",
+        gemini_api_key="configured-but-not-validated",
+    )
+    app = create_app(settings=settings)
+    app.state.setup_metadata = FakeSetupMetadata({
+        "ai_provider_ready": False,
+        "data_source_ready": False,
+        "data_selection_ready": False,
+        "semantic_model_ready": False,
+    })
+    with TestClient(app) as client:
+        response = client.get("/api/setup/readiness")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ready": False,
+        "setup_ready": False,
+        "metadata_storage": "ready",
+        "ai_provider": "not_ready",
+        "data_source": "not_ready",
+    }
