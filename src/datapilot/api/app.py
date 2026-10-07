@@ -15,6 +15,8 @@ from datapilot.api.routes.setup import router as setup_router
 from datapilot.core.config import Settings, get_settings
 from datapilot.core.exceptions import DataPilotError
 from datapilot.core.logging import get_logger, setup_logging
+from datapilot.infrastructure.llm.validation import ConfiguredAIProviderValidator
+from datapilot.infrastructure.secrets.local_env import LocalEnvAIProviderSecretStore
 
 logger = get_logger("datapilot.api")
 
@@ -61,6 +63,11 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
     app.state.settings = app_settings
     app.dependency_overrides[get_settings] = lambda: app_settings
+
+    # Local OSS composition. Managed deployments can replace these state-bound
+    # adapters with vault-backed secret storage/provider validators.
+    app.state.ai_secret_store = LocalEnvAIProviderSecretStore()
+    app.state.ai_provider_validator = ConfiguredAIProviderValidator(app.state.ai_secret_store)
 
     if app_settings.cors_origins:
         app.add_middleware(
