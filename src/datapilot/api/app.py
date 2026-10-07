@@ -1,5 +1,7 @@
 """FastAPI application factory and middleware configuration."""
 
+import asyncio
+import sys
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator, Optional
 
@@ -21,6 +23,17 @@ from datapilot.infrastructure.metadata.postgresql import PostgreSQLMetadataProvi
 from datapilot.infrastructure.secrets.local_env import LocalEnvAIProviderSecretStore
 
 logger = get_logger("datapilot.api")
+
+
+def _configure_windows_asyncio_policy() -> None:
+    """Use the selector loop required by psycopg async on Windows."""
+    if sys.platform == "win32" and hasattr(asyncio, "WindowsSelectorEventLoopPolicy"):
+        policy_type = asyncio.WindowsSelectorEventLoopPolicy
+        if not isinstance(asyncio.get_event_loop_policy(), policy_type):
+            asyncio.set_event_loop_policy(policy_type())
+
+
+_configure_windows_asyncio_policy()
 
 
 @asynccontextmanager
