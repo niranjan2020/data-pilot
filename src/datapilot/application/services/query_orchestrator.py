@@ -510,6 +510,7 @@ class QueryOrchestrator:
             contextual_question,
             governed_context.get("entities", []),
             intent.filters,
+            schema=schema,
         )
         governed_grouping_columns = self._required_grouping_columns(
             contextual_question,
@@ -1179,6 +1180,8 @@ class QueryOrchestrator:
         question: str,
         entities: list[dict[str, Any]],
         intent_filters: list[Any],
+        *,
+        schema: Optional[SchemaMetadata] = None,
     ) -> list[dict[str, Any]]:
         """Resolve deterministic governed filters used by generation and validation.
 
@@ -1231,6 +1234,10 @@ class QueryOrchestrator:
                 # governed attributes. Free-text/display columns must not absorb
                 # arbitrary words from the question.
                 data_type = str(attribute.get("data_type") or "").casefold()
+                if not data_type and schema is not None:
+                    table = next((table for table in schema.tables if table.name.casefold() == str(entity.get("table_name") or "").casefold() and (not entity.get("schema_name") or not table.schema_name or table.schema_name.casefold() == str(entity.get("schema_name")).casefold())), None)
+                    column = table.get_column(str(attribute.get("column_name") or "")) if table is not None else None
+                    data_type = str(column.data_type if column is not None else "").casefold()
                 semantic_type = str(attribute.get("semantic_type") or "").casefold()
                 if not (
                     semantic_type in {"category", "categorical", "dimension"}
