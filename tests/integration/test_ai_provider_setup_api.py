@@ -22,6 +22,15 @@ class FakeMetadata:
         return self.facts
 
 
+class FakeValidator:
+    def __init__(self, fails=False):
+        self.fails = fails
+
+    async def validate(self, configuration):
+        if self.fails:
+            raise RuntimeError("invalid provider configuration")
+
+
 class FakeSecretStore:
     def __init__(self):
         self.providers = set()
@@ -40,6 +49,7 @@ def test_ai_provider_setup_never_returns_secret_and_marks_ready():
     secrets = FakeSecretStore()
     app.state.setup_metadata = metadata
     app.state.ai_secret_store = secrets
+    app.state.ai_provider_validator = FakeValidator()
 
     with TestClient(app) as client:
         response = client.put("/api/setup/ai-provider", json={
@@ -73,3 +83,23 @@ def test_ai_provider_without_credential_does_not_mark_ready():
     assert response.json()["configured"] is True
     assert response.json()["credential_configured"] is False
     assert metadata.facts == {}
+
+
+def test_ai_provider_validation_failure_does_not_advance_setup():
+    app = create_app(settings=Settings(environment="test", metadata_database_url="postgresql://unused"))
+    metadata = FakeMetadata()
+    app.state.setup_metadata = metadata
+    app.state.ai_secret_store = FakeSecretStore()
+    app.state.ai_provider_validator = FakeValidator(fails=True)
+
+    with TestClient(app) as client:
+        response = client.put("/api/setup/ai-provider", json={
+            "provider": "gemini",
+            "model": "bad-model",
+            "api_key": "invalid-key",
+        })
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "AI provider validation failed."
+    assert metadata.facts["ai_provider_ready"] is False
+    assert "invalid-key" not in response.text
