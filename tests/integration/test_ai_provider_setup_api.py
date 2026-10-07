@@ -103,3 +103,25 @@ def test_ai_provider_validation_failure_does_not_advance_setup():
     assert response.json()["detail"] == "AI provider validation failed."
     assert metadata.facts["ai_provider_ready"] is False
     assert "invalid-key" not in response.text
+
+
+def test_switching_provider_invalidates_old_readiness_until_new_validation_passes():
+    app = create_app(settings=Settings(environment="test", metadata_database_url="postgresql://unused"))
+    metadata = FakeMetadata()
+    metadata.facts["ai_provider_ready"] = True
+    secrets = FakeSecretStore()
+    app.state.setup_metadata = metadata
+    app.state.ai_secret_store = secrets
+    app.state.ai_provider_validator = FakeValidator(fails=True)
+
+    with TestClient(app) as client:
+        response = client.put("/api/setup/ai-provider", json={
+            "provider": "openai",
+            "model": "replacement-model",
+            "api_key": "replacement-key",
+        })
+
+    assert response.status_code == 422
+    assert metadata.configuration.provider.value == "openai"
+    assert metadata.facts["ai_provider_ready"] is False
+    assert "replacement-key" not in response.text
