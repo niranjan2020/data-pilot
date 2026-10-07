@@ -82,7 +82,7 @@ def test_ai_provider_without_credential_does_not_mark_ready():
     assert response.status_code == 200
     assert response.json()["configured"] is True
     assert response.json()["credential_configured"] is False
-    assert metadata.facts == {}
+    assert metadata.facts["ai_provider_ready"] is False
 
 
 def test_ai_provider_validation_failure_does_not_advance_setup():
