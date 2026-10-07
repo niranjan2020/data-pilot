@@ -119,7 +119,7 @@ def test_explanation_records_b1_and_b2_lineage() -> None:
     explanation = build_query_explanation(response)
 
     stages = [item["stage"] for item in explanation.sql_lineage]
-    assert stages == ["generated", "policy", "b1_correction_1", "b2_recovery_1"]
+    assert stages == ["generated", "b1_correction_1", "b2_recovery_1", "policy"]
     assert any(step.stage == "correction" and step.status == "corrected" for step in explanation.steps)
     assert any(step.stage == "recovery" and step.status == "recovered" for step in explanation.steps)
 
