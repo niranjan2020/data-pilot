@@ -1,6 +1,7 @@
 """First-run onboarding status API."""
 
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
 
 from datapilot.application.setup_state import SetupStatus, derive_setup_status
 from datapilot.domain.interfaces.ai_configuration import (
@@ -77,6 +78,33 @@ async def configure_ai_provider(payload: AIProviderSetupRequest, request: Reques
                 raise HTTPException(status_code=422, detail="AI provider validation failed.") from exc
         await metadata.update_setup_facts(ai_provider_ready=validated)
         return saved.model_copy(update={"credential_configured": has_secret})
+    finally:
+        if owns_metadata:
+            await metadata.close()
+
+
+class SystemReadiness(BaseModel):
+    ready: bool
+    setup_ready: bool
+    metadata_storage: str
+    ai_provider: str
+    data_source: str
+
+
+@router.get("/readiness", response_model=SystemReadiness)
+async def system_readiness(request: Request) -> SystemReadiness:
+    """Report product readiness from persisted onboarding facts, not static env presence."""
+    metadata, owns_metadata = await _setup_metadata(request)
+    try:
+        facts = await metadata.get_setup_facts()
+        setup = derive_setup_status(**facts)
+        return SystemReadiness(
+            ready=setup.ready,
+            setup_ready=setup.ready,
+            metadata_storage="ready",
+            ai_provider="ready" if facts["ai_provider_ready"] else "not_ready",
+            data_source="ready" if facts["data_source_ready"] else "not_ready",
+        )
     finally:
         if owns_metadata:
             await metadata.close()
