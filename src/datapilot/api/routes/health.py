@@ -1,16 +1,16 @@
 """Health and system inspection endpoints."""
 
 from typing import Any, Dict
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from datapilot.application.services.health import HealthReport, HealthService
 from datapilot.core.config import Settings, get_settings
 
 router = APIRouter(tags=["Health & System"])
 
 
-def get_health_service(settings: Settings = Depends(get_settings)) -> HealthService:
-    """Dependency provider for HealthService."""
-    return HealthService(settings=settings)
+def get_health_service(request: Request, settings: Settings = Depends(get_settings)) -> HealthService:
+    """Dependency provider for HealthService using composed runtime probes when available."""
+    return HealthService(settings=settings, runtime_checker=getattr(request.app.state, "runtime_health_checker", None))
 
 
 @router.get(
@@ -27,9 +27,8 @@ async def health(health_service: HealthService = Depends(get_health_service)) ->
     response_model=HealthReport,
     summary="Readiness Probe",
     description=(
-        "Provides readiness status based on loaded application configuration and runtime environment. "
-        "Note: In Phase 1 foundation, 'configured' status indicates configuration presence only and "
-        "does not imply that live remote database or LLM network connectivity has been verified."
+        "Reports health of runtime infrastructure through composed live health checks. "
+        "This endpoint is intentionally separate from onboarding readiness at /api/setup/readiness."
     ),
 )
 async def readiness(health_service: HealthService = Depends(get_health_service)) -> HealthReport:
