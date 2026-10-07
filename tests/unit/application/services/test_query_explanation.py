@@ -122,3 +122,24 @@ def test_explanation_records_b1_and_b2_lineage() -> None:
     assert stages == ["generated", "policy", "b1_correction_1", "b2_recovery_1"]
     assert any(step.stage == "correction" and step.status == "corrected" for step in explanation.steps)
     assert any(step.stage == "recovery" and step.status == "recovered" for step in explanation.steps)
+
+
+def test_sql_lineage_places_final_policy_after_b1_and_b2():
+    from datapilot.domain.query import QueryTrace
+    from datapilot.application.services.query_explanation import _sql_lineage
+
+    trace = QueryTrace(
+        generated_sql="SELECT old FROM records",
+        bound_sql="SELECT old FROM records",
+        correction_attempts=[{"corrected_bound_sql": "SELECT missing FROM records"}],
+        execution_recovery_attempts=[{"corrected_bound_sql": "SELECT id FROM records"}],
+        validated_sql="SELECT id FROM records",
+        policy_sql="SELECT id FROM records LIMIT 100",
+    )
+
+    lineage = _sql_lineage(trace)
+
+    assert [item["stage"] for item in lineage] == [
+        "generated", "b1_correction_1", "b2_recovery_1", "policy"
+    ]
+    assert lineage[-1]["sql"] == "SELECT id FROM records LIMIT 100"
