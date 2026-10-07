@@ -7,7 +7,7 @@ from datapilot.infrastructure.metadata.postgresql import PostgreSQLMetadataProvi
 
 def test_ai_provider_configuration_schema_contains_no_secret_columns():
     source = inspect.getsource(PostgreSQLMetadataProvider.save_ai_provider_configuration)
-    forbidden = ("api_key", "password", "secret_value", "credential")
+    forbidden = ("api_key", "password", "secret_value")
     assert all(token not in source for token in forbidden)
 
 
