@@ -120,13 +120,20 @@ def bind_physical_identifiers(sql: str, schema: SchemaMetadata, dialect: str) ->
         if qualifier and qualifier_key not in query_aliases:
             exact_table_name = physical_table_names.get(qualifier.lower())
             physical_schema_name = (getattr(physical, "schema_name", None) or schema.schema_name or "").lower()
-            if exact_table_name or qualifier_key == physical_schema_name:
-                # The FROM relation is emitted as "schema"."table". PostgreSQL
-                # column qualifiers must be a table name/alias, never a schema
-                # name. LLMs occasionally emit Sales.TotalDue for a single
-                # Sales.SalesOrderHeader relation; once the column has resolved
-                # unambiguously, remove either physical-table or schema
-                # qualifiers and keep the exact quoted column.
+            if exact_table_name:
+                # Preserve physical-table qualification when more than one table
+                # participates in the statement. Removing it can make common
+                # columns such as ID ambiguous or change join semantics. For the
+                # historical single-table mixed-case case, an unaliased
+                # schema-qualified relation cannot be referenced by its bare
+                # physical name in PostgreSQL, so retain the existing removal.
+                if len(referenced_tables) > 1:
+                    column.set("table", exp.to_identifier(exact_table_name, quoted=True))
+                else:
+                    column.set("table", None)
+            elif qualifier_key == physical_schema_name:
+                # A schema name is never a valid column qualifier. Once the
+                # column resolves unambiguously, remove the mistaken qualifier.
                 column.set("table", None)
 
     return statement.sql(dialect=target)
