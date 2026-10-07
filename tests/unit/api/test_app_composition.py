@@ -9,3 +9,19 @@ def test_application_composes_local_ai_onboarding_adapters():
 
     assert isinstance(app.state.ai_secret_store, LocalEnvAIProviderSecretStore)
     assert isinstance(app.state.ai_provider_validator, ConfiguredAIProviderValidator)
+
+
+def test_windows_asyncio_policy_uses_selector_for_psycopg(monkeypatch):
+    import asyncio
+    import datapilot.api.app as app_module
+
+    if not hasattr(asyncio, "WindowsSelectorEventLoopPolicy"):
+        return
+
+    monkeypatch.setattr(app_module.sys, "platform", "win32")
+    app_module._configure_windows_asyncio_policy()
+
+    assert isinstance(
+        asyncio.get_event_loop_policy(),
+        asyncio.WindowsSelectorEventLoopPolicy,
+    )
