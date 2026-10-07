@@ -1227,10 +1227,8 @@ class QueryOrchestrator:
                 # arbitrary words from the question.
                 data_type = str(attribute.get("data_type") or "").casefold()
                 semantic_type = str(attribute.get("semantic_type") or "").casefold()
-                name = str(attribute.get("name") or "")
                 if not (
                     semantic_type in {"category", "categorical", "dimension"}
-                    or name.casefold() in {"color", "colour"}
                     or "char" in data_type
                 ):
                     continue
