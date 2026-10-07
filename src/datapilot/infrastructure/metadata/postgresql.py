@@ -10,10 +10,19 @@ from psycopg_pool import AsyncConnectionPool
 
 from datapilot.core.exceptions import DatabaseConnectionError, MetadataError
 from datapilot.domain.interfaces.metadata import MetadataProvider
+from datapilot.domain.interfaces.ai_configuration import AIProviderConfiguration, AIProviderKind
 from datapilot.domain.models import ColumnMetadata, ForeignKeyMetadata, SchemaMetadata, TableMetadata
 
 _CATALOG_DDL = """
 CREATE SCHEMA IF NOT EXISTS datapilot_catalog;
+
+CREATE TABLE IF NOT EXISTS datapilot_catalog.ai_provider_configuration (
+    id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    endpoint TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
 CREATE TABLE IF NOT EXISTS datapilot_catalog.setup_state (
     id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
@@ -293,6 +302,52 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                 "Failed to initialize the Data Pilot metadata catalog",
                 details={"error_type": type(exc).__name__},
             ) from exc
+
+    async def get_ai_provider_configuration(self) -> Optional[AIProviderConfiguration]:
+        """Return persisted non-secret AI provider configuration."""
+        await self.initialize()
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    "SELECT provider, model, endpoint FROM datapilot_catalog.ai_provider_configuration WHERE id = 1"
+                )
+                row = await cursor.fetchone()
+                if not row:
+                    return None
+                return AIProviderConfiguration(
+                    provider=AIProviderKind(row[0]),
+                    model=row[1],
+                    endpoint=row[2],
+                    configured=True,
+                    credential_configured=False,
+                )
+
+    async def save_ai_provider_configuration(
+        self, configuration: AIProviderConfiguration
+    ) -> AIProviderConfiguration:
+        """Persist only provider configuration; credential material is never accepted."""
+        await self.initialize()
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.transaction():
+                async with connection.cursor() as cursor:
+                    await cursor.execute(
+                        """INSERT INTO datapilot_catalog.ai_provider_configuration
+                               (id, provider, model, endpoint)
+                           VALUES (1, %s, %s, %s)
+                           ON CONFLICT (id) DO UPDATE SET
+                               provider = EXCLUDED.provider,
+                               model = EXCLUDED.model,
+                               endpoint = EXCLUDED.endpoint,
+                               updated_at = NOW()""",
+                        (
+                            configuration.provider.value,
+                            configuration.model,
+                            configuration.endpoint,
+                        ),
+                    )
+        return configuration.model_copy(update={"configured": True, "credential_configured": False})
 
     async def get_setup_facts(self) -> dict[str, bool]:
         """Read persisted non-secret onboarding readiness facts."""
