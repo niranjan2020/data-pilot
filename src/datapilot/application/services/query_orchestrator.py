@@ -67,9 +67,14 @@ class QueryOrchestrator:
         self._entity_resolver = entity_resolver or DeterministicEntityResolver()
         self._query_policy = query_policy or QueryExecutionPolicy()
         if query_timeout_seconds is not None:
-            self._query_policy = self._query_policy.model_copy(
-                update={"timeout_seconds": query_timeout_seconds}
-            )
+            # Reconstruct through normal Pydantic validation rather than
+            # model_copy(update=...), which does not validate updates by default.
+            # Invalid runtime timeout configuration must fail closed at
+            # composition time instead of entering the execution path.
+            self._query_policy = QueryExecutionPolicy.model_validate({
+                **self._query_policy.model_dump(),
+                "timeout_seconds": query_timeout_seconds,
+            })
         self._query_policy_enforcer = query_policy_enforcer or SQLQueryPolicyEnforcer()
 
     def _bind_identifiers(self, sql: str, schema: SchemaMetadata) -> str:
