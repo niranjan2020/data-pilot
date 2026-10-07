@@ -13,6 +13,10 @@ class FakeSetupMetadata:
     async def get_setup_facts(self):
         return dict(self.facts)
 
+    async def update_setup_facts(self, **facts):
+        self.facts.update(facts)
+        return dict(self.facts)
+
 
 def test_setup_status_reads_persisted_facts_without_exposing_secrets():
     settings = Settings(
@@ -69,3 +73,48 @@ def test_product_readiness_uses_persisted_setup_facts_not_environment_presence()
         "ai_provider": "not_ready",
         "data_source": "not_ready",
     }
+
+
+def test_setup_progress_resumes_from_persisted_facts_after_app_restart():
+    persisted = FakeSetupMetadata({
+        "ai_provider_ready": True,
+        "data_source_ready": True,
+        "data_selection_ready": False,
+        "semantic_model_ready": False,
+    })
+
+    first_app = create_app(settings=Settings(environment="test", metadata_database_url="postgresql://unused"))
+    first_app.state.setup_metadata = persisted
+    with TestClient(first_app) as client:
+        first = client.get("/api/setup/status")
+
+    second_app = create_app(settings=Settings(environment="test", metadata_database_url="postgresql://unused"))
+    second_app.state.setup_metadata = persisted
+    with TestClient(second_app) as client:
+        resumed = client.get("/api/setup/status")
+
+    assert first.status_code == 200
+    assert resumed.status_code == 200
+    assert resumed.json() == first.json()
+    assert resumed.json()["current_step"] == "data_selection"
+    assert resumed.json()["first_run"] is True
+
+
+def test_setup_resume_recomputes_current_step_from_persisted_facts():
+    persisted = FakeSetupMetadata({
+        "ai_provider_ready": True,
+        "data_source_ready": True,
+        "data_selection_ready": False,
+        "semantic_model_ready": False,
+    })
+    app = create_app(settings=Settings(environment="test", metadata_database_url="postgresql://unused"))
+    app.state.setup_metadata = persisted
+
+    with TestClient(app) as client:
+        before = client.get("/api/setup/status")
+        persisted.facts["data_selection_ready"] = True
+        after = client.get("/api/setup/status")
+
+    assert before.json()["current_step"] == "data_selection"
+    assert after.json()["current_step"] == "semantic_review"
+    assert after.json()["ready"] is False
