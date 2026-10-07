@@ -63,8 +63,16 @@ async def configure_ai_provider(payload: AIProviderSetupRequest, request: Reques
                 AIProviderSecretInput(api_key=payload.api_key),
             )
         has_secret = await secret_store.has_ai_provider_secret(payload.provider)
-        if has_secret:
-            await metadata.update_setup_facts(ai_provider_ready=True)
+        validator = getattr(request.app.state, "ai_provider_validator", None)
+        validated = False
+        if has_secret and validator is not None:
+            try:
+                await validator.validate(saved)
+                validated = True
+            except Exception as exc:
+                await metadata.update_setup_facts(ai_provider_ready=False)
+                raise HTTPException(status_code=422, detail="AI provider validation failed.") from exc
+        await metadata.update_setup_facts(ai_provider_ready=validated)
         return saved.model_copy(update={"credential_configured": has_secret})
     finally:
         if owns_metadata:
