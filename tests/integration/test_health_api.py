@@ -36,8 +36,7 @@ def test_health_readiness_endpoint(client: TestClient):
     assert data["environment"] == "test"
     assert "system" in data
     assert "components" in data
-    assert data["components"]["database"]["status"] == "configured"
-    assert data["components"]["llm"]["status"] == "configured"
+    assert data["components"] == {}
     # Ensure no secret API key values are leaked into health output
     assert "test-gemini-key" not in response.text
 
@@ -58,10 +57,8 @@ def test_health_readiness_unconfigured_components():
         response = unconfigured_client.get("/health/ready")
         assert response.status_code == 200
         data = response.json()
-        assert data["components"]["database"]["status"] == "unconfigured"
-        assert data["components"]["database"]["details"]["configured"] is False
-        assert data["components"]["llm"]["status"] == "unconfigured"
-        assert data["components"]["llm"]["details"]["configured"] is False
+        assert data["status"] == "healthy"
+        assert data["components"] == {}
 
 
 def test_info_endpoint(client: TestClient):
@@ -91,3 +88,32 @@ def test_swagger_docs(client: TestClient):
     """Verify Swagger UI docs endpoint loads."""
     response = client.get("/docs")
     assert response.status_code == 200
+
+
+def test_health_readiness_uses_runtime_checker_not_static_settings():
+    from datapilot.core.config import Settings
+    from datapilot.domain.interfaces.runtime_health import RuntimeComponentHealth
+
+    class FakeRuntimeChecker:
+        async def check(self):
+            return {
+                "metadata": RuntimeComponentHealth(status="healthy", details={"reachable": True}),
+                "database": RuntimeComponentHealth(status="unhealthy", details={"reachable": False}),
+            }
+
+    app = create_app(settings=Settings(
+        environment="test",
+        default_database_url="postgresql://configured",
+        gemini_api_key="configured-key",
+    ))
+    app.state.runtime_health_checker = FakeRuntimeChecker()
+
+    with TestClient(app) as client:
+        response = client.get("/health/ready")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "unhealthy"
+    assert data["components"]["metadata"]["status"] == "healthy"
+    assert data["components"]["database"]["status"] == "unhealthy"
+    assert "configured-key" not in response.text
