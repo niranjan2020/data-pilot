@@ -15,6 +15,19 @@ from datapilot.domain.models import ColumnMetadata, ForeignKeyMetadata, SchemaMe
 _CATALOG_DDL = """
 CREATE SCHEMA IF NOT EXISTS datapilot_catalog;
 
+CREATE TABLE IF NOT EXISTS datapilot_catalog.setup_state (
+    id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    ai_provider_ready BOOLEAN NOT NULL DEFAULT FALSE,
+    data_source_ready BOOLEAN NOT NULL DEFAULT FALSE,
+    data_selection_ready BOOLEAN NOT NULL DEFAULT FALSE,
+    semantic_model_ready BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO datapilot_catalog.setup_state (id)
+VALUES (1)
+ON CONFLICT (id) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS datapilot_catalog.data_sources (
     id BIGSERIAL PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
@@ -280,6 +293,49 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                 "Failed to initialize the Data Pilot metadata catalog",
                 details={"error_type": type(exc).__name__},
             ) from exc
+
+    async def get_setup_facts(self) -> dict[str, bool]:
+        """Read persisted non-secret onboarding readiness facts."""
+        await self.initialize()
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    """SELECT ai_provider_ready, data_source_ready,
+                              data_selection_ready, semantic_model_ready
+                       FROM datapilot_catalog.setup_state WHERE id = 1"""
+                )
+                row = await cursor.fetchone()
+                return {
+                    "ai_provider_ready": bool(row[0]),
+                    "data_source_ready": bool(row[1]),
+                    "data_selection_ready": bool(row[2]),
+                    "semantic_model_ready": bool(row[3]),
+                }
+
+    async def update_setup_facts(self, **facts: bool) -> dict[str, bool]:
+        """Persist an explicit subset of onboarding readiness facts."""
+        allowed = {
+            "ai_provider_ready", "data_source_ready",
+            "data_selection_ready", "semantic_model_ready",
+        }
+        unknown = set(facts) - allowed
+        if unknown:
+            raise ValueError(f"Unknown setup facts: {sorted(unknown)}")
+        if not facts:
+            return await self.get_setup_facts()
+        await self.initialize()
+        assignments = ", ".join(f"{name} = %s" for name in facts)
+        values = [bool(value) for value in facts.values()]
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.transaction():
+                async with connection.cursor() as cursor:
+                    await cursor.execute(
+                        f"UPDATE datapilot_catalog.setup_state SET {assignments}, updated_at = NOW() WHERE id = 1",
+                        values,
+                    )
+        return await self.get_setup_facts()
 
     async def save_data_source(
         self, *, name: str, provider: str, host: str, port: int,
