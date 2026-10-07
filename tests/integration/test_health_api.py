@@ -27,7 +27,14 @@ def test_health_liveness_endpoint(client: TestClient):
 
 
 def test_health_readiness_endpoint(client: TestClient):
-    """Verify GET /health/ready returns comprehensive diagnostics and component states."""
+    """Verify readiness reports the explicitly composed runtime checker."""
+    from datapilot.domain.interfaces.runtime_health import RuntimeComponentHealth
+
+    class HealthyRuntimeChecker:
+        async def check(self):
+            return {"metadata": RuntimeComponentHealth(status="healthy", details={"reachable": True})}
+
+    client.app.state.runtime_health_checker = HealthyRuntimeChecker()
     response = client.get("/health/ready")
     assert response.status_code == 200
     data = response.json()
@@ -36,7 +43,7 @@ def test_health_readiness_endpoint(client: TestClient):
     assert data["environment"] == "test"
     assert "system" in data
     assert "components" in data
-    assert data["components"] == {}
+    assert data["components"]["metadata"]["status"] == "healthy"
     # Ensure no secret API key values are leaked into health output
     assert "test-gemini-key" not in response.text
 
@@ -57,8 +64,9 @@ def test_health_readiness_unconfigured_components():
         response = unconfigured_client.get("/health/ready")
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "healthy"
-        assert data["components"] == {}
+        assert data["status"] == "degraded"
+        assert data["components"]["metadata"]["status"] == "degraded"
+        assert data["components"]["metadata"]["details"]["reason"] == "metadata_not_configured"
 
 
 def test_info_endpoint(client: TestClient):
