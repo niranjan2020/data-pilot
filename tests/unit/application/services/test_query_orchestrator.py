@@ -1867,3 +1867,17 @@ def test_required_filters_value_only_inference_is_domain_independent():
         "operator": "=",
         "value": "electric",
     }]
+
+
+def test_orchestrator_revalidates_runtime_timeout_override():
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        QueryOrchestrator(
+            FakeDatabase(),
+            FakeValidator(),
+            FakeSQLGenerator("SELECT id FROM records"),
+            FakeCatalog(SemanticCatalog()),
+            query_timeout_seconds=0,
+        )
