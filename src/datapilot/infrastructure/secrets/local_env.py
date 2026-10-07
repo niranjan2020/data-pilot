@@ -45,6 +45,16 @@ class LocalEnvAIProviderSecretStore:
             updated.append(replacement)
         self._path.write_text("\n".join(updated) + "\n", encoding="utf-8")
 
+    def resolve_for_runtime(self, provider: AIProviderKind) -> str | None:
+        """Resolve credential only inside infrastructure composition, never through API contracts."""
+        name = _ENV_NAMES[provider]
+        if not self._path.exists():
+            return None
+        for line in self._path.read_text(encoding="utf-8").splitlines():
+            if line.startswith(f"{name}="):
+                return line.split("=", 1)[1].strip() or None
+        return None
+
     async def has_ai_provider_secret(self, provider: AIProviderKind) -> bool:
         name = _ENV_NAMES[provider]
         if not self._path.exists():
