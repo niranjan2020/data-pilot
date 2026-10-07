@@ -16,6 +16,8 @@ from datapilot.core.config import Settings, get_settings
 from datapilot.core.exceptions import DataPilotError
 from datapilot.core.logging import get_logger, setup_logging
 from datapilot.infrastructure.llm.validation import ConfiguredAIProviderValidator
+from datapilot.infrastructure.health import LocalRuntimeHealthChecker
+from datapilot.infrastructure.metadata.postgresql import PostgreSQLMetadataProvider
 from datapilot.infrastructure.secrets.local_env import LocalEnvAIProviderSecretStore
 
 logger = get_logger("datapilot.api")
@@ -68,6 +70,11 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     # adapters with vault-backed secret storage/provider validators.
     app.state.ai_secret_store = LocalEnvAIProviderSecretStore()
     app.state.ai_provider_validator = ConfiguredAIProviderValidator(app.state.ai_secret_store)
+    app.state.setup_metadata = (
+        PostgreSQLMetadataProvider(app_settings.metadata_database_url)
+        if app_settings.metadata_database_url else None
+    )
+    app.state.runtime_health_checker = LocalRuntimeHealthChecker(app.state.setup_metadata)
 
     if app_settings.cors_origins:
         app.add_middleware(
