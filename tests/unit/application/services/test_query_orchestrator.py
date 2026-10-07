@@ -1825,3 +1825,45 @@ async def test_b2_recovery_reuses_identifier_binder_boundary():
         ("SELECT missing FROM records", "postgresql"),
         ("SELECT COUNT(*) AS count FROM records", "postgresql"),
     ]
+
+
+def test_required_filters_does_not_special_case_color_attribute_name():
+    entities = [{
+        "name": "Product",
+        "synonyms": ["item"],
+        "attributes": [{
+            "name": "Color",
+            "column_name": "Color",
+            "data_type": "integer",
+        }],
+    }]
+
+    filters = QueryOrchestrator._required_filters(
+        "Show revenue for red products", entities, []
+    )
+
+    assert filters == []
+
+
+def test_required_filters_value_only_inference_is_domain_independent():
+    entities = [{
+        "name": "Vehicle",
+        "synonyms": ["car"],
+        "attributes": [{
+            "name": "Fuel Type",
+            "column_name": "fuel_type",
+            "data_type": "integer",
+            "semantic_type": "category",
+        }],
+    }]
+
+    filters = QueryOrchestrator._required_filters(
+        "Show electric vehicles", entities, []
+    )
+
+    assert filters == [{
+        "attribute": "Fuel Type",
+        "column_name": "fuel_type",
+        "operator": "=",
+        "value": "electric",
+    }]
