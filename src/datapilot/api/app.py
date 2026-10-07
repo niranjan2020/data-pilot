@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     yield
 
-    for state_name in ("query_database", "query_semantic_catalog", "query_llm", "query_history_store"):
+    for state_name in ("query_database", "query_semantic_catalog", "query_llm", "query_history_store", "setup_metadata"):
         provider = getattr(app.state, state_name, None)
         if provider is not None:
             close = getattr(provider, "close", None)
