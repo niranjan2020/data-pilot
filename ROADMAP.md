@@ -4,8 +4,8 @@
 >
 > **Rule:** update this file whenever a milestone is completed, reprioritized, or a benchmark exposes a new reliability gap. Benchmark evidence, not feature speculation, drives Stage A.
 
-**Last updated:** 2026-10-06  
-**Current focus:** Core OSS — Stage B: robustness and production-quality query engine  
+**Last updated:** 2026-10-07  
+**Current focus:** Core OSS — Stage C2: one-command local deployment  
 **Current semantic evaluation baseline:** 39/39 passed (100.0%) through the live production pipeline after B4 dialect isolation (p50 2.986 s, p95 4.249 s).  
 **Current full automated regression baseline:** 331/331 passed after B4 dialect isolation.
 
@@ -545,6 +545,27 @@ Exit criteria:
 - Setup can resume safely after an interrupted step.
 - Provider credentials are never returned through normal read APIs or logs.
 - No runtime query-engine behavior is duplicated in the UI.
+
+#### C1 implementation checkpoint — COMPLETE (2026-10-07)
+- Deterministic persisted setup state covers AI provider, target data source, data selection, semantic review, and ready.
+- Setup/status and product-readiness APIs derive UI state from persisted facts rather than browser state or environment-variable presence.
+- Runtime health is separated from product onboarding readiness and uses a provider-independent health boundary.
+- PostgreSQL metadata readiness is live-probed; Windows uses the psycopg-compatible selector event-loop policy.
+- AI configuration is provider-independent for Gemini, OpenAI, Anthropic, and Azure OpenAI; Gemini has the first concrete validation adapter and additional provider implementations remain incremental Stage C work.
+- Provider credentials cross a separate secret boundary and normal read APIs expose only credential presence.
+- Reconfiguration invalidates prior provider readiness before replacement validation.
+- Restart/resume regressions prove the current onboarding step is recomputed from persisted facts.
+- The first-five-minute screen contract and explicit TTFA milestone contract are documented in `docs/stage-c-first-five-minute-ux.md`.
+- Validation checkpoint: focused C1 suites green and full automated suite **400/400 passed** after Windows/runtime-health hardening.
+
+C1 exit audit:
+- Deterministic UI state: **met**.
+- Interrupted/restarted setup resumption: **met**.
+- Credential non-return boundary: **met**.
+- Query-engine logic remains backend-owned: **met by contract/architecture**.
+- TTFA instrumentation points: **defined**; concrete milestone recording lands with the corresponding C2-C7 actions so C1 does not invent timings for operations that do not exist yet.
+
+**C1 COMPLETE. C2 ACTIVE.**
 
 ### C2 — One-command local deployment
 
