@@ -69,6 +69,37 @@ export function App(){
  const [queryHistory,setQueryHistory]=useState<any[]>([]); const [selectedHistory,setSelectedHistory]=useState<any>(null);
  const [playgroundTab,setPlaygroundTab]=useState<"query"|"history">("query");
  const [followUpTo,setFollowUpTo]=useState<{id:number;question:string}|null>(null);
+ const [savedSourceId,setSavedSourceId]=useState<number|null>(null);
+ const [sourceRestoreError,setSourceRestoreError]=useState("");
+ useEffect(()=>{
+  let cancelled=false;
+  async function restore(){
+   try{
+    const response=await fetch(API+"/api/setup/data-source/active");
+    if(!response.ok)throw new Error("No active saved datasource is available.");
+    const source=await response.json();
+    const catalogResponse=await fetch(API+"/api/setup/data-source/"+source.id+"/datasets");
+    if(!catalogResponse.ok)throw new Error("Unable to restore the discovered schema catalog.");
+    const catalog=await catalogResponse.json();
+    if(cancelled)return;
+    setSavedSourceId(source.id);
+    setForm(previous=>({...previous,name:source.name,password:""}));
+    const bySchema=new Map<string,any[]>();
+    for(const table of catalog.datasets||[]){
+     const list=bySchema.get(table.schema_name)||[];
+     list.push({name:table.table_name,columns:(table.columns||[]).map((column:any)=>({
+      name:column.name,data_type:column.data_type,is_primary_key:Boolean(column.is_primary_key)
+     })),primary_keys:(table.columns||[]).filter((column:any)=>column.is_primary_key).map((column:any)=>column.name),
+     foreign_keys:table.foreign_keys||[]});
+     bySchema.set(table.schema_name,list);
+    }
+    setSchemas(Array.from(bySchema,([schema_name,tables])=>({schema_name,tables})) as Schema[]);
+    setSourceRestoreError("");
+   }catch(e){if(!cancelled)setSourceRestoreError(e instanceof Error?e.message:"Unable to restore saved datasource")}
+  }
+  restore();
+  return ()=>{cancelled=true};
+ },[]);
  const update=(key:keyof Form,value:string|number)=>setForm({...form,[key]:value});
  async function runQuery(dryRun=false,clarificationSelections:Record<string,string>={}){setPlaygroundTab("query");setBusy(true);setMessage("");setSelectedHistory(null);setQueryResponse(null);try{const r=await fetch(API+"/api/query",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({question:queryQuestion,source_name:form.name,parameters:{},dry_run:dryRun,clarification_selections:clarificationSelections,follow_up_to_history_id:followUpTo?.id||null})});const d=await r.json();if(!r.ok)throw new Error(d.message||d.detail||"Query failed");setQueryResponse(d);await loadQueryHistory()}catch(e){setMessage(e instanceof Error?e.message:"Query failed")}finally{setBusy(false)}}
  function continueFromResult(){
@@ -113,6 +144,8 @@ export function App(){
  <nav>{sections.map(([name,Icon])=><button className={active===name?"active":""} onClick={()=>{setActive(name);if(name==="Semantic Model"){loadSemantic();loadDatasets()}if(name==="Metrics")loadMetrics();if(name==="Business Rules")loadRules();if(name==="Time Semantics")loadTimeDimensions();if(name==="Query Playground")loadQueryHistory()}} key={name}><Icon size={18}/>{name}</button>)}</nav><div className="asideFoot"><Settings2 size={17}/>Local development</div></aside>
  <main><header><div><p className="eyebrow">OPEN-SOURCE CORE</p><h1>{active}</h1></div><div className="status"><i/>{schemas.length?"Schema discovered":"Local configuration"}</div></header>
  <section className="intro"><h2>{sections.find(x=>x[0]===active)?.[2]}</h2><p>Configure and inspect Data Pilot without editing source code. Connection credentials are used for this browser session and are not persisted by these endpoints.</p></section>
+ {savedSourceId!==null&&<p className="notice">Active saved datasource: <strong>{form.name}</strong> · Discovered schema restored from onboarding. Credentials remain securely stored by the setup service.</p>}
+ {sourceRestoreError&&<p className="notice">{sourceRestoreError}</p>}
  {active==="Data Sources"&&<section className="grid"><article className="wide"><div className="cardTitle"><Database size={20}/><h3>PostgreSQL connection</h3><span>Development</span></div>
  <div className="formGrid"><label>Name<input value={form.name} onChange={e=>update("name",e.target.value)}/></label><label>Host<input value={form.host} onChange={e=>update("host",e.target.value)}/></label>
  <label>Port<input type="number" value={form.port} onChange={e=>update("port",Number(e.target.value))}/></label><label>Database<input value={form.database} onChange={e=>update("database",e.target.value)}/></label>
