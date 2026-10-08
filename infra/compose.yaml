@@ -13,6 +13,23 @@ services:
       timeout: 5s
       retries: 10
 
+  # One-off integration runner: docker compose -f infra/compose.yaml --profile test run --rm integration-test
+  integration-test:
+    profiles: ["test"]
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment:
+      DATAPILOT_TEST_METADATA_DATABASE_URL: postgresql://datapilot:datapilot_local@postgres:5432/datapilot_test
+    volumes:
+      - ../tests:/app/tests:ro
+    working_dir: /app
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["pip install --quiet pytest pytest-asyncio && python -m pytest tests/integration/test_relationship_verification_persistence.py -q"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   qdrant:
     image: qdrant/qdrant:v1.15.4
     volumes:
