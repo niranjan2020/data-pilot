@@ -432,3 +432,58 @@ async def preview_relationship_proposals(source_id: int, request: Request):
     finally:
         if owns:
             await metadata.close()
+
+
+class RelationshipReviewInput(BaseModel):
+    from_schema: str
+    from_table: str
+    from_column: str
+    to_schema: str
+    to_table: str
+    to_column: str
+    cardinality: str
+    review_status: str
+    description: str = ""
+
+
+@router.get("/data-source/{source_id}/relationship-reviews")
+async def get_relationship_reviews(source_id: int, request: Request):
+    metadata, owns = await _setup_metadata(request)
+    try:
+        if await metadata.get_active_data_source_id() != source_id:
+            raise HTTPException(status_code=409, detail="Datasource is not active.")
+        return await metadata.list_reviewed_relationships(source_id)
+    finally:
+        if owns:
+            await metadata.close()
+
+
+@router.put("/data-source/{source_id}/relationship-reviews")
+async def save_relationship_review(source_id: int, payload: RelationshipReviewInput, request: Request):
+    """Store a human decision, without automatically activating SQL joins."""
+    if payload.review_status not in {"approved", "rejected"}:
+        raise HTTPException(status_code=422, detail="Review must be approved or rejected.")
+    if payload.cardinality not in {"many_to_one", "one_to_many", "one_to_one", "many_to_many", "unknown"}:
+        raise HTTPException(status_code=422, detail="Invalid relationship cardinality.")
+    if payload.review_status == "approved" and payload.cardinality == "unknown":
+        raise HTTPException(status_code=422, detail="Confirm cardinality before approving.")
+    metadata, owns = await _setup_metadata(request)
+    try:
+        if await metadata.get_active_data_source_id() != source_id:
+            raise HTTPException(status_code=409, detail="Datasource is not active.")
+        selected = await metadata.get_selected_datasets(source_id)
+        proposals = propose_relationships(
+            await metadata.list_catalog_tables(source_id),
+            selected,
+            await metadata.list_catalog_foreign_keys(source_id),
+        )
+        identity = (payload.from_schema, payload.from_table, payload.from_column,
+                    payload.to_schema, payload.to_table, payload.to_column)
+        if not any((p.from_schema, p.from_table, p.from_column, p.to_schema,
+                    p.to_table, p.to_column) == identity for p in proposals):
+            raise HTTPException(status_code=422, detail="Relationship is not a current selected-dataset candidate.")
+        await metadata.save_reviewed_relationship(source_id, payload.model_dump())
+        return {"review_status": payload.review_status, "governed_join_active": False}
+    finally:
+        if owns:
+            await metadata.close()
