@@ -610,6 +610,30 @@ def _fanout_checks(
             if not risky:
                 continue
 
+            # Report the intersection of semantic ownership and physical SQL
+            # lineage without treating either as a fan-out safety waiver.
+            # The SQL may still multiply rows even with correct metric lineage.
+            lineage_evidence = next(
+                (item for item in lineage_checks if item.get("metric") == metric_name),
+                None,
+            )
+            if lineage_evidence is not None:
+                checks.append({
+                    "code": "fanout_metric_ownership_confirmed"
+                    if lineage_evidence["code"] == "metric_lineage_alignment"
+                    else "fanout_metric_ownership_unverified",
+                    "status": "passed" if lineage_evidence["code"] == "metric_lineage_alignment" else "skipped",
+                    "severity": "info",
+                    "metric": metric_name,
+                    "relationship": relationship.get("name"),
+                    "message": (
+                        "Metric physical lineage agrees with its declared source, "
+                        "but the relationship can still multiply rows."
+                        if lineage_evidence["code"] == "metric_lineage_alignment"
+                        else "Metric physical ownership is not proven for this risky relationship."
+                    ),
+                })
+
             checks.append({
                 "code": "join_fanout_violation",
                 "status": "failed",
