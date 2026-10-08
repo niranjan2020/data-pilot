@@ -240,6 +240,42 @@ async def activate_setup_data_source(source_id: int, request: Request):
             await metadata.close()
 
 
+@router.get("/data-source/{source_id}/details")
+async def saved_data_source_details(source_id: int, request: Request):
+    """Read non-secret connection settings without returning stored credentials."""
+    metadata, owns_metadata = await _setup_metadata(request)
+    try:
+        record = await metadata.get_data_source(source_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Saved datasource not found.")
+        return record
+    finally:
+        if owns_metadata:
+            await metadata.close()
+
+
+@router.post("/data-source/{source_id}/test")
+async def test_saved_data_source(source_id: int, request: Request):
+    """Test the stored datasource and credential without mutating setup readiness."""
+    metadata, owns_metadata = await _setup_metadata(request)
+    store = getattr(request.app.state, "data_source_secret_store", None) or LocalDataSourceSecretStore()
+    provider = None
+    try:
+        try:
+            provider = await open_saved_data_source(metadata, store, source_id)
+            connected = await provider.ping()
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="Saved datasource connection failed. Check connectivity and stored credentials.") from exc
+        if not connected:
+            raise HTTPException(status_code=422, detail="Saved datasource connection failed. Check connectivity and stored credentials.")
+        return {"connected": True}
+    finally:
+        if provider is not None:
+            await provider.close()
+        if owns_metadata:
+            await metadata.close()
+
+
 @router.get("/data-source/active")
 async def active_setup_data_source(request: Request):
     """Return the selected non-secret datasource identity after restart."""
