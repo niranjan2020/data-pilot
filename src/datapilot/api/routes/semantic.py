@@ -28,12 +28,17 @@ class DatasetSemanticRequest(BaseModel):
     use_cases:list[str]=Field(default_factory=list)
     query_constraints:list[str]=Field(default_factory=list)
 
+class CanonicalValueRequest(BaseModel):
+    canonical_value:str=Field(min_length=1)
+    synonyms:list[str]=Field(default_factory=list)
+
 class AttributeRequest(BaseModel):
     name:str=Field(min_length=1)
     description:Optional[str]=None
     column_name:str=Field(min_length=1)
     synonyms:list[str]=Field(default_factory=list)
     operators:list[str]=Field(default_factory=lambda:["="])
+    value_mappings:list[CanonicalValueRequest]=Field(default_factory=list)
 
 class BusinessRuleRequest(BaseModel):
     source_name:str=Field(min_length=1)
