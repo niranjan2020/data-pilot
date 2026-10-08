@@ -18,6 +18,9 @@ export function Onboarding({onReady}:{onReady:()=>void}){
  type SemanticProposal={schema_name:string;table_name:string;suggested_name:string;description:string;key_columns:string[];attributes:string[];provenance:string;status:string;warnings:string[]};
  const [proposals,setProposals]=useState<SemanticProposal[]>([]);
  const [proposalError,setProposalError]=useState("");
+ const [semanticEdits,setSemanticEdits]=useState<Record<string,{description:string;business_meaning:string;grain:string;aliases:string}>>({});
+ const [approvedKeys,setApprovedKeys]=useState<string[]>([]);
+ const [approvalMessage,setApprovalMessage]=useState("");
  const [savedSourceId,setSavedSourceId]=useState<number|null>(null);
  const [savedSources,setSavedSources]=useState<{id:number;name:string;provider:string}[]>([]);
  const [candidateId,setCandidateId]=useState<number|null>(null);
@@ -100,13 +103,36 @@ export function Onboarding({onReady}:{onReady:()=>void}){
   setProposalError("");
   const response=await fetch("/api/setup/data-source/"+sourceId+"/semantic-proposals");
   if(!response.ok)throw new Error("Unable to load semantic drafts from approved datasets.");
-  setProposals(await response.json());
+  const drafts:SemanticProposal[]=await response.json();
+  setProposals(drafts);
+  const approvedResponse=await fetch("/api/setup/data-source/"+sourceId+"/semantic-approved");
+  if(!approvedResponse.ok)throw new Error("Unable to restore approved semantic definitions.");
+  const approved=await approvedResponse.json();
+  const edits:Record<string,{description:string;business_meaning:string;grain:string;aliases:string}>={};
+  for(const p of drafts)edits[datasetKey(p.schema_name,p.table_name)]={description:p.description,business_meaning:"",grain:"",aliases:""};
+  for(const a of approved)edits[datasetKey(a.schema_name,a.table_name)]={description:a.description||"",business_meaning:a.business_meaning||"",grain:a.grain||"",aliases:(a.aliases||[]).join(", ")};
+  setSemanticEdits(edits);
+  setApprovedKeys(approved.map((a:{schema_name:string;table_name:string})=>datasetKey(a.schema_name,a.table_name)));
  }
  useEffect(()=>{
   if(status?.current_step==="semantic_review"&&savedSourceId!==null){
    loadProposals(savedSourceId).catch(e=>setProposalError(String(e.message||e)));
   }
  },[status?.current_step,savedSourceId]);
+ async function approveSemantic(p:SemanticProposal){
+  if(savedSourceId===null)return;
+  const key=datasetKey(p.schema_name,p.table_name);
+  const edit=semanticEdits[key];
+  if(!edit?.description.trim()||!edit.business_meaning.trim()||!edit.grain.trim()){setProposalError("Description, business meaning and grain are required for approval.");return}
+  setBusy(true);setProposalError("");setApprovalMessage("");
+  try{
+   const response=await fetch("/api/setup/data-source/"+savedSourceId+"/semantic-approved",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({schema_name:p.schema_name,table_name:p.table_name,description:edit.description,business_meaning:edit.business_meaning,grain:edit.grain,aliases:edit.aliases.split(",").map(s=>s.trim()).filter(Boolean)})});
+   if(!response.ok)throw new Error("Approval failed. Check the dataset and required fields.");
+   setApprovedKeys(keys=>Array.from(new Set([...keys,key])));
+   setApprovalMessage(p.schema_name+"."+p.table_name+" approved. Semantic indexing is not yet enabled.");
+  }catch(e:any){setProposalError(e.message||"Approval failed")}
+  finally{setBusy(false)}
+ }
  async function approveDatasets(){
   if(savedSourceId===null||selected.length===0)return;
   setBusy(true);setError("");
@@ -166,10 +192,15 @@ export function Onboarding({onReady}:{onReady:()=>void}){
  <p><strong>Suggested label:</strong> {p.suggested_name}</p>
  <p><strong>Primary keys:</strong> {p.key_columns.length?p.key_columns.join(", "):"Not discovered"}</p>
  <p><strong>Columns ({p.attributes.length}):</strong> {p.attributes.join(", ")}</p>
- <p><strong>Provenance:</strong> {p.provenance} · <strong>Status:</strong> {p.status}</p>
+ <p><strong>Provenance:</strong> {p.provenance} · <strong>Status:</strong> {approvedKeys.includes(datasetKey(p.schema_name,p.table_name))?"human approved":"draft"}</p>
+ <label>Description<textarea rows={2} value={semanticEdits[datasetKey(p.schema_name,p.table_name)]?.description||""} onChange={e=>setSemanticEdits(v=>({...v,[datasetKey(p.schema_name,p.table_name)]:{...v[datasetKey(p.schema_name,p.table_name)],description:e.target.value}}))}/></label>
+ <label>Business meaning (human verified)<textarea rows={3} value={semanticEdits[datasetKey(p.schema_name,p.table_name)]?.business_meaning||""} onChange={e=>setSemanticEdits(v=>({...v,[datasetKey(p.schema_name,p.table_name)]:{...v[datasetKey(p.schema_name,p.table_name)],business_meaning:e.target.value}}))}/></label>
+ <label>Row grain (what one row represents)<input value={semanticEdits[datasetKey(p.schema_name,p.table_name)]?.grain||""} onChange={e=>setSemanticEdits(v=>({...v,[datasetKey(p.schema_name,p.table_name)]:{...v[datasetKey(p.schema_name,p.table_name)],grain:e.target.value}}))}/></label>
+ <label>Aliases (comma separated)<input value={semanticEdits[datasetKey(p.schema_name,p.table_name)]?.aliases||""} onChange={e=>setSemanticEdits(v=>({...v,[datasetKey(p.schema_name,p.table_name)]:{...v[datasetKey(p.schema_name,p.table_name)],aliases:e.target.value}}))}/></label>
+ <button type="button" disabled={busy} onClick={()=>approveSemantic(p)}>Approve / update this dataset</button>
  {p.warnings.map(w=><p key={w} role="note">{w}</p>)}
  </section>)}
- <p>Review and approval editing will be enabled in the next C5 slice. These drafts have not been saved as authoritative semantics.</p>
+ <p>Approval persists reviewed dataset definitions only. Query readiness requires subsequent semantic indexing and validation.</p>{approvalMessage&&<p role="status">{approvalMessage}</p>}
  </div>}
  {status&&status.current_step!=="ai_provider"&&status.current_step!=="data_source"&&status.current_step!=="data_selection"&&status.current_step!=="semantic_review"&&!status.ready&&<div className="onboardingForm"><h2>{labels[status.current_step]||"Continue setup"}</h2><p>This onboarding action is scheduled for the next Stage C implementation. Your progress is persisted across restarts.</p><button onClick={()=>refresh().catch(e=>setError(String(e.message||e)))}>Refresh setup status</button></div>}
   {error&&<div className="onboardingError" role="alert">{error} <button type="button" onClick={()=>refresh().then(()=>setError("")).catch(e=>setError(String(e.message||e)))}>Retry</button></div>}
