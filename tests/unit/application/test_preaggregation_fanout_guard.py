@@ -200,3 +200,27 @@ def test_metric_lineage_reused_alias_does_not_waive_fanout():
     result = checks(sql, metric)
     assert any(item["code"] == "metric_lineage_unverified" for item in result)
     assert any(item["code"] == "join_fanout_violation" for item in result)
+
+
+def test_scope_aware_lineage_allows_reused_alias_with_unrelated_column():
+    sql = (
+        "SELECT SUM(p.amount), (SELECT COUNT(*) FROM demo.children p) AS n "
+        "FROM demo.parents p"
+    )
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
+    assert any(item["code"] == "metric_lineage_alignment" for item in checks(sql, metric))
+
+
+def test_scope_aware_lineage_rejects_nested_wrong_source_aggregate():
+    sql = (
+        "SELECT SUM(p.amount), (SELECT SUM(p.amount) FROM demo.children p) AS n "
+        "FROM demo.parents p"
+    )
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
+    assert any(item["code"] == "metric_lineage_unverified" for item in checks(sql, metric))
+
+
+def test_scope_aware_lineage_rejects_same_alias_wrong_schema():
+    sql = "SELECT SUM(p.amount) FROM other.parents p"
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
+    assert any(item["code"] == "metric_lineage_unverified" for item in checks(sql, metric))
