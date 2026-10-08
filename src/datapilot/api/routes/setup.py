@@ -557,6 +557,18 @@ async def verify_reviewed_relationship(source_id: int, payload: RelationshipRevi
             policy_enforced_by_sql_governance=False,
         )
         reasons.extend(eligibility.reasons)
+        verification_record = {
+            "structurally_valid": True,
+            "live_cardinality_verified": evidence.checked,
+            "cardinality_holds": evidence.cardinality_holds,
+            "referential_integrity_checked": integrity.checked if integrity else False,
+            "unmatched_references": integrity.unmatched_references if integrity else None,
+            "nullable_references": integrity.nullable_references if integrity else None,
+            "publishable": False,
+            "reasons": reasons,
+        }
+        if not await metadata.save_relationship_verification(source_id, saved, verification_record):
+            raise HTTPException(status_code=409, detail="Relationship review changed during verification; retry.")
         return {"review_fingerprint": review_fingerprint(saved), "structurally_valid": True, "live_cardinality_verified": evidence.checked,
                 "cardinality_holds": evidence.cardinality_holds,
                 "referential_integrity_checked": integrity.checked if integrity else False,
