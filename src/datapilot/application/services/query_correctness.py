@@ -397,24 +397,9 @@ def _fanout_checks(
             "message": "Join fan-out verification could not parse the validated SQL.",
         }]
 
-    subqueries = list(tree.find_all(exp.Subquery))
-    if subqueries:
-        # Only defer fan-out judgement when a subquery actually contains
-        # aggregation/grouping. An unrelated scalar/filter subquery must not
-        # disable detection of a risky governed join in the outer query.
-        has_preaggregation = any(
-            subquery.find(exp.AggFunc) is not None
-            or subquery.find(exp.Group) is not None
-            for subquery in subqueries
-        )
-        if has_preaggregation:
-            return [{
-                "code": "fanout_verification_unavailable",
-                "status": "skipped",
-                "severity": "info",
-                "message": "Query uses subquery pre-aggregation; deterministic fan-out verification was not applied.",
-            }]
-
+    # Do not mark a pre-aggregated plan safe merely because it is nested.
+    # Cardinality checks below still apply; a separate grain proof is needed
+    # before allowing otherwise risky one-to-many aggregation.
     def cardinality_sides(value: str) -> tuple[str, str] | None:
         normalized = str(value or "").strip().casefold().replace("_", "-").replace(" ", "-")
         normalized = normalized.replace("many-to-one", "many-one").replace("one-to-many", "one-many")
