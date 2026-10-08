@@ -94,6 +94,27 @@ def validate_governed_join_graph(sql: str, relationships: list[dict]) -> JoinPol
         tree = statements[0]
     except Exception:
         return JoinPolicyDecision(False, ("SQL parsing failed.",))
+    # A tightly scoped first nested-query case: a single non-recursive CTE
+    # containing the complete governed join graph, followed by a projection
+    # over that CTE. No additional joins or nested SQL may escape validation.
+    with_clause = tree.args.get("with_")
+    if with_clause is not None:
+        ctes = list(with_clause.expressions)
+        if (with_clause.args.get("recursive") or len(ctes) != 1
+                or tree.args.get("joins")
+                or any(isinstance(node, (exp.Subquery, exp.Union))
+                       for node in tree.walk())):
+            return JoinPolicyDecision(False, ("Unsupported nested join structure.",))
+        cte = ctes[0]
+        inner = cte.this
+        root_clause = tree.args.get("from_")
+        if (not isinstance(inner, exp.Select)
+                or not root_clause or not isinstance(root_clause.this, exp.Table)
+                or root_clause.this.db
+                or str(root_clause.this.name).lower() != str(cte.alias_or_name).lower()
+                or any(isinstance(node, exp.CTE) for node in inner.walk())):
+            return JoinPolicyDecision(False, ("CTE projection must reference exactly the governed CTE.",))
+        return validate_governed_join_graph(inner.sql(dialect="postgres"), relationships)
     if any(isinstance(node, (exp.Subquery, exp.CTE, exp.Union)) for node in tree.walk()):
         return JoinPolicyDecision(False, ("Nested queries require separate join-policy verification.",))
     root_clause = tree.args.get("from_")
