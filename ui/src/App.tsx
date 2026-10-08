@@ -55,13 +55,17 @@ export function App(){
  const [aiKey,setAiKey]=useState("");
  const [aiMessage,setAiMessage]=useState("");
  const [aiBusy,setAiBusy]=useState(false);
+ const [aiValidated,setAiValidated]=useState<boolean|null>(null);
  async function loadAiConfig(){
   try{
    const response=await fetch("/api/setup/ai-provider");
    if(!response.ok)throw new Error("Unable to load AI provider settings");
    const data=await response.json();
    setAiConfig({...data,endpoint:data.endpoint||""});
-  }catch(error){setAiMessage(error instanceof Error?error.message:"Unable to load AI settings")}
+   const readinessResponse=await fetch("/api/setup/readiness");
+   if(readinessResponse.ok){const readiness=await readinessResponse.json();setAiValidated(readiness.ai_provider==="ready");}
+   else setAiValidated(null);
+  }catch(error){setAiValidated(null);setAiMessage(error instanceof Error?error.message:"Unable to load AI settings")}
  }
  async function saveAiConfig(){
   setAiBusy(true);setAiMessage("");
@@ -69,7 +73,7 @@ export function App(){
    const response=await fetch("/api/setup/ai-provider",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({provider:aiConfig.provider,model:aiConfig.model,endpoint:aiConfig.endpoint||null,api_key:aiKey||null})});
    const data=await response.json();
    if(!response.ok)throw new Error(typeof data.detail==="string"?data.detail:"Unable to save AI provider");
-   setAiKey("");await loadAiConfig();setAiMessage("AI provider settings saved.");
+   setAiKey("");await loadAiConfig();setAiMessage("AI provider configuration saved. Check validation status below.");
   }catch(error){setAiMessage(error instanceof Error?error.message:"Unable to save AI provider")}
   finally{setAiBusy(false)}
  }
@@ -174,7 +178,7 @@ export function App(){
  <section className="intro"><h2>{sections.find(x=>x[0]===active)?.[2]}</h2><p>Configure and inspect Data Pilot without editing source code. Saved onboarding credentials are managed separately and never displayed. The connection test form uses local defaults; its name is not the active semantic datasource.</p></section>
  {savedSourceId!==null&&<p className="notice">Active saved datasource: <strong>{savedSourceName}</strong> · Discovered schema restored from onboarding. Credentials remain securely stored by the setup service.</p>}
  {sourceRestoreError&&<p className="notice">{sourceRestoreError}</p>}
- {active==="AI Provider"&&<section className="grid"><article className="wide"><h3>Saved AI provider</h3><p>Update your Gemini key without resetting Astra onboarding. The key is sent only to the setup API and is never displayed again.</p><p>Credential: <strong>{aiConfig.credential_configured?"Available":"Missing — update required"}</strong></p><div className="semanticForm"><label>Provider<input value={aiConfig.provider} disabled readOnly/></label><label>Model<input value={aiConfig.model} onChange={e=>setAiConfig({...aiConfig,model:e.target.value})}/></label><label>Gemini API key<input type="password" autoComplete="new-password" value={aiKey} onChange={e=>setAiKey(e.target.value)} placeholder="Enter a new API key to replace missing credential"/></label></div><div className="actions"><button className="primary" disabled={aiBusy||!aiConfig.model.trim()||(!aiConfig.credential_configured&&!aiKey.trim())} onClick={saveAiConfig}>{aiBusy?"Saving…":"Save AI provider"}</button><button className="secondary" disabled={aiBusy} onClick={loadAiConfig}>Refresh status</button></div>{aiMessage&&<p className="notice">{aiMessage}</p>}</article></section>}
+ {active==="AI Provider"&&<section className="grid"><article className="wide"><h3>Saved AI provider</h3><p>Update the saved model or rotate its API key without repeating onboarding. Credentials are sent to the setup API and are never returned by read endpoints.</p><p>Credential: <strong>{aiConfig.credential_configured?"Available":"Missing — update required"}</strong> · Validation: <strong>{aiValidated===null?"Unknown":aiValidated?"Ready":"Not ready"}</strong></p><div className="semanticForm"><label>Provider<input value={aiConfig.provider} disabled readOnly/></label><label>Model<input value={aiConfig.model} onChange={e=>setAiConfig({...aiConfig,model:e.target.value})}/></label><label>Provider API key<input type="password" autoComplete="new-password" value={aiKey} onChange={e=>setAiKey(e.target.value)} placeholder="Leave blank to retain the saved key"/></label></div><div className="actions"><button className="primary" disabled={aiBusy||!aiConfig.model.trim()||(!aiConfig.credential_configured&&!aiKey.trim())} onClick={saveAiConfig}>{aiBusy?"Saving…":"Save AI provider"}</button><button className="secondary" disabled={aiBusy} onClick={loadAiConfig}>Refresh status</button></div>{aiMessage&&<p className="notice">{aiMessage}</p>}</article></section>}
  {active==="Data Sources"&&<section className="grid"><article className="wide"><div className="cardTitle"><Database size={20}/><h3>PostgreSQL connection test</h3><span>Development</span></div>
  <div className="formGrid"><label>Name<input value={connectionTestName} onChange={e=>setConnectionTestName(e.target.value)}/></label><label>Host<input value={form.host} onChange={e=>update("host",e.target.value)}/></label>
  <label>Port<input type="number" value={form.port} onChange={e=>update("port",Number(e.target.value))}/></label><label>Database<input value={form.database} onChange={e=>update("database",e.target.value)}/></label>
