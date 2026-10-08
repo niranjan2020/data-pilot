@@ -193,6 +193,40 @@ async def save_setup_data_source(payload: PostgreSQLConnectionInput, request: Re
 
 
 
+@router.get("/data-sources")
+async def list_setup_data_sources(request: Request):
+    metadata, owns_metadata = await _setup_metadata(request)
+    try:
+        return await metadata.list_saved_data_sources()
+    finally:
+        if owns_metadata:
+            await metadata.close()
+
+
+@router.post("/data-source/{source_id}/activate")
+async def activate_setup_data_source(source_id: int, request: Request):
+    """Activate only a stored, reachable connection with an available credential."""
+    metadata, owns_metadata = await _setup_metadata(request)
+    store = getattr(request.app.state, "data_source_secret_store", None) or LocalDataSourceSecretStore()
+    provider = None
+    try:
+        try:
+            provider = await open_saved_data_source(metadata, store, source_id)
+            if not await provider.ping():
+                raise ValueError("Connection unavailable")
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="Saved datasource cannot be connected. Reconfigure its credentials if needed.") from exc
+        await metadata.set_active_data_source_id(source_id)
+        await metadata.update_setup_facts(data_source_ready=True, data_selection_ready=False, semantic_model_ready=False)
+        record = await metadata.get_data_source(source_id)
+        return {"id": record["id"], "name": record["name"], "provider": record["provider"]}
+    finally:
+        if provider is not None:
+            await provider.close()
+        if owns_metadata:
+            await metadata.close()
+
+
 @router.get("/data-source/active")
 async def active_setup_data_source(request: Request):
     """Return the selected non-secret datasource identity after restart."""
