@@ -54,8 +54,10 @@ class QueryOrchestrator:
         semantic_context_assembler: Optional[SemanticContextAssembler] = None,
         sql_identifier_binder: Optional[SQLIdentifierBinder] = None,
         context_budget_chars: int = 24000,
+        relationship_publication_metadata: Any = None,
     ) -> None:
         self._database = database_provider
+        self._relationship_publication_metadata = relationship_publication_metadata
         self._validator = sql_validator
         self._sql_generator = sql_generator
         self._semantic_catalog_provider = semantic_catalog_provider
@@ -782,6 +784,27 @@ class QueryOrchestrator:
             "query validated_sql=%s affected_tables=%s warnings=%s",
             executable_sql, validation.affected_tables, validation.warnings,
         )
+
+        # Enforce authoritative publication at the final execution boundary,
+        # including dry-runs and regenerated SQL proposals. Legacy callers
+        # without a publication provider retain their existing behavior.
+        if self._relationship_publication_metadata is not None and required_relationships:
+            from datapilot.application.published_join_authorization import authorize_published_joins
+            source_id = await self._relationship_publication_metadata.get_active_data_source_id()
+            authorization = await authorize_published_joins(
+                self._relationship_publication_metadata, source_id,
+                executable_sql, required_relationships,
+            )
+            if not authorization.allowed:
+                raise SQLValidationError(
+                    "Generated SQL uses an unpublished or invalid relationship",
+                    details={"checks": [{
+                        "code": "relationship_publication_violation",
+                        "status": "failed",
+                        "severity": "error",
+                        "message": "; ".join(authorization.reasons),
+                    }]},
+                )
 
         correctness_checks = assess_query_correctness(
             affected_tables=validation.affected_tables,
