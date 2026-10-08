@@ -17,6 +17,9 @@ export function Onboarding({onReady}:{onReady:()=>void}){
 
  type SemanticProposal={schema_name:string;table_name:string;suggested_name:string;description:string;key_columns:string[];attributes:string[];provenance:string;status:string;warnings:string[]};
  const [proposals,setProposals]=useState<SemanticProposal[]>([]);
+ type RelationshipCandidate={from_schema:string;from_table:string;from_column:string;to_schema:string;to_table:string;to_column:string;provenance:string;verified:boolean;status:string};
+ const [relationships,setRelationships]=useState<RelationshipCandidate[]>([]);
+ const [relationshipError,setRelationshipError]=useState("");
  const [proposalError,setProposalError]=useState("");
  const [semanticEdits,setSemanticEdits]=useState<Record<string,{description:string;business_meaning:string;grain:string;aliases:string}>>({});
  const [approvedKeys,setApprovedKeys]=useState<string[]>([]);
@@ -113,6 +116,10 @@ export function Onboarding({onReady}:{onReady:()=>void}){
   for(const a of approved)edits[datasetKey(a.schema_name,a.table_name)]={description:a.description||"",business_meaning:a.business_meaning||"",grain:a.grain||"",aliases:(a.aliases||[]).join(", ")};
   setSemanticEdits(edits);
   setApprovedKeys(approved.map((a:{schema_name:string;table_name:string})=>datasetKey(a.schema_name,a.table_name)));
+  const relationshipResponse=await fetch("/api/setup/data-source/"+sourceId+"/relationship-proposals");
+  if(relationshipResponse.ok){setRelationships(await relationshipResponse.json());setRelationshipError("");}
+  else{setRelationshipError("Unable to load relationship candidates.");}
+
  }
  useEffect(()=>{
   if(status?.current_step==="semantic_review"&&savedSourceId!==null){
@@ -186,6 +193,16 @@ export function Onboarding({onReady}:{onReady:()=>void}){
  <p>These are physical schema facts, not verified business definitions. No metric, business rule or relationship is published by this preview.</p>
  {savedSourceId===null?<p>Restoring saved datasource…</p>:<button type="button" disabled={busy} onClick={()=>loadProposals(savedSourceId).catch(e=>setProposalError(String(e.message||e)))}>Refresh proposals</button>}
  {proposalError&&<p role="alert">{proposalError}</p>}
+ <section className="semanticDraftCard">
+ <div className="semanticDraftHeader"><div><h3>Suggested relationships</h3><p>Review potential joins between your selected datasets. No relationship is published automatically.</p></div><span className="semanticDraftStatus">{relationships.length} candidates</span></div>
+ {relationshipError&&<p role="alert">{relationshipError}</p>}
+ {relationships.length===0?<p>No declared foreign keys or same-schema naming matches found among the selected datasets. You can still define joins during later semantic modeling.</p>:
+ <div className="relationshipCandidateList">{relationships.map(rel=><div key={JSON.stringify(rel)} className="relationshipCandidate">
+ <div><strong>{rel.from_schema}.{rel.from_table}.{rel.from_column}</strong><span> → </span><strong>{rel.to_schema}.{rel.to_table}.{rel.to_column}</strong></div>
+ <div className="relationshipEvidence">{rel.verified?"Declared database foreign key":"Unverified column-name suggestion"} · {rel.provenance} · Draft only</div>
+ </div>)}</div>}
+ <p>Approval and cardinality validation will follow. A matching column name is not proof that a join is correct.</p>
+ </section>
  {proposals.map(p=>{const key=datasetKey(p.schema_name,p.table_name);const edit=semanticEdits[key];const update=(field:"description"|"business_meaning"|"grain"|"aliases",value:string)=>setSemanticEdits(v=>({...v,[key]:{...v[key],[field]:value}}));return <section key={key} className="semanticDraftCard">
  <div className="semanticDraftHeader"><div><h3>{p.schema_name}.{p.table_name}</h3><p>{p.attributes.length} columns · Primary key: {p.key_columns.length?p.key_columns.join(", "):"not discovered"}</p></div><span className={approvedKeys.includes(key)?"semanticDraftStatus approved":"semanticDraftStatus"}>{approvedKeys.includes(key)?"Approved":"Needs review"}</span></div>
  <details className="semanticDraftDetails"><summary>View discovered columns ({p.attributes.length})</summary><div className="semanticColumnList">{p.attributes.join(", ")}</div><p>Source: {p.provenance}. Column names alone do not establish business meaning.</p></details>
