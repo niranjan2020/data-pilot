@@ -7,7 +7,7 @@
 **Last updated:** 2026-10-08  
 **Current focus:** Core OSS — Stage C2: one-command local deployment  
 **Current semantic evaluation baseline:** 39/39 passed (100.0%) through the live production pipeline after B4 dialect isolation (p50 2.986 s, p95 4.249 s).  
-**Current unit regression baseline:** **645/645 passed** (user-verified 2026-10-08, `python -m pytest tests/unit -q`). Full integration/evaluation suite and clean-machine onboarding are not verified by this count.
+**Current unit regression baseline:** **976 passed** (user-verified 2026-10-08, `git pull && python -m pytest tests/unit -q`, at commit `4d011a5`). Full integration/evaluation suite and clean-machine onboarding are not verified by this count.
 
 ---
 
@@ -16,8 +16,8 @@
 **Primary active milestone: C2 — one-command local deployment.** C1 is complete. C2–C8 remain open until their individual exit criteria are demonstrated; a green unit suite does not establish that Docker startup, onboarding, or first-answer time targets work on a clean machine.
 
 **Verified checkpoints**
-- Latest user-executed unit suite: **645 passed** (`python -m pytest tests/unit -q`).
-- Last recorded live semantic evaluation: **39/39 passed**, after B4; **not rerun** at the 645-test checkpoint.
+- Latest user-executed unit suite: **976 passed** (`git pull && python -m pytest tests/unit -q`, commit `4d011a5`).
+- Last recorded live semantic evaluation: **39/39 passed**, after B4; **not rerun** at the 976-test checkpoint.
 - Stage A and documented B1–B4 milestones remain complete as recorded below. Preserve existing B5/B6 status where documented; do not infer completion from test growth.
 - C1 onboarding contract and persisted state: complete. C2 deployment: active; clean-machine exit gate not yet demonstrated.
 
@@ -26,6 +26,15 @@
 - Derived join-key uniqueness, join connectivity, join-type classification, right-hand derived uniqueness evidence, and cardinality evidence summaries.
 - Explicit physical unique-key *metadata* validation with negative/adversarial regression coverage.
 - These diagnostics do **not** prove end-to-end metric-row preservation, automatically inspect database UNIQUE constraints, or waive `join_fanout_violation`. A declared `*_unique_key_verified` flag must only be supplied by trusted catalog evidence; it is not proof merely because an API caller supplied it.
+
+**2026-10-08 C5 relationship-governance audit (parallel implementation, NOT C5 completion)**
+- Implemented persisted relationship review, verification evidence, publication/revocation, current-publication retrieval, SQL AST join-policy checks, and HTTP orchestrator wiring for trusted publication authorization.
+- User-confirmed regression: **976 unit tests passed** at `4d011a5`. Earlier PostgreSQL publication integration suite: **2 passed**; rerun after the latest runtime wiring remains pending.
+- **Security/behavior gaps before claiming runtime enforcement complete:** reject any physical SQL JOIN with no required relationship contract when publication governance is configured; prove datasource-scoped authorization; eliminate the second publication lookup and ensure correctness checks consume exactly the grants validated at the boundary; test permitted joins, denied/unpublished/revoked/stale joins, extra joins, wrong keys/types, dry runs and correction/recovery paths.
+- **Potential migration issue:** older semantic relationship records without review/evidence fields retain legacy correctness behavior; determine the explicit migration and fail-closed policy for production joins.
+- **Test gap:** add orchestrator and API integration regressions exercising the actual composition root, not just isolated publication helpers.
+- **C5 broader scope remains OPEN:** provider-independent AI semantic suggestions for entities/attributes/metrics/time dimensions/business rules, review/edit/reject UX, persisted approvals, and complete onboarding journey have not been demonstrated.
+- **Priority guardrail:** finish this bounded authorization hardening, then return to the primary C2 clean-install gate and C3–C5 user-facing onboarding. Do not equate growing unit counts with installation or live benchmark success.
 
 **Priority order (avoid indefinite correctness-only iteration)**
 1. **C2 now:** verify Compose startup, dependency health, migrations, first-run Welcome screen, and actionable startup errors on a clean supported machine. Record the actual command and observed outcomes.
