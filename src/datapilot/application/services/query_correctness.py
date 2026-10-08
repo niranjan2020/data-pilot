@@ -647,6 +647,58 @@ def _fanout_checks(
                 and item.get("status") == "passed"
                 for item in grain_checks
             )
+            # Structural join-key evidence is scoped to an individual JOIN.
+            # This is intentionally not a uniqueness/cardinality proof.
+            joined_grain_keys = []
+            for join in tree.find_all(exp.Join):
+                derived = join.this
+                on = join.args.get("on")
+                if not isinstance(derived, exp.Subquery) or not isinstance(derived.this, exp.Select):
+                    continue
+                if not isinstance(on, exp.EQ):
+                    continue
+                alias = str(derived.alias_or_name or "").casefold()
+                joined_column = None
+                for left, right in ((on.left, on.right), (on.right, on.left)):
+                    if (
+                        isinstance(left, exp.Column)
+                        and isinstance(right, exp.Column)
+                        and str(left.table or "").casefold() == alias
+                        and str(right.table or "").casefold() != alias
+                    ):
+                        joined_column = str(left.name).casefold()
+                        break
+                if not joined_column:
+                    continue
+                inner = derived.this
+                grouping = inner.args.get("group")
+                if grouping is None or len(grouping.expressions) != 1:
+                    continue
+                grouped = grouping.expressions[0]
+                if not isinstance(grouped, exp.Column):
+                    continue
+                if any(
+                    str(projection.alias_or_name or "").casefold() == joined_column
+                    and isinstance(projection.this if isinstance(projection, exp.Alias) else projection, exp.Column)
+                    and str((projection.this if isinstance(projection, exp.Alias) else projection).name).casefold()
+                    == str(grouped.name).casefold()
+                    for projection in inner.expressions
+                ):
+                    joined_grain_keys.append(f"{alias}.{joined_column}")
+            checks.append({
+                "code": "fanout_join_grain_key_observed" if joined_grain_keys else "fanout_join_grain_key_unverified",
+                "status": "passed" if joined_grain_keys else "skipped",
+                "severity": "info",
+                "metric": metric_name,
+                "relationship": relationship.get("name"),
+                "joined_grain_keys": joined_grain_keys,
+                "message": (
+                    "An equality join references a derived grouping key; this does not establish "
+                    "metric-row uniqueness or override fan-out protection."
+                    if joined_grain_keys else
+                    "No simple derived grouping-key equality join was identified."
+                ),
+            })
             checks.append({
                 "code": "fanout_safety_evidence_incomplete",
                 "status": "skipped",
