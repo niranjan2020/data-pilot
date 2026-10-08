@@ -1,5 +1,9 @@
 """First-run onboarding status API."""
 
+import logging
+
+_logger = logging.getLogger("datapilot.setup")
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
@@ -256,11 +260,15 @@ async def discover_saved_source(source_id: int, request: Request) -> SavedDiscov
     metadata, owns_metadata = await _setup_metadata(request)
     store = getattr(request.app.state, "data_source_secret_store", None) or LocalDataSourceSecretStore()
     provider = None
+    stage = "connection"
     try:
         try:
             provider = await open_saved_data_source(metadata, store, source_id)
+            stage = "schema_listing"
             names = await provider.list_schemas()
+            stage = "schema_introspection"
             schemas = [await provider.introspect_schema(name) for name in names]
+            stage = "metadata_persistence"
             for schema in schemas:
                 await metadata.save_schema(schema, data_source_id=source_id)
             return SavedDiscoveryResponse(
@@ -270,7 +278,9 @@ async def discover_saved_source(source_id: int, request: Request) -> SavedDiscov
                 persisted=True,
             )
         except Exception as exc:
-            raise HTTPException(status_code=422, detail="Saved datasource discovery failed. Check connection access and stored credentials.") from exc
+            # Never log exception messages: drivers can include connection details.
+            _logger.error("Saved datasource discovery failed: stage=%s error_type=%s", stage, type(exc).__name__)
+            raise HTTPException(status_code=422, detail="Saved datasource discovery failed at " + stage + ".") from exc
     finally:
         if provider is not None:
             await provider.close()
