@@ -15,6 +15,9 @@ export function Onboarding({onReady}:{onReady:()=>void}){
  const [selected,setSelected]=useState<string[]>([]);
  const [schemaFilter,setSchemaFilter]=useState("all");
 
+ type SemanticProposal={schema_name:string;table_name:string;suggested_name:string;description:string;key_columns:string[];attributes:string[];provenance:string;status:string;warnings:string[]};
+ const [proposals,setProposals]=useState<SemanticProposal[]>([]);
+ const [proposalError,setProposalError]=useState("");
  const [savedSourceId,setSavedSourceId]=useState<number|null>(null);
  const [savedSources,setSavedSources]=useState<{id:number;name:string;provider:string}[]>([]);
  const [candidateId,setCandidateId]=useState<number|null>(null);
@@ -26,7 +29,7 @@ export function Onboarding({onReady}:{onReady:()=>void}){
  }
  useEffect(()=>{refresh().catch(e=>setError(String(e.message||e)))},[]);
  useEffect(()=>{
-  if(status?.current_step!=="data_selection"||savedSourceId!==null)return;
+  if(!["data_selection","semantic_review"].includes(status?.current_step||"")||savedSourceId!==null)return;
   fetch("/api/setup/data-source/active").then(async response=>{
    if(!response.ok)throw new Error("No saved datasource found. Please check your setup.");
    const source=await response.json();setSavedSourceId(source.id);
@@ -93,6 +96,17 @@ export function Onboarding({onReady}:{onReady:()=>void}){
   setCatalog(data.datasets);
   setSelected(data.selected.map((s:{schema_name:string;table_name:string})=>datasetKey(s.schema_name,s.table_name)));
  }
+ async function loadProposals(sourceId:number){
+  setProposalError("");
+  const response=await fetch("/api/setup/data-source/"+sourceId+"/semantic-proposals");
+  if(!response.ok)throw new Error("Unable to load semantic drafts from approved datasets.");
+  setProposals(await response.json());
+ }
+ useEffect(()=>{
+  if(status?.current_step==="semantic_review"&&savedSourceId!==null){
+   loadProposals(savedSourceId).catch(e=>setProposalError(String(e.message||e)));
+  }
+ },[status?.current_step,savedSourceId]);
  async function approveDatasets(){
   if(savedSourceId===null||selected.length===0)return;
   setBusy(true);setError("");
@@ -141,7 +155,23 @@ export function Onboarding({onReady}:{onReady:()=>void}){
  <div style={{maxHeight:300,overflowY:"auto",border:"1px solid #e4e7ec",borderRadius:8,padding:12}}>
  {catalog.filter(t=>schemaFilter==="all"||t.schema_name===schemaFilter).map(t=>{const key=datasetKey(t.schema_name,t.table_name);return <label key={key} style={{display:"flex",alignItems:"center",gap:8,margin:"7px 0"}}><input style={{width:16,margin:0}} type="checkbox" checked={selected.includes(key)} onChange={e=>setSelected(v=>e.target.checked?[...v,key]:v.filter(k=>k!==key))}/><span>{t.schema_name}.{t.table_name} <small>({t.columns.length} columns; {t.columns.filter(col=>col.is_primary_key).length} PK)</small></span></label>})}
  </div><button type="button" disabled={busy||selected.length===0} onClick={approveDatasets} style={{marginTop:15}}>{busy?"Saving…":"Approve selected datasets & continue"}</button></div>}</div>}
-  {status&&status.current_step!=="ai_provider"&&status.current_step!=="data_source"&&status.current_step!=="data_selection"&&!status.ready&&<div className="onboardingForm"><h2>{labels[status.current_step]||"Continue setup"}</h2><p>This onboarding action is scheduled for the next Stage C implementation. Your progress is persisted across restarts.</p><button onClick={()=>refresh().catch(e=>setError(String(e.message||e)))}>Refresh setup status</button></div>}
+  {status?.current_step==="semantic_review"&&<div className="onboardingForm">
+ <h2>4. Review semantic drafts</h2>
+ <p>These are physical schema facts, not verified business definitions. No metric, business rule or relationship is published by this preview.</p>
+ {savedSourceId===null?<p>Restoring saved datasource…</p>:<button type="button" disabled={busy} onClick={()=>loadProposals(savedSourceId).catch(e=>setProposalError(String(e.message||e)))}>Refresh proposals</button>}
+ {proposalError&&<p role="alert">{proposalError}</p>}
+ {proposals.map(p=><section key={datasetKey(p.schema_name,p.table_name)} style={{marginTop:16,padding:14,border:"1px solid #e4e7ec",borderRadius:8}}>
+ <h3>{p.schema_name}.{p.table_name}</h3>
+ <p>{p.description}</p>
+ <p><strong>Suggested label:</strong> {p.suggested_name}</p>
+ <p><strong>Primary keys:</strong> {p.key_columns.length?p.key_columns.join(", "):"Not discovered"}</p>
+ <p><strong>Columns ({p.attributes.length}):</strong> {p.attributes.join(", ")}</p>
+ <p><strong>Provenance:</strong> {p.provenance} · <strong>Status:</strong> {p.status}</p>
+ {p.warnings.map(w=><p key={w} role="note">{w}</p>)}
+ </section>)}
+ <p>Review and approval editing will be enabled in the next C5 slice. These drafts have not been saved as authoritative semantics.</p>
+ </div>}
+ {status&&status.current_step!=="ai_provider"&&status.current_step!=="data_source"&&status.current_step!=="data_selection"&&status.current_step!=="semantic_review"&&!status.ready&&<div className="onboardingForm"><h2>{labels[status.current_step]||"Continue setup"}</h2><p>This onboarding action is scheduled for the next Stage C implementation. Your progress is persisted across restarts.</p><button onClick={()=>refresh().catch(e=>setError(String(e.message||e)))}>Refresh setup status</button></div>}
   {error&&<div className="onboardingError" role="alert">{error} <button type="button" onClick={()=>refresh().then(()=>setError("")).catch(e=>setError(String(e.message||e)))}>Retry</button></div>}
  </div></div>
 }
