@@ -660,39 +660,41 @@ def assess_query_correctness(
         dialect=dialect,
     ) if sql else []
     filter_checks = _filter_checks(sql, required_filters=required_filters, dialect=dialect) if sql else []
+    required_relationships = list(required_relationships)
     relationship_checks = _relationship_checks(sql, required_relationships=required_relationships, dialect=dialect) if sql else []
-    # Enforce the published join policy whenever the required relationship carries
-    # an explicit policy. This runs in the shared correctness gate on initial SQL
-    # and recovery attempts; it never rewrites an unsafe join.
+    # The join graph is authoritative for SQL containing multiple physical joins.
+    # Do not silently skip governance when the context exposes only one edge.
     from datapilot.application.join_policy_governance import (
         validate_governed_join_policy, validate_governed_join_graph,
     )
-    required_relationships = list(required_relationships)
     join_policy_checks = []
-    if len(required_relationships) > 1 and any("join_policy" in rel for rel in required_relationships):
-        decision = validate_governed_join_graph(sql or "", required_relationships)
-        join_policy_checks.append({
-            "code": "join_policy_alignment" if decision.allowed else "join_policy_violation",
-            "status": "passed" if decision.allowed else "failed",
-            "severity": "info" if decision.allowed else "error",
-            "relationship": "governed_join_graph",
-            "message": "All join edges comply with governed policies." if decision.allowed else "; ".join(decision.reasons),
-        })
-    for relationship in required_relationships:
-        if len(required_relationships) > 1:
-            continue  # Multi-edge joins are validated together above.
-
-        if "join_policy" not in relationship:
-            continue  # Legacy relationships are not implicitly treated as published.
-        name = str(relationship.get("name") or "relationship")
-        decision = validate_governed_join_policy(sql or "", relationship)
-        join_policy_checks.append({
-            "code": "join_policy_alignment" if decision.allowed else "join_policy_violation",
-            "status": "passed" if decision.allowed else "failed",
-            "severity": "info" if decision.allowed else "error",
-            "relationship": name,
-            "message": "Approved join policy is enforced." if decision.allowed else "; ".join(decision.reasons),
-        })
+    if sql and required_relationships:
+        try:
+            parsed = parse_one(sql, read=sqlglot_dialect(dialect))
+            join_count = len(list(parsed.find_all(exp.Join)))
+        except Exception:
+            join_count = 0
+        if join_count > 1 or len(required_relationships) > 1:
+            decision = validate_governed_join_graph(sql, required_relationships)
+            join_policy_checks.append({
+                "code": "join_policy_alignment" if decision.allowed else "join_policy_violation",
+                "status": "passed" if decision.allowed else "failed",
+                "severity": "info" if decision.allowed else "error",
+                "relationship": "governed_join_graph",
+                "message": "Every join edge follows an approved policy." if decision.allowed else "; ".join(decision.reasons),
+            })
+        else:
+            for relationship in required_relationships:
+                if "join_policy" not in relationship:
+                    continue
+                decision = validate_governed_join_policy(sql, relationship)
+                join_policy_checks.append({
+                    "code": "join_policy_alignment" if decision.allowed else "join_policy_violation",
+                    "status": "passed" if decision.allowed else "failed",
+                    "severity": "info" if decision.allowed else "error",
+                    "relationship": str(relationship.get("name") or "relationship"),
+                    "message": "Approved join policy is enforced." if decision.allowed else "; ".join(decision.reasons),
+                })
     fanout_checks = _fanout_checks(sql, governed_metrics=governed_metrics, required_relationships=required_relationships, dialect=dialect) if sql else []
     time_checks = _time_checks(sql, required_time_plan=required_time_plan, dialect=dialect) if sql else []
     semantic_checks = metric_checks + grouping_checks + filter_checks + relationship_checks + join_policy_checks + fanout_checks + time_checks
