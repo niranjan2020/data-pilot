@@ -661,9 +661,26 @@ def assess_query_correctness(
     ) if sql else []
     filter_checks = _filter_checks(sql, required_filters=required_filters, dialect=dialect) if sql else []
     relationship_checks = _relationship_checks(sql, required_relationships=required_relationships, dialect=dialect) if sql else []
+    # Enforce the published join policy whenever the required relationship carries
+    # an explicit policy. This runs in the shared correctness gate on initial SQL
+    # and recovery attempts; it never rewrites an unsafe join.
+    from datapilot.application.join_policy_governance import validate_governed_join_policy
+    join_policy_checks = []
+    for relationship in required_relationships:
+        if "join_policy" not in relationship:
+            continue  # Legacy relationships are not implicitly treated as published.
+        name = str(relationship.get("name") or "relationship")
+        decision = validate_governed_join_policy(sql or "", relationship)
+        join_policy_checks.append({
+            "code": "join_policy_alignment" if decision.allowed else "join_policy_violation",
+            "status": "passed" if decision.allowed else "failed",
+            "severity": "info" if decision.allowed else "error",
+            "relationship": name,
+            "message": "Approved join policy is enforced." if decision.allowed else "; ".join(decision.reasons),
+        })
     fanout_checks = _fanout_checks(sql, governed_metrics=governed_metrics, required_relationships=required_relationships, dialect=dialect) if sql else []
     time_checks = _time_checks(sql, required_time_plan=required_time_plan, dialect=dialect) if sql else []
-    semantic_checks = metric_checks + grouping_checks + filter_checks + relationship_checks + fanout_checks + time_checks
+    semantic_checks = metric_checks + grouping_checks + filter_checks + relationship_checks + join_policy_checks + fanout_checks + time_checks
 
     if not governed:
         return semantic_checks + [{
