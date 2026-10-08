@@ -75,6 +75,7 @@ async def get_query_orchestrator(
             database = PostgreSQLDatabaseProvider(database_url=settings.default_database_url, pool_size=settings.database_pool_size, default_timeout_seconds=settings.database_query_timeout_seconds)
         else:
             raise ConfigurationError("Connect a datasource in setup before querying")
+        selected_datasets = (await setup_metadata.get_selected_datasets(active_source_id)) if active_source_id is not None else None
         saved_ai = await setup_metadata.get_ai_provider_configuration()
     finally:
         if owns_metadata:
@@ -127,6 +128,13 @@ async def get_query_orchestrator(
         relationship_publication_metadata=metadata_catalog,
     )
 
+    if active_source_id is not None:
+        # Selected physical datasets are authoritative, not the LLM prompt or
+        # caller-provided governed table names.
+        orchestrator._onboarding_allowed_tables = frozenset(
+            f"{item['schema_name']}.{item['table_name']}".lower()
+            for item in (selected_datasets or [])
+        )
     request.app.state.query_database = database
     request.app.state.query_semantic_catalog = semantic_catalog
     request.app.state.query_metadata_catalog = metadata_catalog
