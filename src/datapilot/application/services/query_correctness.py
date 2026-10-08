@@ -429,6 +429,11 @@ def _fanout_checks(
                         and all(isinstance(item, exp.Column) for item in grouping.expressions)
                         and len(grouping.expressions) == 1
                         and not inner.args.get("distinct")
+                        and not inner.args.get("having")
+                        and not inner.args.get("qualify")
+                        and not inner.args.get("limit")
+                        and not inner.args.get("offset")
+                        and not any(isinstance(node, exp.Window) for node in inner.walk())
                         and not inner.args.get("joins")
                         and not inner.args.get("with_")
                         and not any(isinstance(node, (exp.Subquery, exp.CTE, exp.Union)) for node in inner.walk()))
