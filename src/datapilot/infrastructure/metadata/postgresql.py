@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Optional
 
@@ -274,6 +275,8 @@ class PostgreSQLMetadataProvider(MetadataProvider):
         self._database_url = database_url
         self._pool_size = pool_size
         self._pool: Optional[AsyncConnectionPool] = None
+        self._initialized = False
+        self._initialize_lock = asyncio.Lock()
 
     async def _get_pool(self) -> AsyncConnectionPool:
         if self._pool is not None:
@@ -297,23 +300,34 @@ class PostgreSQLMetadataProvider(MetadataProvider):
         return pool
 
     async def initialize(self) -> None:
-        """Create the catalog tables if they do not exist."""
-        pool = await self._get_pool()
-        try:
-            async with pool.connection() as connection:
-                async with connection.transaction():
-                    async with connection.cursor() as cursor:
-                        for statement in _CATALOG_DDL.split(";"):
-                            statement = statement.strip()
-                            if statement:
-                                await cursor.execute(statement)
-        except DatabaseConnectionError:
-            raise
-        except Exception as exc:
-            raise MetadataError(
-                "Failed to initialize the Data Pilot metadata catalog",
-                details={"error_type": type(exc).__name__},
-            ) from exc
+        """Initialize the catalog once, serializing DDL across API workers."""
+        if self._initialized:
+            return
+        async with self._initialize_lock:
+            if self._initialized:
+                return
+            pool = await self._get_pool()
+            try:
+                async with pool.connection() as connection:
+                    async with connection.transaction():
+                        async with connection.cursor() as cursor:
+                            # Transaction-scoped advisory lock coordinates separate
+                            # provider instances/processes using the same database.
+                            await cursor.execute(
+                                "SELECT pg_advisory_xact_lock(1178946124, 20261008)"
+                            )
+                            for statement in _CATALOG_DDL.split(";"):
+                                statement = statement.strip()
+                                if statement:
+                                    await cursor.execute(statement)
+                self._initialized = True
+            except DatabaseConnectionError:
+                raise
+            except Exception as exc:
+                raise MetadataError(
+                    "Failed to initialize the Data Pilot metadata catalog",
+                    details={"error_type": type(exc).__name__},
+                ) from exc
 
     async def get_ai_provider_configuration(self) -> Optional[AIProviderConfiguration]:
         """Return persisted non-secret AI provider configuration."""
