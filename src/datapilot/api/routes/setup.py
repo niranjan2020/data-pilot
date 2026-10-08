@@ -438,6 +438,7 @@ async def preview_relationship_proposals(source_id: int, request: Request):
 
 
 class RelationshipReviewInput(BaseModel):
+    join_policy: str = "unconfigured"
     from_schema: str
     from_table: str
     from_column: str
@@ -468,6 +469,8 @@ async def save_relationship_review(source_id: int, payload: RelationshipReviewIn
         raise HTTPException(status_code=422, detail="Review must be approved or rejected.")
     if payload.cardinality not in {"many_to_one", "one_to_many", "one_to_one", "many_to_many", "unknown"}:
         raise HTTPException(status_code=422, detail="Invalid relationship cardinality.")
+    if payload.join_policy not in {"unconfigured", "preserve_source", "matched_only"}:
+        raise HTTPException(status_code=422, detail="Invalid join policy.")
     if payload.review_status == "approved" and payload.cardinality == "unknown":
         raise HTTPException(status_code=422, detail="Confirm cardinality before approving.")
     metadata, owns = await _setup_metadata(request)
