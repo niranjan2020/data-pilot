@@ -486,11 +486,19 @@ def _fanout_checks(
                     sources.append(join.this)
             return sources
 
+        # Every column used by every aggregate must resolve to the declared
+        # metric source. A matching column somewhere in an expression is not
+        # sufficient evidence (e.g. SUM(p.amount + p.other_amount)).
+        aggregates = list(tree.find_all(exp.AggFunc))
         aggregate_columns = [
-            column for aggregate in tree.find_all(exp.AggFunc)
+            column for aggregate in aggregates
             for column in aggregate.find_all(exp.Column)
-            if str(column.name).casefold() == source_column
         ]
+        direct_inputs = all(
+            len(list(aggregate.find_all(exp.Column))) == 1
+            and isinstance(aggregate.this, exp.Column)
+            for aggregate in aggregates
+        )
         resolved_columns = []
         for column in aggregate_columns:
             scope = select_scope(column)
@@ -504,14 +512,15 @@ def _fanout_checks(
             ]
             resolved_columns.append(
                 len(candidates) == 1
+                and str(column.name).casefold() == source_column
                 and str(candidates[0].name).casefold() == source_name
                 and (source_schema is None or str(candidates[0].db or "").casefold() == source_schema)
             )
-        verified = bool(aggregate_columns) and all(resolved_columns)
+        verified = bool(aggregates) and direct_inputs and bool(aggregate_columns) and all(resolved_columns)
         # A narrow derived-table case: SUM(d.metric_alias) over a direct
         # projection of one physical source column. No nested joins, stars,
         # expressions or ambiguous alias resolution are treated as proof.
-        if not verified:
+        if not verified and direct_inputs:
             # Derived projection names can differ from the physical column.
             # Check every aggregate input, not only names matching the source.
             derived_inputs = [
