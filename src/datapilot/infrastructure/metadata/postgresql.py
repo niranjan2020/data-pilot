@@ -449,6 +449,17 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                 candidates = await cursor.fetchall()
                 return candidates[0][0] if len(candidates) == 1 else None
 
+    async def list_saved_data_sources(self) -> list[dict]:
+        """Non-secret saved datasource identities for explicit onboarding recovery."""
+        await self.initialize()
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    "SELECT id, name, provider FROM datapilot_catalog.data_sources ORDER BY updated_at DESC, id DESC"
+                )
+                return [{"id": row[0], "name": row[1], "provider": row[2]} for row in await cursor.fetchall()]
+
     async def get_data_source(self, source_id: int) -> Optional[dict]:
         """Retrieve non-secret connection metadata for an explicitly selected source."""
         await self.initialize()
