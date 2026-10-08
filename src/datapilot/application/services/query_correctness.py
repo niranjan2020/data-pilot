@@ -650,7 +650,11 @@ def _fanout_checks(
             # Structural join-key evidence is scoped to an individual JOIN.
             # This is intentionally not a uniqueness/cardinality proof.
             joined_grain_keys = []
-            for join in tree.find_all(exp.Join):
+            # Only outer SELECT joins can contribute to outer-join coverage.
+            # Counting nested JOINs could make an uncovered outer join appear
+            # covered when their counts happen to match.
+            outer_joins = list(tree.args.get("joins") or []) if isinstance(tree, exp.Select) else []
+            for join in outer_joins:
                 derived = join.this
                 on = join.args.get("on")
                 if not isinstance(derived, exp.Subquery) or not isinstance(derived.this, exp.Select):
@@ -703,7 +707,6 @@ def _fanout_checks(
             # every JOIN in the outer SELECT has that structural evidence.
             # Nested JOINs, additional direct joins and other join types must
             # not silently inherit a single derived table's grain evidence.
-            outer_joins = list(tree.args.get("joins") or []) if isinstance(tree, exp.Select) else []
             all_outer_joins_covered = (
                 bool(outer_joins)
                 and len(joined_grain_keys) == len(outer_joins)
