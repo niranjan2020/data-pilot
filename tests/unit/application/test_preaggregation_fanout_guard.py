@@ -563,3 +563,37 @@ def test_derived_key_uniqueness_unverified_for_nested_join():
 def test_derived_key_uniqueness_unverified_with_limit():
     sql = SQL.replace("GROUP BY parent_id)", "GROUP BY parent_id LIMIT 1)")
     assert any(item["code"] == "fanout_derived_key_uniqueness_unverified" for item in checks(sql))
+
+
+def _governed_derived_checks(sql):
+    relationship = {**RELATIONSHIP, "from_schema": "demo", "from_table": "parents",
+                    "from_column": "id", "to_schema": "demo",
+                    "to_table": "children", "to_column": "parent_id"}
+    return assess_query_correctness(
+        sql=sql, affected_tables=["demo.parents", "demo.children"],
+        governed_tables=["demo.parents", "demo.children"],
+        governed_metrics=[METRIC], required_relationships=[relationship])
+
+
+def test_governed_derived_unique_key_matches_physical_relationship():
+    result = _governed_derived_checks(SQL)
+    evidence = next(item for item in result if item["code"] == "fanout_governed_derived_uniqueness_observed")
+    assert evidence["governed_derived_join_keys"] == ["p.id=c.parent_id"]
+    assert any(item["code"] == "join_fanout_violation" for item in result)
+
+
+def test_governed_derived_unique_key_rejects_wrong_physical_source():
+    sql = SQL.replace("FROM demo.children", "FROM demo.categories")
+    assert any(item["code"] == "fanout_governed_derived_uniqueness_unverified"
+               for item in _governed_derived_checks(sql))
+
+
+def test_governed_derived_unique_key_rejects_wrong_join_column():
+    sql = SQL.replace("ON p.id = c.parent_id", "ON p.other_id = c.parent_id")
+    assert any(item["code"] == "fanout_governed_derived_uniqueness_unverified"
+               for item in _governed_derived_checks(sql))
+
+
+def test_governed_derived_unique_key_rejects_missing_metadata():
+    assert any(item["code"] == "fanout_governed_derived_uniqueness_unverified"
+               for item in checks(SQL))
