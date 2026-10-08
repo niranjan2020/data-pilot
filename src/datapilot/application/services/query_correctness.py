@@ -508,6 +508,55 @@ def _fanout_checks(
                 and (source_schema is None or str(candidates[0].db or "").casefold() == source_schema)
             )
         verified = bool(aggregate_columns) and all(resolved_columns)
+        # A narrow derived-table case: SUM(d.metric_alias) over a direct
+        # projection of one physical source column. No nested joins, stars,
+        # expressions or ambiguous alias resolution are treated as proof.
+        if not verified and aggregate_columns:
+            derived_resolutions = []
+            for column in aggregate_columns:
+                scope = select_scope(column)
+                alias = str(column.table or "").casefold()
+                outer_from = scope.args.get("from_") if scope is not None else None
+                derived = outer_from.this if outer_from is not None else None
+                if (
+                    not isinstance(derived, exp.Subquery)
+                    or str(derived.alias_or_name or "").casefold() != alias
+                    or not isinstance(derived.this, exp.Select)
+                    or scope.args.get("joins")
+                ):
+                    derived_resolutions.append(False)
+                    continue
+                inner = derived.this
+                inner_from = inner.args.get("from_")
+                physical = inner_from.this if inner_from is not None else None
+                if (
+                    not isinstance(physical, exp.Table)
+                    or inner.args.get("joins")
+                    or inner.args.get("with_")
+                    or inner.args.get("group")
+                    or inner.args.get("distinct")
+                    or inner.args.get("limit")
+                    or inner.args.get("offset")
+                    or any(isinstance(node, (exp.Subquery, exp.CTE, exp.Union, exp.AggFunc, exp.Window))
+                           for node in inner.walk())
+                ):
+                    derived_resolutions.append(False)
+                    continue
+                projections = [
+                    projection for projection in inner.expressions
+                    if str(projection.alias_or_name or "").casefold() == str(column.name).casefold()
+                ]
+                projected = projections[0] if len(projections) == 1 else None
+                projected_column = projected.this if isinstance(projected, exp.Alias) else projected
+                derived_resolutions.append(
+                    len(projections) == 1
+                    and isinstance(projected_column, exp.Column)
+                    and str(projected_column.name).casefold() == source_column
+                    and str(projected_column.table or "").casefold() == str(physical.alias_or_name).casefold()
+                    and str(physical.name).casefold() == source_name
+                    and (source_schema is None or str(physical.db or "").casefold() == source_schema)
+                )
+            verified = bool(derived_resolutions) and all(derived_resolutions)
         lineage_checks.append({
             "code": "metric_lineage_alignment" if verified else "metric_lineage_unverified",
             "status": "passed" if verified else "skipped",
