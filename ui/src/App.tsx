@@ -93,6 +93,7 @@ export function App(){
  const [playgroundTab,setPlaygroundTab]=useState<"query"|"history">("query");
  const [followUpTo,setFollowUpTo]=useState<{id:number;question:string}|null>(null);
  const [savedSourceId,setSavedSourceId]=useState<number|null>(null);
+ const [savedSourceName,setSavedSourceName]=useState("");
  const [sourceRestoreError,setSourceRestoreError]=useState("");
  useEffect(()=>{
   let cancelled=false;
@@ -106,7 +107,7 @@ export function App(){
     const catalog=await catalogResponse.json();
     if(cancelled)return;
     setSavedSourceId(source.id);
-    setForm(previous=>({...previous,name:source.name,password:""}));
+    setSavedSourceName(source.name);
     const bySchema=new Map<string,any[]>();
     for(const table of catalog.datasets||[]){
      const list=bySchema.get(table.schema_name)||[];
@@ -168,11 +169,11 @@ export function App(){
  return <div className="shell"><aside><div className="brand"><div className="mark">DP</div><div><strong>Data Pilot</strong><span>Admin Studio</span></div></div>
  <nav>{sections.map(([name,Icon])=><button className={active===name?"active":""} onClick={()=>{setActive(name);if(name==="AI Provider")loadAiConfig();if(name==="Semantic Model"){loadSemantic();loadDatasets()}if(name==="Metrics")loadMetrics();if(name==="Business Rules")loadRules();if(name==="Time Semantics")loadTimeDimensions();if(name==="Query Playground")loadQueryHistory()}} key={name}><Icon size={18}/>{name}</button>)}</nav><div className="asideFoot"><Settings2 size={17}/>Local development</div></aside>
  <main><header><div><p className="eyebrow">OPEN-SOURCE CORE</p><h1>{active}</h1></div><div className="status"><i/>{schemas.length?"Schema discovered":"Local configuration"}</div></header>
- <section className="intro"><h2>{sections.find(x=>x[0]===active)?.[2]}</h2><p>Configure and inspect Data Pilot without editing source code. Connection credentials are used for this browser session and are not persisted by these endpoints.</p></section>
- {savedSourceId!==null&&<p className="notice">Active saved datasource: <strong>{form.name}</strong> · Discovered schema restored from onboarding. Credentials remain securely stored by the setup service.</p>}
+ <section className="intro"><h2>{sections.find(x=>x[0]===active)?.[2]}</h2><p>Configure and inspect Data Pilot without editing source code. The connection form below is for testing a new connection. Saved onboarding credentials are managed separately and are never displayed here.</p></section>
+ {savedSourceId!==null&&<p className="notice">Active saved datasource: <strong>{savedSourceName}</strong> · Discovered schema restored from onboarding. Credentials remain securely stored by the setup service.</p>}
  {sourceRestoreError&&<p className="notice">{sourceRestoreError}</p>}
  {active==="AI Provider"&&<section className="grid"><article className="wide"><h3>Saved AI provider</h3><p>Update your Gemini key without resetting Astra onboarding. The key is sent only to the setup API and is never displayed again.</p><p>Credential: <strong>{aiConfig.credential_configured?"Available":"Missing — update required"}</strong></p><div className="semanticForm"><label>Provider<input value={aiConfig.provider} disabled readOnly/></label><label>Model<input value={aiConfig.model} onChange={e=>setAiConfig({...aiConfig,model:e.target.value})}/></label><label>Gemini API key<input type="password" autoComplete="new-password" value={aiKey} onChange={e=>setAiKey(e.target.value)} placeholder="Enter a new API key to replace missing credential"/></label></div><div className="actions"><button className="primary" disabled={aiBusy||!aiConfig.model.trim()||(!aiConfig.credential_configured&&!aiKey.trim())} onClick={saveAiConfig}>{aiBusy?"Saving…":"Save AI provider"}</button><button className="secondary" disabled={aiBusy} onClick={loadAiConfig}>Refresh status</button></div>{aiMessage&&<p className="notice">{aiMessage}</p>}</article></section>}
- {active==="Data Sources"&&<section className="grid"><article className="wide"><div className="cardTitle"><Database size={20}/><h3>PostgreSQL connection</h3><span>Development</span></div>
+ {active==="Data Sources"&&<section className="grid"><article className="wide"><div className="cardTitle"><Database size={20}/><h3>Test another PostgreSQL connection</h3><span>Development</span></div>
  <div className="formGrid"><label>Name<input value={form.name} onChange={e=>update("name",e.target.value)}/></label><label>Host<input value={form.host} onChange={e=>update("host",e.target.value)}/></label>
  <label>Port<input type="number" value={form.port} onChange={e=>update("port",Number(e.target.value))}/></label><label>Database<input value={form.database} onChange={e=>update("database",e.target.value)}/></label>
  <label>Username<input value={form.username} onChange={e=>update("username",e.target.value)}/></label><label>Password<input type="password" value={form.password} onChange={e=>update("password",e.target.value)}/></label></div>
