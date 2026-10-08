@@ -865,18 +865,46 @@ class QueryOrchestrator:
                 for table in physical_tables
             }
             valid_qualifiers.update(table.name.casefold() for table in physical_tables)
-            invalid_qualifiers = sorted({
-                column.table for column in statements[0].find_all(exp.Column)
+            invalid_columns = [
+                column for column in statements[0].find_all(exp.Column)
                 if column.table and column.table.casefold() not in valid_qualifiers
-            })
-            if invalid_qualifiers:
+            ]
+            # The generator sometimes uses the schema as a column qualifier:
+            # astra."id" FROM astra.vessels. This is repairable only for a
+            # single physical table in the same schema, with no other tables
+            # or nested scopes that could change column ownership.
+            repaired_sql = None
+            if invalid_columns and len(physical_tables) == 1 and not any(
+                isinstance(node, (exp.Subquery, exp.CTE, exp.Join, exp.Union))
+                for node in statements[0].walk()
+            ):
+                only_table = physical_tables[0]
+                if only_table.db and all(
+                    column.table.casefold() == only_table.db.casefold()
+                    and not column.db and not column.catalog
+                    for column in invalid_columns
+                ):
+                    for column in invalid_columns:
+                        column.set("table", exp.to_identifier(only_table.alias_or_name))
+                    repaired_sql = statements[0].sql(dialect="postgres")
+                    # Never execute a rewrite without passing the same safety
+                    # validator again. The original validator result is stale.
+                    repaired_validation = await self._validator.validate(
+                        repaired_sql, dialect=self._database.dialect,
+                        enforce_read_only=True,
+                    )
+                    if not repaired_validation.is_valid:
+                        repaired_sql = None
+                    else:
+                        validation = repaired_validation
+            if invalid_columns and repaired_sql is None:
                 raise SQLValidationError(
                     "Generated SQL contains an invalid column qualifier",
                     details={"checks": [{
                         "code": "sql_identifier_qualifier_violation",
                         "status": "failed", "severity": "error",
                         "message": "Unknown table aliases or column qualifiers: "
-                                   + ", ".join(invalid_qualifiers),
+                                   + ", ".join(sorted({c.table for c in invalid_columns})),
                     }]},
                 )
             unauthorized = sorted(actual_tables - allowed_tables)
