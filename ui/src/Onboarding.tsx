@@ -19,6 +19,14 @@ export function Onboarding({onReady}:{onReady:()=>void}){
   const next:SetupStatus=await response.json();setStatus(next);if(next.ready)onReady();
  }
  useEffect(()=>{refresh().catch(e=>setError(String(e.message||e)))},[]);
+ useEffect(()=>{
+  if(status?.current_step!=="data_selection"||savedSourceId!==null)return;
+  fetch("/api/setup/data-source/active").then(async response=>{
+   if(!response.ok)throw new Error("No saved datasource found. Please check your setup.");
+   const source=await response.json();setSavedSourceId(source.id);
+  }).catch(e=>setError(String(e.message||e)));
+ },[status?.current_step,savedSourceId]);
+
  async function validateProvider(e:React.FormEvent){
   e.preventDefault();setBusy(true);setError("");
   try{
