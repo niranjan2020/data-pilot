@@ -11,6 +11,10 @@ export function Onboarding({onReady}:{onReady:()=>void}){
  const [apiKey,setApiKey]=useState("");
  const [db,setDb]=useState({name:"My Database",host:"host.docker.internal",port:5432,database:"postgres",username:"postgres",password:"",sslmode:"prefer"});
  const [dbTested,setDbTested]=useState(false);
+ const [catalog,setCatalog]=useState<{schema_name:string;table_name:string;columns:{name:string;is_primary_key:boolean}[]}[]>([]);
+ const [selected,setSelected]=useState<string[]>([]);
+ const [schemaFilter,setSchemaFilter]=useState("all");
+
  const [savedSourceId,setSavedSourceId]=useState<number|null>(null);
  const [savedSources,setSavedSources]=useState<{id:number;name:string;provider:string}[]>([]);
  const [candidateId,setCandidateId]=useState<number|null>(null);
@@ -36,6 +40,12 @@ export function Onboarding({onReady}:{onReady:()=>void}){
    }catch(e:any){setError(e.message||"Unable to restore saved databases")}
   });
  },[status?.current_step,savedSourceId]);
+ useEffect(()=>{
+  if(status?.current_step==="data_selection"&&savedSourceId!==null){
+   loadDatasets(savedSourceId).catch(()=>{});
+  }
+ },[status?.current_step,savedSourceId]);
+
 
  async function validateProvider(e:React.FormEvent){
   e.preventDefault();setBusy(true);setError("");
@@ -75,13 +85,32 @@ export function Onboarding({onReady}:{onReady:()=>void}){
   }catch(e:any){setError(e.message||"Unable to activate saved database")}
   finally{setBusy(false)}
  }
+ const datasetKey=(schema:string,table:string)=>JSON.stringify([schema,table]);
+ async function loadDatasets(sourceId:number){
+  const response=await fetch("/api/setup/data-source/"+sourceId+"/datasets");
+  if(!response.ok)throw new Error("Unable to load discovered datasets.");
+  const data=await response.json();
+  setCatalog(data.datasets);
+  setSelected(data.selected.map((s:{schema_name:string;table_name:string})=>datasetKey(s.schema_name,s.table_name)));
+ }
+ async function approveDatasets(){
+  if(savedSourceId===null||selected.length===0)return;
+  setBusy(true);setError("");
+  try{
+   const datasets=selected.map(key=>{const [schema_name,table_name]=JSON.parse(key);return {schema_name,table_name}});
+   const response=await fetch("/api/setup/data-source/"+savedSourceId+"/datasets",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({datasets})});
+   if(!response.ok)throw new Error("Unable to save dataset selection.");
+   await refresh();
+  }catch(e:any){setError(e.message||"Selection failed")}
+  finally{setBusy(false)}
+ }
  async function discoverSavedDatabase(){
   if(savedSourceId===null)return;
   setBusy(true);setError("");
   try{
    const response=await fetch("/api/setup/data-source/"+savedSourceId+"/discover",{method:"POST"});
    if(!response.ok)throw new Error("Discovery failed. Check the saved database connection.");
-   setDiscovery(await response.json());
+   setDiscovery(await response.json());await loadDatasets(savedSourceId);
   }catch(e:any){setError(e.message||"Discovery failed")}
   finally{setBusy(false)}
  }
@@ -105,7 +134,13 @@ export function Onboarding({onReady}:{onReady:()=>void}){
    <button type="submit" disabled={busy}>{busy?"Testing…":"Test connection"}</button>
    {dbTested&&<div><p role="status">Connection successful. Save this connection to continue.</p><button type="button" disabled={busy} onClick={saveDatabase}>{busy?"Saving…":"Save & Continue"}</button></div>}
   </form>}
-  {status?.current_step==="data_selection"&&<div className="onboardingForm"><h2>3. Discover & select</h2><p>Discover the saved database without entering credentials again. Dataset approval will follow.</p>{savedSourceId!==null?<button disabled={busy} onClick={discoverSavedDatabase}>{busy?"Discovering…":"Discover saved database"}</button>:<div><p>Select the saved database to continue without re-entering credentials.</p>{savedSources.length>0?<><label>Saved database<select value={candidateId??""} onChange={e=>setCandidateId(Number(e.target.value))}>{savedSources.map(s=><option key={s.id} value={s.id}>{s.name} ({s.provider})</option>)}</select></label><button disabled={busy||candidateId===null} onClick={activateSavedDatabase}>{busy?"Connecting…":"Use saved database"}</button></>:<p>Checking saved database connections…</p>}</div>}{discovery&&<p role="status">Discovered {discovery.tables} tables across {discovery.schemas.length} schemas. Dataset selection is not enabled yet.</p>}</div>}
+  {status?.current_step==="data_selection"&&<div className="onboardingForm"><h2>3. Discover & select</h2><p>Discover the saved database without entering credentials again. Dataset approval will follow.</p>{savedSourceId!==null?<button disabled={busy} onClick={discoverSavedDatabase}>{busy?"Discovering…":"Discover saved database"}</button>:<div><p>Select the saved database to continue without re-entering credentials.</p>{savedSources.length>0?<><label>Saved database<select value={candidateId??""} onChange={e=>setCandidateId(Number(e.target.value))}>{savedSources.map(s=><option key={s.id} value={s.id}>{s.name} ({s.provider})</option>)}</select></label><button disabled={busy||candidateId===null} onClick={activateSavedDatabase}>{busy?"Connecting…":"Use saved database"}</button></>:<p>Checking saved database connections…</p>}</div>}{discovery&&<p role="status">Discovered {discovery.tables} tables across {discovery.schemas.length} schemas.</p>}
+ {catalog.length>0&&<div style={{marginTop:20}}><h3>Select datasets ({selected.length} selected)</h3>
+ <p>Choose only the tables needed for your first questions. You can expand the selection later.</p>
+ <label>Schema<select value={schemaFilter} onChange={e=>setSchemaFilter(e.target.value)}><option value="all">All schemas</option>{Array.from(new Set(catalog.map(t=>t.schema_name))).sort().map(s=><option key={s} value={s}>{s}</option>)}</select></label>
+ <div style={{maxHeight:300,overflowY:"auto",border:"1px solid #e4e7ec",borderRadius:8,padding:12}}>
+ {catalog.filter(t=>schemaFilter==="all"||t.schema_name===schemaFilter).map(t=>{const key=datasetKey(t.schema_name,t.table_name);return <label key={key} style={{display:"flex",alignItems:"center",gap:8,margin:"7px 0"}}><input style={{width:16,margin:0}} type="checkbox" checked={selected.includes(key)} onChange={e=>setSelected(v=>e.target.checked?[...v,key]:v.filter(k=>k!==key))}/><span>{t.schema_name}.{t.table_name} <small>({t.columns.length} columns; {t.columns.filter(col=>col.is_primary_key).length} PK)</small></span></label>})}
+ </div><button type="button" disabled={busy||selected.length===0} onClick={approveDatasets} style={{marginTop:15}}>{busy?"Saving…":"Approve selected datasets & continue"}</button></div>}</div>}
   {status&&status.current_step!=="ai_provider"&&status.current_step!=="data_source"&&status.current_step!=="data_selection"&&!status.ready&&<div className="onboardingForm"><h2>{labels[status.current_step]||"Continue setup"}</h2><p>This onboarding action is scheduled for the next Stage C implementation. Your progress is persisted across restarts.</p><button onClick={()=>refresh().catch(e=>setError(String(e.message||e)))}>Refresh setup status</button></div>}
   {error&&<div className="onboardingError" role="alert">{error} <button type="button" onClick={()=>refresh().then(()=>setError("")).catch(e=>setError(String(e.message||e)))}>Retry</button></div>}
  </div></div>
