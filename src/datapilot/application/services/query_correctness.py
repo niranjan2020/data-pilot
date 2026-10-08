@@ -672,6 +672,28 @@ def _fanout_checks(
                                     matching_edges.append(f"{from_alias}.{from_column}={to_alias}.{to_column}")
                     if isinstance(target, exp.Table):
                         introduced.append(target)
+            # A key match is only attributable to a unique physical edge.
+            # Repeated tables and aliases across outer joins are ambiguous,
+            # even when one equality happens to match the catalog.
+            if matching_edges and isinstance(tree, exp.Select):
+                root_clause = tree.args.get("from_")
+                root_table = root_clause.this if root_clause is not None else None
+                outer_tables = ([root_table] if isinstance(root_table, exp.Table) else []) + [
+                    edge.this for edge in tree.args.get("joins") or []
+                    if isinstance(edge.this, exp.Table)
+                ]
+                identities = [
+                    (str(table.db or "").casefold(), str(table.name).casefold())
+                    for table in outer_tables
+                ]
+                aliases = [str(table.alias_or_name).casefold() for table in outer_tables]
+                if (
+                    len(set(identities)) != len(identities)
+                    or len(set(aliases)) != len(aliases)
+                    or identities.count((from_schema, from_table)) != 1
+                    or identities.count((to_schema, to_table)) != 1
+                ):
+                    matching_edges = []
             checks.append({
                 "code": "fanout_relationship_keys_matched"
                 if len(matching_edges) == 1 else "fanout_relationship_keys_unverified",
