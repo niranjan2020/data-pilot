@@ -28,6 +28,14 @@ class ForeignKeyMetadata(BaseModel):
     referenced_column: str = Field(description="Target referenced column name")
 
 
+class UniqueConstraintMetadata(BaseModel):
+    """Discovered physical uniqueness evidence; never a semantic approval."""
+
+    name: str
+    columns: List[str] = Field(default_factory=list)
+    is_primary_key: bool = False
+
+
 class TableMetadata(BaseModel):
     """Metadata describing a database table or view and its schema."""
 
@@ -37,6 +45,7 @@ class TableMetadata(BaseModel):
     columns: List[ColumnMetadata] = Field(default_factory=list, description="List of columns in this table")
     primary_keys: List[str] = Field(default_factory=list, description="Primary key column names")
     foreign_keys: List[ForeignKeyMetadata] = Field(default_factory=list, description="Foreign key relationships")
+    unique_constraints: List[UniqueConstraintMetadata] = Field(default_factory=list, description="Physical PK/UNIQUE constraints discovered from the source database")
 
     def get_column(self, name: str) -> Optional[ColumnMetadata]:
         """Lookup a column by name (case-insensitive)."""
