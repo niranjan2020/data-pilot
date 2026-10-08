@@ -7,7 +7,7 @@
 **Last updated:** 2026-10-08  
 **Current focus:** Core OSS — Stage C2: one-command local deployment  
 **Current semantic evaluation baseline:** 39/39 passed (100.0%) through the live production pipeline after B4 dialect isolation (p50 2.986 s, p95 4.249 s).  
-**Current unit regression baseline:** **976 passed** (user-verified 2026-10-08, `git pull && python -m pytest tests/unit -q`, at commit `4d011a5`). Full integration/evaluation suite and clean-machine onboarding are not verified by this count.
+**Current unit regression baseline:** **995 passed** (user-verified 2026-10-08, `git pull && python -m pytest tests/unit -q`, before subsequent metadata/UI fixes). Full integration/evaluation suite and clean-machine onboarding are not verified by this count.
 
 ---
 
@@ -16,7 +16,7 @@
 **Primary active milestone: C2 — one-command local deployment.** C1 is complete. C2–C8 remain open until their individual exit criteria are demonstrated; a green unit suite does not establish that Docker startup, onboarding, or first-answer time targets work on a clean machine.
 
 **Verified checkpoints**
-- Latest user-executed unit suite: **976 passed** (`git pull && python -m pytest tests/unit -q`, commit `4d011a5`).
+- Latest user-executed unit suite: **995 passed** (2026-10-08, before subsequent metadata/UI fixes; rerun required).
 - Last recorded live semantic evaluation: **39/39 passed**, after B4; **not rerun** at the 976-test checkpoint.
 - Stage A and documented B1–B4 milestones remain complete as recorded below. Preserve existing B5/B6 status where documented; do not infer completion from test growth.
 - C1 onboarding contract and persisted state: complete. C2 deployment: active; clean-machine exit gate not yet demonstrated.
@@ -46,6 +46,14 @@
 - Add negative and positive regression/evaluation cases for current versus historical questions, missing/wrong filters, join placement, and accidental leakage of inactive rows.
 - **Dependency:** complete C2 clean-install gate first; schedule this alongside C4–C5 discovery and semantic approval. Value discovery/canonical value resolution remain C4–C5 backlog as well.
 - **Status:** requirements recorded; runtime enforcement NOT implemented.
+
+**Next C2 acceptance checkpoint — local stack smoke test**
+
+- User has confirmed the Astra semantic datasets API responds after catalog-initialization deadlock mitigation; this is **not** evidence of a clean-install pass.
+- On the current Windows installation, verify Compose service health and HTTP liveness/readiness separately; collect response status and JSON for `/health/ready` and `/api/setup/readiness`.
+- Confirm existing persisted semantic configuration survives `docker compose up --build -d --wait` (without removing volumes).
+- Record any failing container healthchecks, startup/migration errors, and API/UI routing errors before attempting C3.
+- A successful existing-install smoke test is an intermediate C2 checkpoint; fresh-volume clean-install and first-run Welcome screen remain exit gates.
 
 **Priority order (avoid indefinite correctness-only iteration)**
 1. **C2 now:** verify Compose startup, dependency health, migrations, first-run Welcome screen, and actionable startup errors on a clean supported machine. Record the actual command and observed outcomes.
