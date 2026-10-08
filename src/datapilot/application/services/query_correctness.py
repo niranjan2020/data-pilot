@@ -397,6 +397,44 @@ def _fanout_checks(
             "message": "Join fan-out verification could not parse the validated SQL.",
         }]
 
+    # Verify the join grain of a simple aggregated derived table. This is
+    # diagnostic evidence only, not a waiver of governed fan-out violations.
+    for join in tree.find_all(exp.Join):
+        derived = join.this
+        if not isinstance(derived, exp.Subquery) or not isinstance(derived.this, exp.Select):
+            continue
+        inner = derived.this
+        if not inner.args.get("group") and not inner.find(exp.AggFunc):
+            continue
+        alias = str(derived.alias_or_name or "").casefold()
+        on = join.args.get("on")
+        joined_key = None
+        if isinstance(on, exp.EQ):
+            for left, right in ((on.left, on.right), (on.right, on.left)):
+                if isinstance(left, exp.Column) and isinstance(right, exp.Column) and str(left.table or "").casefold() == alias:
+                    joined_key = str(left.name).casefold()
+                    break
+        projected_keys = set()
+        for projection in inner.expressions:
+            if isinstance(projection, exp.Column):
+                projected_keys.add((str(projection.alias_or_name).casefold(), str(projection.name).casefold()))
+            elif isinstance(projection, exp.Alias) and isinstance(projection.this, exp.Column):
+                projected_keys.add((str(projection.alias).casefold(), str(projection.this.name).casefold()))
+        grouping = inner.args.get("group")
+        grouped_columns = {str(col.name).casefold() for col in grouping.expressions if isinstance(col, exp.Column)} if grouping else set()
+        grain_proven = bool(joined_key and any(alias_name == joined_key and physical_name in grouped_columns for alias_name, physical_name in projected_keys))
+        # Require a simple column-only GROUP BY and prohibit DISTINCT / grouping sets.
+        grain_proven = grain_proven and bool(grouping) and all(isinstance(item, exp.Column) for item in grouping.expressions) and len(grouping.expressions) == 1 and not inner.args.get("distinct")
+        return_check = {
+            "code": "preaggregation_grain_alignment" if grain_proven else "preaggregation_grain_unverified",
+            "status": "passed" if grain_proven else "skipped",
+            "severity": "info",
+            "message": "Derived dataset is grouped by its projected join key." if grain_proven else "Derived dataset join-key uniqueness was not established.",
+        }
+        break
+    else:
+        return_check = None
+
     # Do not mark a pre-aggregated plan safe merely because it is nested.
     # Cardinality checks below still apply; a separate grain proof is needed
     # before allowing otherwise risky one-to-many aggregation.
@@ -451,9 +489,9 @@ def _fanout_checks(
             })
 
     if checks:
-        return checks
+        return ([return_check] if return_check else []) + checks
 
-    return [{
+    return ([return_check] if return_check else []) + [{
         "code": "join_fanout_alignment",
         "status": "passed",
         "severity": "info",
