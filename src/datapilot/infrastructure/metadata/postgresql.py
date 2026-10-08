@@ -677,6 +677,89 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                           "verified_at": row[2].isoformat()}
                 return record if verification_matches_review(review, record) else None
 
+    async def publish_reviewed_relationship(self, data_source_id: int, review: dict) -> bool:
+        """Atomically publish only a fresh, unchanged verified review.
+
+        This persists publication intent; it does NOT activate query joins.
+        SQL consumers must independently enforce the approved physical join.
+        """
+        from datapilot.application.relationship_evidence import review_fingerprint
+        from datapilot.application.relationship_freshness import assess_verification_freshness
+        from datapilot.application.relationship_publication import assess_relationship_publication
+        import json
+
+        await self.list_reviewed_relationships(data_source_id)
+        pool = await self._get_pool()
+        keys = ("from_schema", "from_table", "from_column",
+                "to_schema", "to_table", "to_column")
+        async with pool.connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS datapilot_catalog.relationship_publications (
+                        data_source_id BIGINT NOT NULL REFERENCES datapilot_catalog.data_sources(id) ON DELETE CASCADE,
+                        from_schema TEXT NOT NULL, from_table TEXT NOT NULL, from_column TEXT NOT NULL,
+                        to_schema TEXT NOT NULL, to_table TEXT NOT NULL, to_column TEXT NOT NULL,
+                        review_fingerprint TEXT NOT NULL,
+                        verification_fingerprint TEXT NOT NULL,
+                        published_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        PRIMARY KEY (data_source_id, from_schema, from_table, from_column,
+                                     to_schema, to_table, to_column)
+                    )
+                """)
+                await cursor.execute("""
+                    SELECT cardinality, review_status, join_policy
+                    FROM datapilot_catalog.reviewed_relationships
+                    WHERE data_source_id=%s AND from_schema=%s AND from_table=%s
+                      AND from_column=%s AND to_schema=%s AND to_table=%s AND to_column=%s
+                    FOR UPDATE
+                """, (data_source_id, *(review[k] for k in keys)))
+                row = await cursor.fetchone()
+                if row is None:
+                    return False
+                persisted = {**{k: review[k] for k in keys},
+                             "cardinality": row[0], "review_status": row[1], "join_policy": row[2]}
+                fingerprint = review_fingerprint(persisted)
+                if fingerprint != review_fingerprint(review):
+                    return False
+                await cursor.execute("""
+                    SELECT review_fingerprint, evidence, verified_at
+                    FROM datapilot_catalog.relationship_verifications
+                    WHERE data_source_id=%s AND from_schema=%s AND from_table=%s
+                      AND from_column=%s AND to_schema=%s AND to_table=%s AND to_column=%s
+                    FOR UPDATE
+                """, (data_source_id, *(review[k] for k in keys)))
+                verified = await cursor.fetchone()
+                if verified is None:
+                    return False
+                evidence = {**verified[1], "review_fingerprint": verified[0],
+                            "verified_at": verified[2].isoformat()}
+                if not assess_verification_freshness(persisted, evidence).current:
+                    return False
+                eligible = assess_relationship_publication(
+                    persisted,
+                    structural_valid=evidence.get("structurally_valid") is True,
+                    live_cardinality_verified=evidence.get("live_cardinality_verified") is True,
+                    cardinality_holds=evidence.get("cardinality_holds") is True,
+                    referential_integrity_checked=evidence.get("referential_integrity_checked") is True,
+                    unmatched_references=evidence.get("unmatched_references"),
+                    nullable_references=evidence.get("nullable_references"),
+                    policy_enforced_by_sql_governance=True,
+                )
+                if not eligible.eligible:
+                    return False
+                await cursor.execute("""
+                    INSERT INTO datapilot_catalog.relationship_publications
+                    (data_source_id, from_schema, from_table, from_column, to_schema,
+                     to_table, to_column, review_fingerprint, verification_fingerprint)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (data_source_id, from_schema, from_table, from_column,
+                                 to_schema, to_table, to_column)
+                    DO UPDATE SET review_fingerprint=EXCLUDED.review_fingerprint,
+                                  verification_fingerprint=EXCLUDED.verification_fingerprint,
+                                  published_at=NOW()
+                """, (data_source_id, *(review[k] for k in keys), fingerprint, verified[0]))
+                return True
+
     async def list_catalog_foreign_keys(self, data_source_id: int) -> list[dict]:
         """Return declared constraints from the latest discovered snapshots only."""
         await self.initialize()
