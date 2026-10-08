@@ -1030,6 +1030,62 @@ def _fanout_checks(
                     "The outer join graph contains an unverified edge or alias."
                 ),
             })
+            # Prove local right-hand uniqueness only for grouped derived
+            # relations with one projected grouping key. Match each equality
+            # to an already introduced alias and a fresh derived alias.
+            # A row-preserving LEFT join still needs metric provenance; this
+            # evidence is intentionally not a fan-out waiver.
+            introduced_unique = set()
+            root_clause = tree.args.get("from_") if isinstance(tree, exp.Select) else None
+            root_source = root_clause.this if root_clause is not None else None
+            if isinstance(root_source, exp.Table):
+                introduced_unique.add(str(root_source.alias_or_name).casefold())
+            unique_join_edges = []
+            for edge in outer_joins:
+                derived = edge.this
+                predicate = edge.args.get("on")
+                alias = str(derived.alias_or_name or "").casefold() if derived is not None else ""
+                valid = False
+                if (
+                    alias and alias not in introduced_unique
+                    and isinstance(derived, exp.Subquery)
+                    and isinstance(derived.this, exp.Select)
+                    and isinstance(predicate, exp.EQ)
+                    and isinstance(predicate.left, exp.Column)
+                    and isinstance(predicate.right, exp.Column)
+                ):
+                    for new_key, existing_key in (
+                        (predicate.left, predicate.right),
+                        (predicate.right, predicate.left),
+                    ):
+                        if (
+                            str(new_key.table or "").casefold() == alias
+                            and str(existing_key.table or "").casefold() in introduced_unique
+                            and f"{alias}.{str(new_key.name).casefold()}" in unique_derived_keys
+                        ):
+                            valid = True
+                            break
+                unique_join_edges.append({"alias": alias, "unique_right_key": valid})
+                if valid:
+                    introduced_unique.add(alias)
+            unique_chain = bool(outer_joins) and all(
+                item["unique_right_key"] for item in unique_join_edges
+            )
+            checks.append({
+                "code": "fanout_unique_right_join_chain_observed"
+                if unique_chain else "fanout_unique_right_join_chain_incomplete",
+                "status": "passed" if unique_chain else "skipped",
+                "severity": "info",
+                "metric": metric_name,
+                "relationship": relationship.get("name"),
+                "unique_join_edges": unique_join_edges,
+                "message": (
+                    "Each joined derived relation has local uniqueness on its right-hand "
+                    "join key; metric cardinality still requires provenance verification."
+                    if unique_chain else
+                    "One or more joined relations lack a verified unique right-hand key."
+                ),
+            })
             # Explicitly classify outer join types for cardinality review.
             # INNER/LEFT joins can be non-multiplying with a unique right
             # key; RIGHT/FULL/CROSS and implicit joins need separate proofs.
