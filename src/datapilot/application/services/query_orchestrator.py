@@ -828,11 +828,8 @@ class QueryOrchestrator:
                             "message": "; ".join(authorization.reasons),
                         }]},
                     )
-                # Do not query the publication catalog twice: use exactly the
-                # grant snapshot validated above.
-                trusted_published_relationships = list(
-                    await publication_metadata.list_current_relationship_publications(source_id)
-                )
+                # Reuse the exact grants checked against the SQL AST.
+                trusted_published_relationships = list(authorization.verified_grants)
 
         correctness_checks = assess_query_correctness(
             affected_tables=validation.affected_tables,
