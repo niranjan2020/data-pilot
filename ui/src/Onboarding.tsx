@@ -254,7 +254,7 @@ export function Onboarding({onReady}:{onReady:()=>void}){
  <strong>{verificationResults[relationshipKey(rel)].structurally_valid&&verificationResults[relationshipKey(rel)].live_cardinality_verified&&verificationResults[relationshipKey(rel)].cardinality_holds?"Live cardinality verified":"Relationship not verified"}</strong>
  <p>{verificationResults[relationshipKey(rel)].reasons?.length?verificationResults[relationshipKey(rel)].reasons.join(" "):"Structural and live checks completed."}</p>
  <small>Verification does not publish or activate this join.</small>
- </div>
+ </div>}
  </div>)}</div>}
  <p>Human review decisions are saved separately. Reviewed relationships are not yet activated for SQL generation.</p>
  </section>
