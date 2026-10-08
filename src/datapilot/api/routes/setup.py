@@ -1,6 +1,8 @@
 """First-run onboarding status API."""
 
 import logging
+import hashlib
+import json
 
 _logger = logging.getLogger("datapilot.setup")
 
@@ -270,6 +272,11 @@ async def discover_saved_source(source_id: int, request: Request) -> SavedDiscov
             schemas = [await provider.introspect_schema(name) for name in names]
             stage = "metadata_persistence"
             for schema in schemas:
+                # Deterministic schema fingerprint: identical structures reuse snapshots.
+                payload = schema.model_dump(mode="json", exclude={"version"})
+                schema.version = hashlib.sha256(
+                    json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode()
+                ).hexdigest()[:24]
                 await metadata.save_schema(schema, data_source_id=source_id)
             return SavedDiscoveryResponse(
                 data_source_id=source_id,
