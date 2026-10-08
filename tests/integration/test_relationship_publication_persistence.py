@@ -66,6 +66,12 @@ async def test_publish_reject_stale_and_revoke_on_review_change():
 
         assert await publication_count() == 1
         assert len(await metadata.list_current_relationship_publications(source_id)) == 1
+        # Reverification invalidates a previously published generation.
+        assert await metadata.save_relationship_verification(source_id, review, proof)
+        assert await publication_count() == 0
+        assert await metadata.list_current_relationship_publications(source_id) == []
+        assert await metadata.publish_reviewed_relationship(source_id, review)
+        assert await publication_count() == 1
         # Expired evidence must not authorize a new publication.
         async with pool.connection() as conn:
             async with conn.cursor() as cur:
