@@ -25,7 +25,7 @@ services:
       - ../tests:/app/tests:ro
     working_dir: /app
     entrypoint: ["/bin/sh", "-c"]
-    command: ["pip install --quiet pytest pytest-asyncio && python -m pytest tests/integration/test_relationship_verification_persistence.py -q"]
+    command: ["pip install --quiet pytest pytest-asyncio && python -m pytest tests/integration/test_relationship_verification_persistence.py tests/integration/test_relationship_publication_persistence.py -q"]
     depends_on:
       postgres:
         condition: service_healthy
