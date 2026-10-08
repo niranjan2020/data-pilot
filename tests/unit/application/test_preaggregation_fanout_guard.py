@@ -625,3 +625,51 @@ def test_graph_uniqueness_incomplete_for_duplicate_derived_alias():
     )
     assert any(item["code"] == "fanout_join_graph_uniqueness_incomplete"
                for item in _governed_derived_checks(sql))
+
+
+# Batch regression matrix: each parametrized scenario is a separate pytest case.
+@pytest.mark.parametrize(
+    "join_sql,expected_supported",
+    [
+        ("JOIN demo.children c ON p.id = c.parent_id", True),
+        ("INNER JOIN demo.children c ON p.id = c.parent_id", True),
+        ("LEFT JOIN demo.children c ON p.id = c.parent_id", True),
+        ("LEFT OUTER JOIN demo.children c ON p.id = c.parent_id", True),
+        ("RIGHT JOIN demo.children c ON p.id = c.parent_id", False),
+        ("RIGHT OUTER JOIN demo.children c ON p.id = c.parent_id", False),
+        ("FULL JOIN demo.children c ON p.id = c.parent_id", False),
+        ("FULL OUTER JOIN demo.children c ON p.id = c.parent_id", False),
+        ("CROSS JOIN demo.children c", False),
+        ("JOIN demo.children c ON p.id > c.parent_id", False),
+        ("JOIN demo.children c ON p.id < c.parent_id", False),
+        ("JOIN demo.children c ON p.id <> c.parent_id", False),
+    ],
+)
+def test_join_type_cardinality_review_matrix(join_sql, expected_supported):
+    sql = f"SELECT SUM(p.amount) FROM demo.parents p {join_sql}"
+    result = checks(sql)
+    expected = "fanout_join_types_supported" if expected_supported else "fanout_join_types_unverified"
+    assert any(item["code"] == expected for item in result)
+    assert any(item["code"] == "join_fanout_violation" for item in result)
+
+
+@pytest.mark.parametrize(
+    "join_clause",
+    [
+        "JOIN demo.children c ON p.id = c.parent_id",
+        "LEFT JOIN demo.children c ON p.id = c.parent_id",
+        "RIGHT JOIN demo.children c ON p.id = c.parent_id",
+        "FULL JOIN demo.children c ON p.id = c.parent_id",
+        "CROSS JOIN demo.children c",
+        "JOIN demo.children c ON p.id > c.parent_id",
+        "JOIN demo.children c ON p.id < c.parent_id",
+        "JOIN demo.children c ON p.id <> c.parent_id",
+    ],
+)
+def test_fanout_violation_never_waived_by_join_type(join_clause):
+    sql = f"SELECT SUM(p.amount) FROM demo.parents p {join_clause}"
+    result = checks(sql)
+    assert any(item["code"] == "join_fanout_violation" and item["status"] == "failed"
+               for item in result)
+    assert any(item["code"] == "fanout_safety_evidence_incomplete"
+               and item["join_cardinality_safe"] is False for item in result)
