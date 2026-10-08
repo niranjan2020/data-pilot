@@ -36,3 +36,12 @@
 .insightCard small{text-transform:capitalize;color:#64748b;font-size:11px}
 .insightCard strong{color:#0f172a;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .insightCard span{color:#475569;font-size:12px}
+
+
+.onboardingPage{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:40px 20px;background:#f4f6f8}
+.onboardingCard{width:min(780px,100%);padding:40px;background:#fff;border:1px solid #e4e7ec;border-radius:18px;box-shadow:0 12px 40px #1018280a}
+.onboardingBrand{display:flex;align-items:center;gap:12px;margin-bottom:36px}.onboardingBrand .mark{background:#101828;color:white}.onboardingBrand strong,.onboardingBrand small{display:block}.onboardingBrand small{font-size:12px;color:#667085;margin-top:3px}
+.onboardingCard h1{font-size:32px;margin:8px 0 12px}.onboardingLead{color:#667085;line-height:1.6;margin-bottom:28px}
+.onboardingSteps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:22px 0 30px}.onboardingStep{border:1px solid #e4e7ec;border-radius:10px;padding:12px;display:flex;align-items:center;gap:9px;opacity:.6}.onboardingStep.in_progress{opacity:1;border-color:#4e7cdb;background:#f4f8ff}.onboardingStep.complete{opacity:1;border-color:#8bcba8}.onboardingStep>span{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:#e4e7ec;font-size:12px;flex-shrink:0}.onboardingStep strong,.onboardingStep small{display:block;font-size:11px}.onboardingStep small{font-size:10px;color:#667085;text-transform:capitalize;margin-top:3px}
+.onboardingForm{border-top:1px solid #e4e7ec;padding-top:22px}.onboardingForm h2{font-size:20px;margin:0 0 8px}.onboardingForm p{color:#667085;font-size:13px;line-height:1.5}.onboardingForm label{display:block;font-size:12px;font-weight:600;margin:15px 0}.onboardingForm input,.onboardingForm select{display:block;width:100%;margin-top:7px;padding:12px;border:1px solid #d0d5dd;border-radius:8px;background:#fff;color:#101828}.onboardingForm button,.onboardingError button,.onboardingCard>button{padding:11px 18px;background:#101828;color:white;border:0;border-radius:8px;cursor:pointer}.onboardingForm button:disabled{opacity:.5;cursor:not-allowed}.onboardingError{margin-top:20px;padding:14px;border:1px solid #f5b8b8;background:#fff5f5;border-radius:8px;color:#b42318;font-size:13px}.onboardingError button{margin-left:12px}
+@media(max-width:640px){.onboardingCard{padding:22px}.onboardingSteps{grid-template-columns:repeat(2,minmax(0,1fr))}}
