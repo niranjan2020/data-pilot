@@ -453,3 +453,45 @@ def test_outer_grain_key_remains_observed_with_scalar_nested_join():
     coverage = next(item for item in result if item["code"] == "fanout_join_coverage_observed")
     assert coverage["outer_join_count"] == 1
     assert coverage["observed_grain_key_count"] == 1
+
+
+def test_governed_relationship_keys_match_direct_sql_equality():
+    relationship = {**RELATIONSHIP, "from_schema": "demo", "from_table": "parents",
+                    "from_column": "id", "to_schema": "demo",
+                    "to_table": "children", "to_column": "parent_id"}
+    sql = "SELECT SUM(p.amount) FROM demo.parents p JOIN demo.children c ON p.id = c.parent_id"
+    result = assess_query_correctness(
+        sql=sql, affected_tables=["demo.parents", "demo.children"],
+        governed_tables=["demo.parents", "demo.children"],
+        governed_metrics=[METRIC], required_relationships=[relationship])
+    assert any(item["code"] == "fanout_relationship_keys_matched" for item in result)
+    assert any(item["code"] == "join_fanout_violation" for item in result)
+
+
+def test_governed_relationship_keys_reject_wrong_join_column():
+    relationship = {**RELATIONSHIP, "from_schema": "demo", "from_table": "parents",
+                    "from_column": "id", "to_schema": "demo",
+                    "to_table": "children", "to_column": "parent_id"}
+    sql = "SELECT SUM(p.amount) FROM demo.parents p JOIN demo.children c ON p.id = c.other_id"
+    result = assess_query_correctness(
+        sql=sql, affected_tables=["demo.parents", "demo.children"],
+        governed_tables=["demo.parents", "demo.children"],
+        governed_metrics=[METRIC], required_relationships=[relationship])
+    assert any(item["code"] == "fanout_relationship_keys_unverified" for item in result)
+
+
+def test_governed_relationship_keys_reject_missing_key_metadata():
+    sql = "SELECT SUM(p.amount) FROM demo.parents p JOIN demo.children c ON p.id = c.parent_id"
+    assert any(item["code"] == "fanout_relationship_keys_unverified" for item in checks(sql))
+
+
+def test_governed_relationship_keys_reject_wrong_schema():
+    relationship = {**RELATIONSHIP, "from_schema": "other", "from_table": "parents",
+                    "from_column": "id", "to_schema": "demo",
+                    "to_table": "children", "to_column": "parent_id"}
+    sql = "SELECT SUM(p.amount) FROM demo.parents p JOIN demo.children c ON p.id = c.parent_id"
+    result = assess_query_correctness(
+        sql=sql, affected_tables=["demo.parents", "demo.children"],
+        governed_tables=["demo.parents", "demo.children"],
+        governed_metrics=[METRIC], required_relationships=[relationship])
+    assert any(item["code"] == "fanout_relationship_keys_unverified" for item in result)
