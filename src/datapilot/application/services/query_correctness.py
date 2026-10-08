@@ -928,6 +928,50 @@ def _fanout_checks(
                     "Derived uniqueness could not be linked to the governed physical relationship."
                 ),
             })
+            # A single governed edge does not establish safety for the full
+            # query. Require every outer edge to have local derived-key
+            # uniqueness and reject nested joins or duplicate aliases.
+            outer_aliases = []
+            if isinstance(tree, exp.Select):
+                root_clause = tree.args.get("from_")
+                root = root_clause.this if root_clause is not None else None
+                if isinstance(root, exp.Table):
+                    outer_aliases.append(str(root.alias_or_name).casefold())
+                outer_aliases.extend(
+                    str(edge.this.alias_or_name or "").casefold()
+                    for edge in outer_joins
+                )
+            graph_unique = (
+                len(governed_unique_edges) == 1
+                and bool(outer_joins)
+                and len(unique_derived_keys) == len(outer_joins)
+                and len(set(unique_derived_keys)) == len(outer_joins)
+                and all(outer_aliases)
+                and len(set(outer_aliases)) == len(outer_aliases)
+                and all(
+                    isinstance(edge.this, exp.Subquery)
+                    and isinstance(edge.this.this, exp.Select)
+                    and not edge.this.this.args.get("joins")
+                    for edge in outer_joins
+                )
+            )
+            checks.append({
+                "code": "fanout_join_graph_uniqueness_observed"
+                if graph_unique else "fanout_join_graph_uniqueness_incomplete",
+                "status": "passed" if graph_unique else "skipped",
+                "severity": "info",
+                "metric": metric_name,
+                "relationship": relationship.get("name"),
+                "outer_join_count": len(outer_joins),
+                "unique_derived_edge_count": len(unique_derived_keys),
+                "governed_edge_count": len(governed_unique_edges),
+                "message": (
+                    "Every outer join has local derived-key uniqueness and a governed edge "
+                    "is identified; this is not a complete metric-cardinality proof."
+                    if graph_unique else
+                    "The full outer join graph lacks sufficient local uniqueness evidence."
+                ),
+            })
             checks.append({
                 "code": "fanout_safety_evidence_incomplete",
                 "status": "skipped",
