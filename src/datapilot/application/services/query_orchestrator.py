@@ -777,6 +777,27 @@ class QueryOrchestrator:
                 details={"errors": validation.errors},
             )
 
+        # A persisted onboarding selection is a hard execution boundary.
+        # Reject unselected physical tables even when SQL is syntactically valid.
+        allowed_tables = getattr(self, "_onboarding_allowed_tables", None)
+        if allowed_tables is not None:
+            actual_tables = {
+                str(table).strip().strip('"').lower()
+                for table in validation.affected_tables
+            }
+            unauthorized = sorted(actual_tables - allowed_tables)
+            if not allowed_tables or unauthorized:
+                raise SQLValidationError(
+                    "Generated SQL references a dataset outside the onboarded selection",
+                    details={"checks": [{
+                        "code": "dataset_selection_violation",
+                        "status": "failed",
+                        "severity": "error",
+                        "message": "Query references unselected datasets: "
+                                   + ", ".join(unauthorized or ["no datasets selected"]),
+                    }]},
+                )
+
         executable_sql = validation.sanitized_sql or sql
         if trace is not None:
             trace.validated_sql = executable_sql
