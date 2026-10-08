@@ -675,7 +675,7 @@ def assess_query_correctness(
         except Exception:
             parsed = None
             join_count = 0
-        if join_count > 1 or len(required_relationships) > 1 or (parsed is not None and parsed.args.get("with_") is not None):
+        if join_count > 1 or len(required_relationships) > 1 or (parsed is not None and (parsed.args.get("with_") is not None or any(isinstance(node, exp.Subquery) for node in parsed.walk()))):
             decision = validate_governed_join_graph(sql, required_relationships)
             join_policy_checks.append({
                 "code": "join_policy_alignment" if decision.allowed else "join_policy_violation",
