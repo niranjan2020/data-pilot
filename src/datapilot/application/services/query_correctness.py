@@ -1415,12 +1415,18 @@ def assess_query_correctness(
             if tuple(grant.get(k) for k in identity_keys) == identity
         ]
         if len(matching) != 1:
+            # Report the physical SQL violation as well as the missing grant.
+            # SQL validity does not authorize an unpublished relationship.
+            from datapilot.application.join_policy_governance import validate_governed_join_policy
+            sql_decision = validate_governed_join_policy(sql, relationship)
+            diagnostic = list(sql_decision.reasons) if not sql_decision.allowed else []
+            diagnostic.append("Relationship is not authorized by trusted publication governance.")
             publication_checks.append({
                 "code": "relationship_publication_violation",
                 "status": "failed",
                 "severity": "error",
                 "relationship": str(relationship.get("name") or "relationship"),
-                "message": "Relationship is not authorized by trusted publication governance.",
+                "message": "; ".join(diagnostic),
             })
     relationship_checks = _relationship_checks(sql, required_relationships=required_relationships, dialect=dialect) if sql else []
     # The join graph is authoritative for SQL containing multiple physical joins.
