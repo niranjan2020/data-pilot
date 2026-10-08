@@ -47,3 +47,27 @@ def test_direct_risky_join_still_fails():
     sql = ("SELECT p.id, SUM(p.amount) FROM demo.parents p "
            "JOIN demo.children c ON p.id = c.parent_id GROUP BY p.id")
     assert any(item["code"] == "join_fanout_violation" for item in checks(sql))
+
+
+def test_preaggregation_reports_join_key_grain():
+    result = checks(SQL)
+    assert any(item["code"] == "preaggregation_grain_alignment" for item in result)
+    assert any(item["code"] == "join_fanout_violation" for item in result)
+
+
+def test_preaggregation_rejects_wrong_grouping_grain():
+    sql = SQL.replace("GROUP BY parent_id", "GROUP BY category_id")
+    result = checks(sql)
+    assert any(item["code"] == "preaggregation_grain_unverified" for item in result)
+
+
+def test_preaggregation_accepts_projected_key_alias():
+    sql = SQL.replace("SELECT parent_id, COUNT(*)", "SELECT parent_id AS parent_key, COUNT(*)").replace("c.parent_id", "c.parent_key")
+    result = checks(sql)
+    assert any(item["code"] == "preaggregation_grain_alignment" for item in result)
+
+
+def test_preaggregation_requires_single_grouping_key():
+    sql = SQL.replace("GROUP BY parent_id", "GROUP BY parent_id, category_id")
+    result = checks(sql)
+    assert any(item["code"] == "preaggregation_grain_unverified" for item in result)
