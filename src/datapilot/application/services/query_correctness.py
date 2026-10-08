@@ -7,6 +7,7 @@ from typing import Any, Iterable
 from sqlglot import exp, parse_one
 
 from datapilot.infrastructure.sql.dialects import sqlglot_dialect
+from datapilot.application.services.cardinality_evidence import summarize_cardinality_evidence
 
 
 def _normalise(name: str) -> str:
@@ -1152,6 +1153,19 @@ def _fanout_checks(
                     "Outer aggregate placement cannot establish joined-row semantics."
                 ),
             })
+            checks.append(summarize_cardinality_evidence(
+                {
+                    "metric_ownership": bool(ownership_confirmed),
+                    "preaggregation_grain": bool(grain_confirmed),
+                    "governed_derived_edge": len(governed_unique_edges) == 1,
+                    "connected_join_graph": bool(connected_graph),
+                    "unique_right_join_chain": bool(unique_chain),
+                    "supported_join_types": bool(outer_joins and not unsupported_join_types),
+                    "outer_aggregate_after_joins": placement == "after_outer_joins",
+                },
+                metric=metric_name,
+                relationship=relationship.get("name"),
+            ))
             checks.append({
                 "code": "fanout_safety_evidence_incomplete",
                 "status": "skipped",
