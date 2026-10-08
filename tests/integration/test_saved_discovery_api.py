@@ -8,6 +8,7 @@ from datapilot.core.config import Settings
 class FakeMetadata:
     async def save_schema(self, schema, data_source_id):
         assert data_source_id == 4
+        assert schema.version and len(schema.version) == 24
 
 
 class FakeProvider:
@@ -19,7 +20,7 @@ class FakeProvider:
 
     async def introspect_schema(self, name):
         assert name == "public"
-        from datapilot.domain.models.schema import SchemaMetadata, TableMetadata
+        from datapilot.domain.models import SchemaMetadata, TableMetadata
         return SchemaMetadata(schema_name="public", dialect="postgresql", tables=[
             TableMetadata(name="one", schema_name="public"),
             TableMetadata(name="two", schema_name="public"),
