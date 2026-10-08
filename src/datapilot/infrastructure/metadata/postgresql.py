@@ -578,6 +578,86 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                       relationship["to_column"], relationship["cardinality"],
                       relationship["review_status"], relationship["description"], relationship.get("join_policy", "unconfigured")))
 
+    async def save_relationship_verification(
+        self, data_source_id: int, review: dict, evidence: dict
+    ) -> bool:
+        """Persist evidence only while the reviewed contract is unchanged.
+
+        The row lock serializes verification writes with review updates; a
+        changed review cannot reuse an earlier verification fingerprint.
+        """
+        from datapilot.application.relationship_evidence import review_fingerprint
+        await self.list_reviewed_relationships(data_source_id)
+        pool = await self._get_pool()
+        keys = ("from_schema", "from_table", "from_column",
+                "to_schema", "to_table", "to_column")
+        async with pool.connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS datapilot_catalog.relationship_verifications (
+                        data_source_id BIGINT NOT NULL REFERENCES datapilot_catalog.data_sources(id) ON DELETE CASCADE,
+                        from_schema TEXT NOT NULL, from_table TEXT NOT NULL, from_column TEXT NOT NULL,
+                        to_schema TEXT NOT NULL, to_table TEXT NOT NULL, to_column TEXT NOT NULL,
+                        review_fingerprint TEXT NOT NULL,
+                        evidence JSONB NOT NULL,
+                        verified_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        PRIMARY KEY (data_source_id, from_schema, from_table, from_column,
+                                     to_schema, to_table, to_column)
+                    )
+                """)
+                await cursor.execute("""
+                    SELECT cardinality, review_status, join_policy
+                    FROM datapilot_catalog.reviewed_relationships
+                    WHERE data_source_id=%s AND from_schema=%s AND from_table=%s
+                      AND from_column=%s AND to_schema=%s AND to_table=%s AND to_column=%s
+                    FOR UPDATE
+                """, (data_source_id, *(review[k] for k in keys)))
+                current = await cursor.fetchone()
+                if current is None:
+                    return False
+                persisted = {**{k: review[k] for k in keys},
+                             "cardinality": current[0],
+                             "review_status": current[1],
+                             "join_policy": current[2]}
+                fingerprint = review_fingerprint(persisted)
+                if fingerprint != review_fingerprint(review):
+                    return False
+                await cursor.execute("""
+                    INSERT INTO datapilot_catalog.relationship_verifications
+                    (data_source_id, from_schema, from_table, from_column, to_schema,
+                     to_table, to_column, review_fingerprint, evidence, verified_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,NOW())
+                    ON CONFLICT (data_source_id, from_schema, from_table, from_column,
+                                 to_schema, to_table, to_column)
+                    DO UPDATE SET review_fingerprint=EXCLUDED.review_fingerprint,
+                                  evidence=EXCLUDED.evidence, verified_at=NOW()
+                """, (data_source_id, *(review[k] for k in keys),
+                      fingerprint, __import__("json").dumps(evidence)))
+                return True
+
+    async def get_relationship_verification(
+        self, data_source_id: int, review: dict
+    ) -> dict | None:
+        """Return only evidence bound to the current reviewed contract."""
+        from datapilot.application.relationship_evidence import verification_matches_review
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute("""
+                    SELECT review_fingerprint, evidence, verified_at
+                    FROM datapilot_catalog.relationship_verifications
+                    WHERE data_source_id=%s AND from_schema=%s AND from_table=%s
+                      AND from_column=%s AND to_schema=%s AND to_table=%s AND to_column=%s
+                """, (data_source_id, review["from_schema"], review["from_table"],
+                      review["from_column"], review["to_schema"], review["to_table"],
+                      review["to_column"]))
+                row = await cursor.fetchone()
+                if row is None:
+                    return None
+                record = {**row[1], "review_fingerprint": row[0],
+                          "verified_at": row[2].isoformat()}
+                return record if verification_matches_review(review, record) else None
+
     async def list_catalog_foreign_keys(self, data_source_id: int) -> list[dict]:
         """Return declared constraints from the latest discovered snapshots only."""
         await self.initialize()
