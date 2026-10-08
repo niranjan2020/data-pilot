@@ -731,3 +731,58 @@ def test_outer_aggregate_scope_negative_matrix(sql, placement):
     evidence = next(item for item in result if item["code"].startswith("fanout_aggregate_placement_"))
     assert evidence["aggregate_placement"] == placement
     assert (evidence["code"] == "fanout_aggregate_placement_observed") == (placement == "after_outer_joins")
+
+
+@pytest.mark.parametrize(
+    "join_clause,connected",
+    [
+        ("JOIN demo.children c ON p.id = c.parent_id", True),
+        ("LEFT JOIN demo.children c ON p.id = c.parent_id", True),
+        ("RIGHT JOIN demo.children c ON p.id = c.parent_id", True),
+        ("FULL JOIN demo.children c ON p.id = c.parent_id", True),
+        ("JOIN demo.children c ON c.parent_id = p.id", True),
+        ("JOIN demo.children c ON p.id = c.id", True),
+        ("JOIN demo.children c ON p.id = c.parent_id AND c.id > 0", False),
+        ("JOIN demo.children c ON p.id = c.parent_id OR c.id > 0", False),
+        ("JOIN demo.children c ON p.id > c.parent_id", False),
+        ("JOIN demo.children c ON p.id <> c.parent_id", False),
+        ("JOIN demo.children c ON id = c.parent_id", False),
+        ("JOIN demo.children c ON p.id = parent_id", False),
+        ("CROSS JOIN demo.children c", False),
+        ("JOIN demo.children c ON c.id = c.parent_id", False),
+        ("JOIN demo.children c ON p.id = p.id", False),
+        ("JOIN demo.children c ON c.parent_id = c.id", False),
+    ],
+)
+def test_join_graph_connection_matrix(join_clause, connected):
+    sql = f"SELECT SUM(p.amount) FROM demo.parents p {join_clause}"
+    result = checks(sql)
+    code = ("fanout_join_graph_connections_observed" if connected
+            else "fanout_join_graph_connections_unverified")
+    assert any(item["code"] == code for item in result)
+    assert any(item["code"] == "join_fanout_violation" for item in result)
+
+
+@pytest.mark.parametrize(
+    "second_join,connected",
+    [
+        ("JOIN demo.categories z ON c.id = z.child_id", True),
+        ("JOIN demo.categories z ON p.id = z.parent_id", True),
+        ("LEFT JOIN demo.categories z ON z.parent_id = p.id", True),
+        ("JOIN demo.categories z ON c.parent_id = z.parent_id", True),
+        ("JOIN demo.categories z ON z.id = z.parent_id", False),
+        ("JOIN demo.categories z ON unknown.id = z.parent_id", False),
+        ("JOIN demo.categories c ON p.id = c.parent_id", False),
+        ("JOIN demo.categories z ON c.id = p.id", False),
+    ],
+)
+def test_join_graph_multi_edge_connection_matrix(second_join, connected):
+    sql = (
+        "SELECT SUM(p.amount) FROM demo.parents p "
+        "JOIN demo.children c ON p.id = c.parent_id " + second_join
+    )
+    result = checks(sql)
+    code = ("fanout_join_graph_connections_observed" if connected
+            else "fanout_join_graph_connections_unverified")
+    assert any(item["code"] == code for item in result)
+    assert any(item["code"] == "join_fanout_violation" for item in result)
