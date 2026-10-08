@@ -447,6 +447,20 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                     )
                     return (await cursor.fetchone())[0]
 
+    async def update_data_source_username(self, source_id: int, username: str) -> None:
+        """Update the login identity without changing the datasource target."""
+        await self.initialize()
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.transaction():
+                async with connection.cursor() as cursor:
+                    await cursor.execute(
+                        "UPDATE datapilot_catalog.data_sources SET username = %s, updated_at = NOW() WHERE id = %s",
+                        (username, source_id),
+                    )
+                    if cursor.rowcount != 1:
+                        raise ValueError("Saved datasource not found")
+
     async def set_active_data_source_id(self, source_id: int) -> None:
         await self.initialize()
         pool = await self._get_pool()
