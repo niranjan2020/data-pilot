@@ -47,6 +47,13 @@
 - **Dependency:** complete C2 clean-install gate first; schedule this alongside C4–C5 discovery and semantic approval. Value discovery/canonical value resolution remain C4–C5 backlog as well.
 - **Status:** requirements recorded; runtime enforcement NOT implemented.
 
+**C2 existing-install smoke test — PASS (user-verified 2026-10-08)**
+
+- `docker compose -f infra/compose.yaml up --build -d --wait`: all four services healthy (PostgreSQL, Qdrant, API, web).
+- Through nginx at localhost:3000: `/health` → HTTP 200 status ok; `/health/ready` → HTTP 200 status healthy with metadata reachable; `/api/setup/readiness` → HTTP 200, `ready=true`, `setup_ready=true`, metadata/AI provider/datasource all ready.
+- Unit-test summary was not included in the pasted output; do not claim a new passing count.
+- This validates an **existing-volume installation**, not clean-machine/empty-volume bootstrap. C2 remains open until fresh-install, first-run onboarding, and persistence checks pass. Never erase the user's existing volumes for testing.
+
 **Next C2 acceptance checkpoint — local stack smoke test**
 
 - User has confirmed the Astra semantic datasets API responds after catalog-initialization deadlock mitigation; this is **not** evidence of a clean-install pass.
