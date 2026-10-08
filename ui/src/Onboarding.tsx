@@ -11,6 +11,8 @@ export function Onboarding({onReady}:{onReady:()=>void}){
  const [apiKey,setApiKey]=useState("");
  const [db,setDb]=useState({name:"My Database",host:"host.docker.internal",port:5432,database:"postgres",username:"postgres",password:"",sslmode:"prefer"});
  const [dbTested,setDbTested]=useState(false);
+ const [savedSourceId,setSavedSourceId]=useState<number|null>(null);
+ const [discovery,setDiscovery]=useState<{schemas:string[];tables:number}|null>(null);
  async function refresh(){
   const response=await fetch("/api/setup/status");
   if(!response.ok)throw new Error("Unable to load setup status. Check the Data Pilot API.");
@@ -40,8 +42,19 @@ export function Onboarding({onReady}:{onReady:()=>void}){
   try{
    const response=await fetch("/api/setup/data-source",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(db)});
    if(!response.ok)throw new Error(response.status===422?"Connection validation failed. Please test again.":"Unable to save the database connection.");
+   const saved=await response.json();setSavedSourceId(saved.id);
    setDb(v=>({...v,password:""}));setDbTested(false);await refresh();
   }catch(e:any){setError(e.message||"Unable to save database")}
+  finally{setBusy(false)}
+ }
+ async function discoverSavedDatabase(){
+  if(savedSourceId===null)return;
+  setBusy(true);setError("");
+  try{
+   const response=await fetch("/api/setup/data-source/"+savedSourceId+"/discover",{method:"POST"});
+   if(!response.ok)throw new Error("Discovery failed. Check the saved database connection.");
+   setDiscovery(await response.json());
+  }catch(e:any){setError(e.message||"Discovery failed")}
   finally{setBusy(false)}
  }
  return <div className="onboardingPage"><div className="onboardingCard">
@@ -64,7 +77,8 @@ export function Onboarding({onReady}:{onReady:()=>void}){
    <button type="submit" disabled={busy}>{busy?"Testing…":"Test connection"}</button>
    {dbTested&&<div><p role="status">Connection successful. Save this connection to continue.</p><button type="button" disabled={busy} onClick={saveDatabase}>{busy?"Saving…":"Save & Continue"}</button></div>}
   </form>}
-  {status&&status.current_step!=="ai_provider"&&status.current_step!=="data_source"&&!status.ready&&<div className="onboardingForm"><h2>{labels[status.current_step]||"Continue setup"}</h2><p>This onboarding action is scheduled for the next Stage C implementation. Your progress is persisted across restarts.</p><button onClick={()=>refresh().catch(e=>setError(String(e.message||e)))}>Refresh setup status</button></div>}
+  {status?.current_step==="data_selection"&&<div className="onboardingForm"><h2>3. Discover & select</h2><p>Discover the saved database without entering credentials again. Dataset approval will follow.</p>{savedSourceId!==null?<button disabled={busy} onClick={discoverSavedDatabase}>{busy?"Discovering…":"Discover saved database"}</button>:<p>Reloading saved datasource selection is coming next. Do not enter credentials again.</p>}{discovery&&<p role="status">Discovered {discovery.tables} tables across {discovery.schemas.length} schemas. Dataset selection is not enabled yet.</p>}</div>}
+  {status&&status.current_step!=="ai_provider"&&status.current_step!=="data_source"&&status.current_step!=="data_selection"&&!status.ready&&<div className="onboardingForm"><h2>{labels[status.current_step]||"Continue setup"}</h2><p>This onboarding action is scheduled for the next Stage C implementation. Your progress is persisted across restarts.</p><button onClick={()=>refresh().catch(e=>setError(String(e.message||e)))}>Refresh setup status</button></div>}
   {error&&<div className="onboardingError" role="alert">{error} <button type="button" onClick={()=>refresh().then(()=>setError("")).catch(e=>setError(String(e.message||e)))}>Retry</button></div>}
  </div></div>
 }
