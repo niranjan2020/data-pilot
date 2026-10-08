@@ -115,6 +115,24 @@ def validate_governed_join_graph(sql: str, relationships: list[dict]) -> JoinPol
                 or any(isinstance(node, exp.CTE) for node in inner.walk())):
             return JoinPolicyDecision(False, ("CTE projection must reference exactly the governed CTE.",))
         return validate_governed_join_graph(inner.sql(dialect="postgres"), relationships)
+    # Support a single derived-table projection, never a derived-table join.
+    # The inner query must independently satisfy the entire governed graph.
+    outer_from = tree.args.get("from_")
+    if outer_from and isinstance(outer_from.this, exp.Subquery):
+        derived = outer_from.this
+        inner = derived.this
+        if (not derived.alias or not isinstance(inner, exp.Select)
+                or tree.args.get("joins") or tree.args.get("with_")
+                or any(isinstance(node, (exp.Subquery, exp.CTE, exp.Union))
+                       for node in inner.walk())
+                or any(isinstance(node, (exp.Subquery, exp.CTE, exp.Union))
+                       for projection in tree.expressions for node in projection.walk())
+                or any(isinstance(node, (exp.Subquery, exp.CTE, exp.Union))
+                       for clause_name in ("where", "group", "having", "order", "qualify")
+                       for clause in ([tree.args.get(clause_name)] if tree.args.get(clause_name) is not None else [])
+                       for node in clause.walk())):
+            return JoinPolicyDecision(False, ("Unsupported derived-table structure.",))
+        return validate_governed_join_graph(inner.sql(dialect="postgres"), relationships)
     if any(isinstance(node, (exp.Subquery, exp.CTE, exp.Union)) for node in tree.walk()):
         return JoinPolicyDecision(False, ("Nested queries require separate join-policy verification.",))
     root_clause = tree.args.get("from_")
