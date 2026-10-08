@@ -778,6 +778,71 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                 """, (data_source_id, *(review[k] for k in keys), fingerprint, verified[0]))
                 return True
 
+    async def list_current_relationship_publications(self, data_source_id: int) -> list[dict]:
+        """Return only unexpired grants matching the current review and evidence.
+
+        Never accept publication state or freshness from a request payload.
+        These grants remain metadata-only until the SQL pipeline is wired.
+        """
+        from datapilot.application.relationship_evidence import review_fingerprint
+        from datapilot.application.relationship_freshness import assess_verification_freshness
+        from datapilot.application.relationship_publication import assess_relationship_publication
+        await self.list_reviewed_relationships(data_source_id)
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute("""
+                    SELECT r.from_schema, r.from_table, r.from_column,
+                           r.to_schema, r.to_table, r.to_column,
+                           r.cardinality, r.review_status, r.join_policy,
+                           v.review_fingerprint, v.evidence, v.verified_at,
+                           p.review_fingerprint, p.verification_fingerprint,
+                           p.published_at
+                    FROM datapilot_catalog.relationship_publications p
+                    JOIN datapilot_catalog.reviewed_relationships r
+                      ON r.data_source_id=p.data_source_id
+                     AND r.from_schema=p.from_schema AND r.from_table=p.from_table
+                     AND r.from_column=p.from_column AND r.to_schema=p.to_schema
+                     AND r.to_table=p.to_table AND r.to_column=p.to_column
+                    JOIN datapilot_catalog.relationship_verifications v
+                      ON v.data_source_id=r.data_source_id
+                     AND v.from_schema=r.from_schema AND v.from_table=r.from_table
+                     AND v.from_column=r.from_column AND v.to_schema=r.to_schema
+                     AND v.to_table=r.to_table AND v.to_column=r.to_column
+                    WHERE p.data_source_id=%s
+                """, (data_source_id,))
+                rows = await cursor.fetchall()
+        grants = []
+        keys = ("from_schema", "from_table", "from_column",
+                "to_schema", "to_table", "to_column",
+                "cardinality", "review_status", "join_policy")
+        for row in rows:
+            review = dict(zip(keys, row[:9]))
+            try:
+                fingerprint = review_fingerprint(review)
+            except ValueError:
+                continue
+            if fingerprint != row[9] or fingerprint != row[12] or row[13] != row[9]:
+                continue
+            evidence = {**row[10], "review_fingerprint": row[9],
+                        "verified_at": row[11].isoformat()}
+            if not assess_verification_freshness(review, evidence).current:
+                continue
+            eligible = assess_relationship_publication(
+                review,
+                structural_valid=evidence.get("structurally_valid") is True,
+                live_cardinality_verified=evidence.get("live_cardinality_verified") is True,
+                cardinality_holds=evidence.get("cardinality_holds") is True,
+                referential_integrity_checked=evidence.get("referential_integrity_checked") is True,
+                unmatched_references=evidence.get("unmatched_references"),
+                nullable_references=evidence.get("nullable_references"),
+                policy_enforced_by_sql_governance=True,
+            )
+            if eligible.eligible:
+                grants.append({**review, "published_at": row[14].isoformat(),
+                               "verified_at": row[11].isoformat()})
+        return grants
+
     async def list_catalog_foreign_keys(self, data_source_id: int) -> list[dict]:
         """Return declared constraints from the latest discovered snapshots only."""
         await self.initialize()
