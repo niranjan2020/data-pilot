@@ -9,6 +9,33 @@
 
 ---
 
+## Quick start — local Docker deployment (Stage C2)
+
+Requires Docker Desktop or Rancher Desktop with Docker-compatible Compose.
+
+```bash
+git clone https://github.com/niranjan2020/data-pilot.git
+cd data-pilot
+docker compose -f infra/compose.yaml up --build -d --wait
+```
+
+Open **http://localhost:3000**. No `.env` file or separately installed PostgreSQL/Qdrant is needed to start the local platform stack. The AI provider and target database are configured separately through onboarding; reaching the UI does **not** mean the engine is ready to answer questions.
+
+Check startup state:
+
+```bash
+docker compose -f infra/compose.yaml ps
+docker compose -f infra/compose.yaml logs --tail=100 api
+```
+
+If `--wait` is unsupported by your Compose version, use `docker compose -f infra/compose.yaml up --build -d` and then inspect `ps`. A healthy container is not proof that the full onboarding workflow succeeds. Do not use `down -v` unless you intend to delete local platform data and secrets.
+
+**Local-only defaults:** the UI binds to `127.0.0.1:3000`, and the bundled PostgreSQL password is for local development only. Do not expose this Compose stack to a public network without replacing development credentials and adding production security controls.
+
+**Stage C2 verification pending:** the command above is the intended startup path; clean-machine Windows/macOS/Linux installation and first-run Welcome-screen acceptance have not yet been independently verified.
+
+---
+
 ## 1. What is Data Pilot?
 
 Data Pilot is being built to enable users and downstream services to query relational and analytical databases using natural language. Rather than acting as a generic chatbot wrapper that passes raw prompts to an LLM, Data Pilot is designed as a deterministic, structured data access engine.
@@ -22,7 +49,7 @@ Data Pilot understands the user's intent
         ↓
 Discovers / retrieves relevant schema and business metadata
         ↓
-Uses templates & business rules when applicable
+Uses approved semantic definitions and business rules
         ↓
 Generates dialect-specific SQL when required
         ↓
@@ -42,8 +69,8 @@ Explains and summarizes the result in natural language
 Data Pilot is designed to coordinate:
 1. **Semantic Understanding:** Recognize *"on-order"* as a business concept and *"MSC"* as an entity/value.
 2. **Schema Discovery:** Resolve the concepts to relevant database tables and columns.
-3. **Template / Rule Selection:** Check if a pre-defined query template or metric rule exists.
-4. **SQL Generation:** Synthesize dialect-appropriate SQL when a template is not present.
+3. **Semantic Governance:** Resolve approved metrics, relationships, and business rules.
+4. **SQL Generation:** Synthesize dialect-appropriate SQL against governed context.
 5. **SQL Safety Validation:** Validate that the SQL is safe, read-only (`SELECT`), and complies with AST safety policies before execution.
 6. **Execution & Explanation:** Execute query against the connected database and explain the structured results in natural language.
 
