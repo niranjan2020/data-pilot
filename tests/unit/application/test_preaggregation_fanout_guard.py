@@ -786,3 +786,59 @@ def test_join_graph_multi_edge_connection_matrix(second_join, connected):
             else "fanout_join_graph_connections_unverified")
     assert any(item["code"] == code for item in result)
     assert any(item["code"] == "join_fanout_violation" for item in result)
+
+
+@pytest.mark.parametrize(
+    "join_clause,expected",
+    [
+        ("JOIN (SELECT parent_id FROM demo.children GROUP BY parent_id) c ON p.id = c.parent_id", True),
+        ("LEFT JOIN (SELECT parent_id FROM demo.children GROUP BY parent_id) c ON p.id = c.parent_id", True),
+        ("RIGHT JOIN (SELECT parent_id FROM demo.children GROUP BY parent_id) c ON p.id = c.parent_id", True),
+        ("JOIN (SELECT parent_id AS pid FROM demo.children GROUP BY parent_id) c ON p.id = c.pid", True),
+        ("JOIN (SELECT parent_id FROM demo.children GROUP BY parent_id) c ON c.parent_id = p.id", True),
+        ("JOIN demo.children c ON p.id = c.parent_id", False),
+        ("LEFT JOIN demo.children c ON p.id = c.parent_id", False),
+        ("JOIN (SELECT parent_id FROM demo.children) c ON p.id = c.parent_id", False),
+        ("JOIN (SELECT DISTINCT parent_id FROM demo.children) c ON p.id = c.parent_id", False),
+        ("JOIN (SELECT parent_id, id FROM demo.children GROUP BY parent_id, id) c ON p.id = c.parent_id", False),
+        ("JOIN (SELECT parent_id FROM demo.children GROUP BY parent_id) c ON p.id > c.parent_id", False),
+        ("JOIN (SELECT parent_id FROM demo.children GROUP BY parent_id) c ON p.id = c.other_id", False),
+        ("JOIN (SELECT parent_id FROM demo.children GROUP BY parent_id) c ON p.id = p.id", False),
+        ("JOIN (SELECT parent_id FROM demo.children GROUP BY parent_id) c ON c.parent_id = c.parent_id", False),
+        ("JOIN (SELECT parent_id FROM demo.children GROUP BY parent_id) c ON p.id = c.parent_id AND p.amount > 0", False),
+        ("CROSS JOIN (SELECT parent_id FROM demo.children GROUP BY parent_id) c", False),
+    ],
+)
+def test_unique_right_join_key_matrix(join_clause, expected):
+    sql = f"SELECT SUM(p.amount) FROM demo.parents p {join_clause}"
+    result = checks(sql)
+    code = ("fanout_unique_right_join_chain_observed" if expected
+            else "fanout_unique_right_join_chain_incomplete")
+    assert any(item["code"] == code for item in result)
+    assert any(item["code"] == "join_fanout_violation" for item in result)
+
+
+@pytest.mark.parametrize(
+    "second_join,expected",
+    [
+        ("JOIN (SELECT parent_id FROM demo.children GROUP BY parent_id) z ON p.id = z.parent_id", True),
+        ("LEFT JOIN (SELECT parent_id FROM demo.children GROUP BY parent_id) z ON c.parent_id = z.parent_id", True),
+        ("JOIN (SELECT parent_id FROM demo.children GROUP BY parent_id) z ON z.parent_id = c.parent_id", True),
+        ("JOIN demo.children z ON p.id = z.parent_id", False),
+        ("JOIN (SELECT parent_id FROM demo.children) z ON p.id = z.parent_id", False),
+        ("JOIN (SELECT parent_id FROM demo.children GROUP BY parent_id) z ON z.parent_id = z.parent_id", False),
+        ("JOIN (SELECT parent_id FROM demo.children GROUP BY parent_id) c ON p.id = c.parent_id", False),
+        ("JOIN (SELECT parent_id FROM demo.children GROUP BY parent_id) z ON unknown.id = z.parent_id", False),
+    ],
+)
+def test_unique_right_multi_join_chain_matrix(second_join, expected):
+    sql = (
+        "SELECT SUM(p.amount) FROM demo.parents p "
+        "JOIN (SELECT parent_id FROM demo.children GROUP BY parent_id) c "
+        "ON p.id = c.parent_id " + second_join
+    )
+    result = checks(sql)
+    code = ("fanout_unique_right_join_chain_observed" if expected
+            else "fanout_unique_right_join_chain_incomplete")
+    assert any(item["code"] == code for item in result)
+    assert any(item["code"] == "join_fanout_violation" for item in result)
