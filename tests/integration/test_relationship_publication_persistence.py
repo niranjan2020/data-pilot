@@ -65,6 +65,7 @@ async def test_publish_reject_stale_and_revoke_on_review_change():
                     return (await cur.fetchone())[0]
 
         assert await publication_count() == 1
+        assert len(await metadata.list_current_relationship_publications(source_id)) == 1
         # Expired evidence must not authorize a new publication.
         async with pool.connection() as conn:
             async with conn.cursor() as cur:
@@ -75,18 +76,22 @@ async def test_publish_reject_stale_and_revoke_on_review_change():
                 """, (source_id,))
         assert not await metadata.publish_reviewed_relationship(source_id, review)
         assert await publication_count() == 1  # historical intent, not active authorization
+        assert await metadata.list_current_relationship_publications(source_id) == []
 
         changed = {**review, "join_policy": "preserve_source"}
         assert not await metadata.publish_reviewed_relationship(source_id, changed)
         await metadata.save_reviewed_relationship(source_id, changed)
         assert await publication_count() == 0
+        assert await metadata.list_current_relationship_publications(source_id) == []
         assert not await metadata.publish_reviewed_relationship(source_id, changed)
         assert await metadata.save_relationship_verification(source_id, changed, proof)
         assert await metadata.publish_reviewed_relationship(source_id, changed)
         assert await publication_count() == 1
+        assert len(await metadata.list_current_relationship_publications(source_id)) == 1
         # Even an identical review update revokes the grant.
         await metadata.save_reviewed_relationship(source_id, changed)
         assert await publication_count() == 0
+        assert await metadata.list_current_relationship_publications(source_id) == []
     finally:
         if source_id is not None:
             pool = await metadata._get_pool()
