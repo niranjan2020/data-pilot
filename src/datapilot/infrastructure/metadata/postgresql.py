@@ -590,6 +590,24 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                       relationship["to_column"], relationship["cardinality"],
                       relationship["review_status"], relationship["description"], relationship.get("join_policy", "unconfigured")))
                 await cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS datapilot_catalog.relationship_publications (
+                        data_source_id BIGINT NOT NULL REFERENCES datapilot_catalog.data_sources(id) ON DELETE CASCADE,
+                        from_schema TEXT NOT NULL, from_table TEXT NOT NULL, from_column TEXT NOT NULL,
+                        to_schema TEXT NOT NULL, to_table TEXT NOT NULL, to_column TEXT NOT NULL,
+                        review_fingerprint TEXT NOT NULL, verification_fingerprint TEXT NOT NULL,
+                        published_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        PRIMARY KEY (data_source_id, from_schema, from_table, from_column,
+                                     to_schema, to_table, to_column)
+                    )
+                """)
+                await cursor.execute("""
+                    DELETE FROM datapilot_catalog.relationship_publications
+                    WHERE data_source_id=%s AND from_schema=%s AND from_table=%s
+                      AND from_column=%s AND to_schema=%s AND to_table=%s AND to_column=%s
+                """, (data_source_id, relationship["from_schema"], relationship["from_table"],
+                      relationship["from_column"], relationship["to_schema"],
+                      relationship["to_table"], relationship["to_column"]))
+                await cursor.execute("""
                     DELETE FROM datapilot_catalog.relationship_verifications
                     WHERE data_source_id=%s AND from_schema=%s AND from_table=%s
                       AND from_column=%s AND to_schema=%s AND to_table=%s AND to_column=%s
