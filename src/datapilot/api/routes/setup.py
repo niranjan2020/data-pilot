@@ -475,6 +475,8 @@ async def list_relationship_verifications(source_id: int, request: Request):
         results = []
         for review in reviews:
             record = await metadata.get_relationship_verification(source_id, review)
+            from datapilot.application.relationship_freshness import assess_verification_freshness
+            freshness = assess_verification_freshness(review, record)
             results.append({
                 "from_schema": review["from_schema"],
                 "from_table": review["from_table"],
@@ -484,6 +486,8 @@ async def list_relationship_verifications(source_id: int, request: Request):
                 "to_column": review["to_column"],
                 "review_status": review["review_status"],
                 "verified": record is not None,
+                "evidence_current": freshness.current,
+                "evidence_reasons": list(freshness.reasons),
                 "verification": record,
                 "governed_join_active": False,
             })
