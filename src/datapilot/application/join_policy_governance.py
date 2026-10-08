@@ -76,3 +76,68 @@ def validate_governed_join_policy(sql: str, relationship: dict) -> JoinPolicyDec
     if pairs != expected:
         return JoinPolicyDecision(False, ("Join keys differ from the approved relationship.",))
     return JoinPolicyDecision(True, ())
+
+
+def validate_governed_join_graph(sql: str, relationships: list[dict]) -> JoinPolicyDecision:
+    """Validate every edge of a flat, source-rooted governed join chain.
+
+    Conservative by design: each new table must be joined from an already
+    introduced source table, and every edge must have a published policy.
+    Nested queries, repeated physical tables, and ambiguous edges fail closed.
+    """
+    if not relationships:
+        return JoinPolicyDecision(False, ("No governed relationships were provided.",))
+    try:
+        statements = sqlglot.parse(sql, read="postgres")
+        if len(statements) != 1 or not isinstance(statements[0], exp.Select):
+            return JoinPolicyDecision(False, ("Expected a single SELECT statement.",))
+        tree = statements[0]
+    except Exception:
+        return JoinPolicyDecision(False, ("SQL parsing failed.",))
+    if any(isinstance(node, (exp.Subquery, exp.CTE, exp.Union)) for node in tree.walk()):
+        return JoinPolicyDecision(False, ("Nested queries require separate join-policy verification.",))
+    root_clause = tree.args.get("from_")
+    joins = tree.args.get("joins") or []
+    if not root_clause or not isinstance(root_clause.this, exp.Table) or not joins:
+        return JoinPolicyDecision(False, ("Expected explicit source and joined tables.",))
+    root = root_clause.this
+    def identity(table):
+        return (str(table.db or "").lower(), str(table.name).lower())
+    if not root.db:
+        return JoinPolicyDecision(False, ("Every governed table must be schema-qualified.",))
+    introduced = {identity(root): str(root.alias_or_name).lower()}
+    aliases = {str(root.alias_or_name).lower()}
+    for join in joins:
+        target = join.this
+        if not isinstance(target, exp.Table) or not target.db:
+            return JoinPolicyDecision(False, ("Every join target must be an explicit schema-qualified table.",))
+        target_id = identity(target)
+        target_alias = str(target.alias_or_name).lower()
+        if target_id in introduced or target_alias in aliases:
+            return JoinPolicyDecision(False, ("Repeated tables or aliases require separate verification.",))
+        on = join.args.get("on")
+        if not isinstance(on, exp.EQ) or not all(isinstance(col, exp.Column) for col in (on.left, on.right)):
+            return JoinPolicyDecision(False, ("Only a single approved key equality is supported.",))
+        pairs = {(str(col.table or "").lower(), str(col.name).lower()) for col in (on.left, on.right)}
+        candidates = []
+        for rel in relationships:
+            source_id = (str(rel.get("from_schema") or "").lower(), str(rel.get("from_table") or "").split(".")[-1].lower())
+            rel_target = (str(rel.get("to_schema") or "").lower(), str(rel.get("to_table") or "").split(".")[-1].lower())
+            if source_id not in introduced or rel_target != target_id:
+                continue
+            expected = {(introduced[source_id], str(rel.get("from_column") or "").lower()), (target_alias, str(rel.get("to_column") or "").lower())}
+            if pairs == expected:
+                candidates.append(rel)
+        if len(candidates) != 1:
+            return JoinPolicyDecision(False, ("Join edge is missing, ambiguous, or not approved.",))
+        rel = candidates[0]
+        policy = rel.get("join_policy")
+        if policy not in {"preserve_source", "matched_only"} or rel.get("cardinality") not in {"many_to_one", "one_to_one"}:
+            return JoinPolicyDecision(False, ("Join edge has no enforceable published policy.",))
+        side = str(join.args.get("side") or "").upper()
+        kind = str(join.args.get("kind") or "").upper()
+        if (policy == "preserve_source" and (side != "LEFT" or kind != "")) or (policy == "matched_only" and (side != "" or kind not in {"", "INNER"})):
+            return JoinPolicyDecision(False, ("Join type violates the approved policy.",))
+        introduced[target_id] = target_alias
+        aliases.add(target_alias)
+    return JoinPolicyDecision(True, ())
