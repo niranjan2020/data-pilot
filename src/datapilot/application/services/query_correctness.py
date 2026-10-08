@@ -664,9 +664,24 @@ def assess_query_correctness(
     # Enforce the published join policy whenever the required relationship carries
     # an explicit policy. This runs in the shared correctness gate on initial SQL
     # and recovery attempts; it never rewrites an unsafe join.
-    from datapilot.application.join_policy_governance import validate_governed_join_policy
+    from datapilot.application.join_policy_governance import (
+        validate_governed_join_policy, validate_governed_join_graph,
+    )
+    required_relationships = list(required_relationships)
     join_policy_checks = []
+    if len(required_relationships) > 1 and any("join_policy" in rel for rel in required_relationships):
+        decision = validate_governed_join_graph(sql or "", required_relationships)
+        join_policy_checks.append({
+            "code": "join_policy_alignment" if decision.allowed else "join_policy_violation",
+            "status": "passed" if decision.allowed else "failed",
+            "severity": "info" if decision.allowed else "error",
+            "relationship": "governed_join_graph",
+            "message": "All join edges comply with governed policies." if decision.allowed else "; ".join(decision.reasons),
+        })
     for relationship in required_relationships:
+        if len(required_relationships) > 1:
+            continue  # Multi-edge joins are validated together above.
+
         if "join_policy" not in relationship:
             continue  # Legacy relationships are not implicitly treated as published.
         name = str(relationship.get("name") or "relationship")
