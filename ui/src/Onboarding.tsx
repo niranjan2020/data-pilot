@@ -35,6 +35,15 @@ export function Onboarding({onReady}:{onReady:()=>void}){
   }catch(e:any){setError(e.message||"Connection failed")}
   finally{setBusy(false)}
  }
+ async function saveDatabase(){
+  setBusy(true);setError("");
+  try{
+   const response=await fetch("/api/setup/data-source",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(db)});
+   if(!response.ok)throw new Error(response.status===422?"Connection validation failed. Please test again.":"Unable to save the database connection.");
+   setDb(v=>({...v,password:""}));setDbTested(false);await refresh();
+  }catch(e:any){setError(e.message||"Unable to save database")}
+  finally{setBusy(false)}
+ }
  return <div className="onboardingPage"><div className="onboardingCard">
   <div className="onboardingBrand"><span className="mark">DP</span><div><strong>Data Pilot</strong><small>Open-source analytics engine</small></div></div>
   <p className="eyebrow">FIRST-RUN SETUP</p><h1>Welcome to Data Pilot</h1>
@@ -53,7 +62,7 @@ export function Onboarding({onReady}:{onReady:()=>void}){
    {(["name","host","port","database","username","password"] as const).map(field=><label key={field}>{field==="database"?"Database":field.charAt(0).toUpperCase()+field.slice(1)}<input required type={field==="password"?"password":field==="port"?"number":"text"} autoComplete={field==="password"?"off":undefined} value={db[field]} onChange={e=>{setDb(v=>({...v,[field]:field==="port"?Number(e.target.value):e.target.value}));setDbTested(false)}}/></label>)}
    <label>SSL mode<select value={db.sslmode} onChange={e=>{setDb(v=>({...v,sslmode:e.target.value}));setDbTested(false)}}><option value="prefer">Prefer</option><option value="require">Require</option><option value="disable">Disable (local only)</option><option value="verify-full">Verify full</option></select></label>
    <button type="submit" disabled={busy}>{busy?"Testing…":"Test connection"}</button>
-   {dbTested&&<p role="status">Connection successful. This test does not save credentials or advance setup; persistent connection setup is the next implementation step.</p>}
+   {dbTested&&<div><p role="status">Connection successful. Save this connection to continue.</p><button type="button" disabled={busy} onClick={saveDatabase}>{busy?"Saving…":"Save & Continue"}</button></div>}
   </form>}
   {status&&status.current_step!=="ai_provider"&&status.current_step!=="data_source"&&!status.ready&&<div className="onboardingForm"><h2>{labels[status.current_step]||"Continue setup"}</h2><p>This onboarding action is scheduled for the next Stage C implementation. Your progress is persisted across restarts.</p><button onClick={()=>refresh().catch(e=>setError(String(e.message||e)))}>Refresh setup status</button></div>}
   {error&&<div className="onboardingError" role="alert">{error} <button type="button" onClick={()=>refresh().then(()=>setError("")).catch(e=>setError(String(e.message||e)))}>Retry</button></div>}
