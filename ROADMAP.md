@@ -36,6 +36,17 @@
 - **C5 broader scope remains OPEN:** provider-independent AI semantic suggestions for entities/attributes/metrics/time dimensions/business rules, review/edit/reject UX, persisted approvals, and complete onboarding journey have not been demonstrated.
 - **Priority guardrail:** finish this bounded authorization hardening, then return to the primary C2 clean-install gate and C3–C5 user-facing onboarding. Do not equate growing unit counts with installation or live benchmark success.
 
+**C5 backlog — governed dataset filters and current-versus-history semantics (2026-10-08)**
+
+- Add a typed, persisted **mandatory dataset filter** contract (column, operator, typed value, applicability, approval state) to the semantic catalog; do not rely on free-text `query_constraints` or LLM instructions as enforcement.
+- First acceptance fixture: `astra.vessels` is a current-state table; `source_active = TRUE` must apply to every query using that dataset, including counts, groupings, and joins. This is a **generic configurable policy**, never a hardcoded vessel rule.
+- Historical/trend analysis uses a **separate snapshot view** already maintained by the Astra team. Discover and govern that view independently; do not blindly apply the current-state `source_active` filter to historical snapshots.
+- Enforce mandatory filters in generated SQL and at the deterministic AST/execution boundary, including aliases, subqueries, joins, and dry runs. Fail closed if the filter is missing or can be bypassed.
+- Define explicit administrator-approved applicability/exceptions and clarify whether a question refers to current state or historical trend. Do not infer exemptions from wording alone.
+- Add negative and positive regression/evaluation cases for current versus historical questions, missing/wrong filters, join placement, and accidental leakage of inactive rows.
+- **Dependency:** complete C2 clean-install gate first; schedule this alongside C4–C5 discovery and semantic approval. Value discovery/canonical value resolution remain C4–C5 backlog as well.
+- **Status:** requirements recorded; runtime enforcement NOT implemented.
+
 **Priority order (avoid indefinite correctness-only iteration)**
 1. **C2 now:** verify Compose startup, dependency health, migrations, first-run Welcome screen, and actionable startup errors on a clean supported machine. Record the actual command and observed outcomes.
 2. **C3–C4:** usable model-provider/target-Postgres connection wizard and automatic schema/constraint discovery with reviewable table selection.
