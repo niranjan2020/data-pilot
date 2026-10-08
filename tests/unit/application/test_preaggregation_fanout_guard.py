@@ -104,3 +104,27 @@ def test_unrelated_scalar_aggregation_not_reported_as_join_grain():
     result = checks(sql)
     assert not any(item["code"].startswith("preaggregation_grain_") for item in result)
     assert any(item["code"] == "join_fanout_violation" for item in result)
+
+
+def test_limited_derived_aggregation_cannot_certify_grain():
+    sql = SQL.replace("GROUP BY parent_id)", "GROUP BY parent_id LIMIT 10)")
+    result = checks(sql)
+    assert any(item["code"] == "preaggregation_grain_unverified" for item in result)
+    assert any(item["code"] == "join_fanout_violation" for item in result)
+
+
+def test_offset_derived_aggregation_cannot_certify_grain():
+    sql = SQL.replace("GROUP BY parent_id)", "GROUP BY parent_id OFFSET 5)")
+    assert any(item["code"] == "preaggregation_grain_unverified" for item in checks(sql))
+
+
+def test_windowed_derived_aggregation_cannot_certify_grain():
+    sql = SQL.replace(
+        "COUNT(*) AS n",
+        "COUNT(*) AS n, ROW_NUMBER() OVER (ORDER BY parent_id) AS row_num",
+    )
+    assert any(item["code"] == "preaggregation_grain_unverified" for item in checks(sql))
+
+
+def test_plain_grouped_derived_aggregation_remains_proven():
+    assert any(item["code"] == "preaggregation_grain_alignment" for item in checks(SQL))
