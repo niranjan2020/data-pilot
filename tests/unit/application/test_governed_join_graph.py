@@ -54,3 +54,43 @@ def test_shared_correctness_gate_rejects_unapproved_chain():
         required_relationships=RELATIONSHIPS,
     )
     assert any(c["code"] == "join_policy_violation" and c["status"] == "failed" for c in checks)
+
+
+def test_one_governed_edge_cannot_authorize_extra_sql_join():
+    checks = assess_query_correctness(
+        sql=VALID,
+        affected_tables=["demo.events", "demo.assets", "demo.owners"],
+        governed_tables=["demo.events", "demo.assets", "demo.owners"],
+        required_relationships=RELATIONSHIPS[:1],
+    )
+    assert any(c["code"] == "join_policy_violation" and c["status"] == "failed" for c in checks)
+
+
+def test_distinct_approved_paths_can_be_selected_by_exact_join_keys():
+    alternate = {
+        **RELATIONSHIPS[1], "name": "asset_billing_owner",
+        "from_column": "billing_owner_id",
+    }
+    checks = assess_query_correctness(
+        sql=VALID,
+        affected_tables=["demo.events", "demo.assets", "demo.owners"],
+        governed_tables=["demo.events", "demo.assets", "demo.owners"],
+        required_relationships=[*RELATIONSHIPS, alternate],
+    )
+    assert any(c["code"] == "join_policy_alignment" for c in checks)
+    assert not any(c["code"] == "join_policy_violation" for c in checks)
+
+
+def test_duplicate_matching_approved_paths_are_ambiguous():
+    assert not validate_governed_join_graph(VALID, [*RELATIONSHIPS, dict(RELATIONSHIPS[1])]).allowed
+
+
+def test_unapproved_extra_join_rejected_even_when_table_is_governed():
+    extra = VALID + " LEFT JOIN demo.regions r ON o.region_id = r.id"
+    checks = assess_query_correctness(
+        sql=extra,
+        affected_tables=["demo.events", "demo.assets", "demo.owners", "demo.regions"],
+        governed_tables=["demo.events", "demo.assets", "demo.owners", "demo.regions"],
+        required_relationships=RELATIONSHIPS,
+    )
+    assert any(c["code"] == "join_policy_violation" and c["status"] == "failed" for c in checks)
