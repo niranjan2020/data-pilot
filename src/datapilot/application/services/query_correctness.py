@@ -511,9 +511,15 @@ def _fanout_checks(
         # A narrow derived-table case: SUM(d.metric_alias) over a direct
         # projection of one physical source column. No nested joins, stars,
         # expressions or ambiguous alias resolution are treated as proof.
-        if not verified and aggregate_columns:
+        if not verified:
+            # Derived projection names can differ from the physical column.
+            # Check every aggregate input, not only names matching the source.
+            derived_inputs = [
+                column for aggregate in tree.find_all(exp.AggFunc)
+                for column in aggregate.find_all(exp.Column)
+            ]
             derived_resolutions = []
-            for column in aggregate_columns:
+            for column in derived_inputs:
                 scope = select_scope(column)
                 alias = str(column.table or "").casefold()
                 outer_from = scope.args.get("from_") if scope is not None else None
