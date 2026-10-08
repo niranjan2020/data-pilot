@@ -13,7 +13,7 @@ type Schema={schema_name?:string;tables:Table[];dialect:string};
 type SemanticAttribute={name:string;description:string;column_name:string;synonyms:string;operators:string[]};
 type SemanticEntityForm={id?:number;name:string;description:string;table:string;key_column:string;display_column:string;synonyms:string;attributes:SemanticAttribute[]};
 const emptyEntity=():SemanticEntityForm=>({name:"",description:"",table:"",key_column:"",display_column:"",synonyms:"",attributes:[]});
-const API="http://localhost:8000";
+const API="";
 
 function displayValue(value:any){
  if(value===null||value===undefined)return "—";
