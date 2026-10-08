@@ -125,3 +125,34 @@ def test_shared_correctness_gate_checks_cte_join_policy():
         required_relationships=RELATIONSHIPS,
     )
     assert any(c["code"] == "join_policy_alignment" and c["status"] == "passed" for c in checks)
+
+
+def test_derived_table_projection_with_governed_joins():
+    sql = "SELECT d.id FROM (" + VALID + ") AS d"
+    assert validate_governed_join_graph(sql, RELATIONSHIPS).allowed
+
+
+def test_derived_table_rejects_unsafe_inner_join():
+    unsafe = VALID.replace("LEFT JOIN demo.owners", "INNER JOIN demo.owners")
+    assert not validate_governed_join_graph("SELECT d.id FROM (" + unsafe + ") AS d", RELATIONSHIPS).allowed
+
+
+def test_derived_table_rejects_ungoverned_outer_join():
+    sql = "SELECT d.id FROM (" + VALID + ") AS d JOIN demo.other x ON d.id = x.id"
+    assert not validate_governed_join_graph(sql, RELATIONSHIPS).allowed
+
+
+def test_derived_table_rejects_nested_subquery():
+    sql = "SELECT d.id FROM (SELECT * FROM (" + VALID + ") AS x) AS d"
+    assert not validate_governed_join_graph(sql, RELATIONSHIPS).allowed
+
+
+def test_correctness_gate_checks_derived_table_policy():
+    sql = "SELECT d.id FROM (" + VALID + ") AS d"
+    checks = assess_query_correctness(
+        sql=sql,
+        affected_tables=["demo.events", "demo.assets", "demo.owners"],
+        governed_tables=["demo.events", "demo.assets", "demo.owners"],
+        required_relationships=RELATIONSHIPS,
+    )
+    assert any(c["code"] == "join_policy_alignment" and c["status"] == "passed" for c in checks)
