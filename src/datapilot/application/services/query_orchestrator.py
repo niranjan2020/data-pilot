@@ -897,6 +897,7 @@ class QueryOrchestrator:
                         repaired_sql = None
                     else:
                         validation = repaired_validation
+                        validation.sanitized_sql = repaired_sql
             if invalid_columns and repaired_sql is None:
                 raise SQLValidationError(
                     "Generated SQL contains an invalid column qualifier",
