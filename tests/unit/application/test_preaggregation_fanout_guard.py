@@ -414,3 +414,42 @@ def test_join_coverage_incomplete_for_direct_join_only():
 def test_join_coverage_incomplete_for_non_equality_derived_join():
     sql = SQL.replace("ON p.id = c.parent_id", "ON p.id > c.parent_id")
     assert any(item["code"] == "fanout_join_coverage_incomplete" for item in checks(sql))
+
+
+def test_nested_derived_join_does_not_count_as_outer_grain_evidence():
+    sql = (
+        "SELECT SUM(p.amount) FROM demo.parents p "
+        "JOIN (SELECT x.parent_id FROM demo.children x "
+        "JOIN (SELECT parent_id, COUNT(*) AS n FROM demo.children GROUP BY parent_id) y "
+        "ON x.parent_id = y.parent_id) d ON p.id = d.parent_id"
+    )
+    result = checks(sql)
+    coverage = next(item for item in result if item["code"] == "fanout_join_coverage_incomplete")
+    assert coverage["outer_join_count"] == 1
+    assert coverage["observed_grain_key_count"] == 0
+
+
+def test_nested_derived_join_does_not_report_outer_grain_key():
+    sql = (
+        "SELECT SUM(p.amount) FROM demo.parents p "
+        "JOIN (SELECT x.parent_id FROM demo.children x "
+        "JOIN (SELECT parent_id, COUNT(*) AS n FROM demo.children GROUP BY parent_id) y "
+        "ON x.parent_id = y.parent_id) d ON p.id = d.parent_id"
+    )
+    result = checks(sql)
+    assert any(item["code"] == "fanout_join_grain_key_unverified" for item in result)
+    assert any(item["code"] == "join_fanout_violation" for item in result)
+
+
+def test_outer_grain_key_remains_observed_with_scalar_nested_join():
+    sql = (
+        "SELECT SUM(p.amount), "
+        "(SELECT COUNT(*) FROM demo.children x JOIN demo.parents y ON x.parent_id = y.id) AS n "
+        "FROM demo.parents p "
+        "JOIN (SELECT parent_id, COUNT(*) AS n FROM demo.children GROUP BY parent_id) c "
+        "ON p.id = c.parent_id"
+    )
+    result = checks(sql)
+    coverage = next(item for item in result if item["code"] == "fanout_join_coverage_observed")
+    assert coverage["outer_join_count"] == 1
+    assert coverage["observed_grain_key_count"] == 1
