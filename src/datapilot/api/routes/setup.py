@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from datapilot.application.setup_state import SetupStatus, derive_setup_status
+from datapilot.application.semantic_bootstrap import DatasetProposal, propose_datasets
 from datapilot.application.data_source_onboarding import PostgreSQLConnectionInput, test_postgresql_connection
 from datapilot.domain.interfaces.ai_configuration import (
     AIProviderConfiguration,
@@ -331,6 +332,26 @@ async def approve_discovered_datasets(source_id: int, payload: DatasetSelectionR
             raise HTTPException(status_code=422, detail="Select at least one valid discovered dataset.") from exc
         await metadata.update_setup_facts(data_selection_ready=True, semantic_model_ready=False)
         return {"selected_count": len(set((item.schema_name, item.table_name) for item in payload.datasets)), "ready": True}
+    finally:
+        if owns:
+            await metadata.close()
+
+
+@router.get("/data-source/{source_id}/semantic-proposals", response_model=list[DatasetProposal])
+async def preview_semantic_proposals(source_id: int, request: Request):
+    """Preview non-authoritative, schema-grounded drafts for approved datasets."""
+    metadata, owns = await _setup_metadata(request)
+    try:
+        if await metadata.get_active_data_source_id() != source_id:
+            raise HTTPException(status_code=409, detail="Datasource is not active.")
+        selected = await metadata.get_selected_datasets(source_id)
+        if not selected:
+            raise HTTPException(status_code=409, detail="Approve datasets before semantic bootstrap.")
+        catalog = await metadata.list_catalog_tables(source_id)
+        try:
+            return propose_datasets(catalog, selected)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail="Selected datasets require schema rediscovery.") from exc
     finally:
         if owns:
             await metadata.close()
