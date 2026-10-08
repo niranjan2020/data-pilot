@@ -870,6 +870,64 @@ def _fanout_checks(
                     "Derived join-key uniqueness could not be established."
                 ),
             })
+            # Correlate each locally unique derived key with the physical
+            # many-side column declared by the risky governed relationship.
+            # This is stronger than a grouping-key observation but still
+            # cannot certify whole-query fan-out safety.
+            governed_unique_edges = []
+            if keys_declared and unique_derived_keys and isinstance(tree, exp.Select):
+                root_clause = tree.args.get("from_")
+                root = root_clause.this if root_clause is not None else None
+                if (
+                    isinstance(root, exp.Table)
+                    and (str(root.db or "").casefold(), str(root.name).casefold())
+                    == (from_schema, from_table)
+                ):
+                    root_alias = str(root.alias_or_name).casefold()
+                    for edge in outer_joins:
+                        derived = edge.this
+                        on = edge.args.get("on")
+                        if not isinstance(derived, exp.Subquery) or not isinstance(derived.this, exp.Select):
+                            continue
+                        alias = str(derived.alias_or_name or "").casefold()
+                        if f"{alias}.{to_column}" not in unique_derived_keys:
+                            continue
+                        if not isinstance(on, exp.EQ):
+                            continue
+                        pairs = (
+                            {(str(col.table or "").casefold(), str(col.name).casefold())
+                             for col in (on.left, on.right)}
+                            if isinstance(on.left, exp.Column) and isinstance(on.right, exp.Column)
+                            else set()
+                        )
+                        if pairs != {(root_alias, from_column), (alias, to_column)}:
+                            continue
+                        inner = derived.this
+                        inner_from = inner.args.get("from_")
+                        physical = inner_from.this if inner_from is not None else None
+                        if not isinstance(physical, exp.Table):
+                            continue
+                        if (str(physical.db or "").casefold(), str(physical.name).casefold()) != (to_schema, to_table):
+                            continue
+                        grouped = inner.args["group"].expressions[0]
+                        if str(grouped.name).casefold() != to_column:
+                            continue
+                        governed_unique_edges.append(f"{root_alias}.{from_column}={alias}.{to_column}")
+            checks.append({
+                "code": "fanout_governed_derived_uniqueness_observed"
+                if len(governed_unique_edges) == 1 else "fanout_governed_derived_uniqueness_unverified",
+                "status": "passed" if len(governed_unique_edges) == 1 else "skipped",
+                "severity": "info",
+                "metric": metric_name,
+                "relationship": relationship.get("name"),
+                "governed_derived_join_keys": governed_unique_edges,
+                "message": (
+                    "The grouped derived join matches the governed physical edge; "
+                    "whole-query cardinality remains unproven."
+                    if len(governed_unique_edges) == 1 else
+                    "Derived uniqueness could not be linked to the governed physical relationship."
+                ),
+            })
             checks.append({
                 "code": "fanout_safety_evidence_incomplete",
                 "status": "skipped",
