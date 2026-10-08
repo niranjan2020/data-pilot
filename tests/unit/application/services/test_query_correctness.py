@@ -458,8 +458,8 @@ def test_correctness_skips_fanout_judgement_for_preaggregated_subquery():
         governed_metrics=[{"name": "Catalog Value", "entity_id": 10, "aggregation": "sum"}],
         required_relationships=_product_line_relationship(),
     )
-    assert any(item["code"] == "fanout_verification_unavailable" for item in checks)
-    assert not any(item["code"] == "join_fanout_violation" for item in checks)
+    assert any(item["code"] == "fanout_safety_evidence_incomplete" for item in checks)
+    assert any(item["code"] == "join_fanout_violation" and item["status"] == "failed" for item in checks)
 
 
 
