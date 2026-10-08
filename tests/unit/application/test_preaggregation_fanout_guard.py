@@ -673,3 +673,61 @@ def test_fanout_violation_never_waived_by_join_type(join_clause):
                for item in result)
     assert any(item["code"] == "fanout_safety_evidence_incomplete"
                and item["join_cardinality_safe"] is False for item in result)
+
+
+@pytest.mark.parametrize(
+    "expression,expected_aggregations",
+    [
+        ("SUM(p.amount)", ["sum"]),
+        ("AVG(p.amount)", ["avg"]),
+        ("COUNT(p.id)", ["count"]),
+        ("MIN(p.amount)", ["min"]),
+        ("MAX(p.amount)", ["max"]),
+        ("SUM(DISTINCT p.amount)", ["sum"]),
+        ("SUM(p.amount) + COUNT(p.id)", ["sum", "count"]),
+        ("COALESCE(SUM(p.amount), 0)", ["sum"]),
+        ("SUM(p.amount) / NULLIF(COUNT(p.id), 0)", ["sum", "count"]),
+        ("SUM(p.amount) FILTER (WHERE p.amount > 0)", ["sum"]),
+        ("ROUND(AVG(p.amount), 2)", ["avg"]),
+        ("COUNT(*)", ["count"]),
+    ],
+)
+def test_outer_aggregate_placement_matrix(expression, expected_aggregations):
+    sql = (
+        f"SELECT {expression} FROM demo.parents p "
+        "JOIN demo.children c ON p.id = c.parent_id"
+    )
+    result = checks(sql)
+    evidence = next(item for item in result if item["code"] == "fanout_aggregate_placement_observed")
+    assert evidence["aggregate_placement"] == "after_outer_joins"
+    assert evidence["outer_aggregations"] == expected_aggregations
+    assert any(item["code"] == "join_fanout_violation" for item in result)
+
+
+@pytest.mark.parametrize(
+    "sql,placement",
+    [
+        ("SELECT p.amount FROM demo.parents p JOIN demo.children c ON p.id = c.parent_id",
+         "no_outer_aggregate"),
+        ("SELECT SUM(p.amount) FROM demo.parents p", "outer_aggregate_no_outer_join"),
+        ("SELECT (SELECT SUM(x.amount) FROM demo.parents x) AS total "
+         "FROM demo.parents p JOIN demo.children c ON p.id = c.parent_id",
+         "no_outer_aggregate"),
+        ("SELECT p.id, (SELECT COUNT(*) FROM demo.children x) AS total "
+         "FROM demo.parents p JOIN demo.children c ON p.id = c.parent_id",
+         "no_outer_aggregate"),
+        ("SELECT x.total FROM (SELECT SUM(p.amount) AS total FROM demo.parents p "
+         "JOIN demo.children c ON p.id = c.parent_id) x", "no_outer_aggregate"),
+        ("SELECT SUM(x.total) FROM (SELECT SUM(p.amount) AS total FROM demo.parents p "
+         "JOIN demo.children c ON p.id = c.parent_id) x", "outer_aggregate_no_outer_join"),
+        ("SELECT p.id FROM demo.parents p JOIN demo.children c ON p.id = c.parent_id",
+         "no_outer_aggregate"),
+        ("SELECT p.amount + 1 FROM demo.parents p JOIN demo.children c ON p.id = c.parent_id",
+         "no_outer_aggregate"),
+    ],
+)
+def test_outer_aggregate_scope_negative_matrix(sql, placement):
+    result = checks(sql)
+    evidence = next(item for item in result if item["code"].startswith("fanout_aggregate_placement_"))
+    assert evidence["aggregate_placement"] == placement
+    assert (evidence["code"] == "fanout_aggregate_placement_observed") == (placement == "after_outer_joins")
