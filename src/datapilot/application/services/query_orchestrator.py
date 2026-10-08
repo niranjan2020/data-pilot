@@ -792,7 +792,8 @@ class QueryOrchestrator:
         # without a publication provider retain their existing behavior.
         if getattr(self, "_relationship_publication_metadata", None) is not None and required_relationships:
             from datapilot.application.published_join_authorization import authorize_published_joins
-            source_id = (await self._relationship_publication_metadata.get_data_source_id(data_source_name)\n                         if data_source_name else None)
+            source_id = (await self._relationship_publication_metadata.get_data_source_id(data_source_name)
+                         if data_source_name else None)
             authorization = await authorize_published_joins(
                 self._relationship_publication_metadata, source_id,
                 executable_sql, required_relationships,
