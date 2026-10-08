@@ -972,6 +972,64 @@ def _fanout_checks(
                     "The full outer join graph lacks sufficient local uniqueness evidence."
                 ),
             })
+            # Audit whether each outer edge joins one previously introduced
+            # alias to a fresh alias through a single qualified equality.
+            # This rejects cycles, disconnected aliases, composite/OR
+            # predicates, and accidental unqualified key references.
+            root_clause = tree.args.get("from_") if isinstance(tree, exp.Select) else None
+            root_source = root_clause.this if root_clause is not None else None
+            introduced = (
+                {str(root_source.alias_or_name).casefold()}
+                if isinstance(root_source, exp.Table) else set()
+            )
+            edge_audit = []
+            for edge in outer_joins:
+                source = edge.this
+                new_alias = str(source.alias_or_name or "").casefold() if source is not None else ""
+                predicate = edge.args.get("on")
+                qualified = (
+                    isinstance(predicate, exp.EQ)
+                    and isinstance(predicate.left, exp.Column)
+                    and isinstance(predicate.right, exp.Column)
+                    and bool(predicate.left.table)
+                    and bool(predicate.right.table)
+                )
+                if qualified:
+                    left_alias = str(predicate.left.table).casefold()
+                    right_alias = str(predicate.right.table).casefold()
+                    connected = (
+                        (left_alias in introduced and right_alias == new_alias)
+                        or (right_alias in introduced and left_alias == new_alias)
+                    )
+                else:
+                    connected = False
+                accepted = bool(new_alias and new_alias not in introduced and connected)
+                edge_audit.append({
+                    "alias": new_alias,
+                    "qualified_equality": bool(qualified),
+                    "connects_existing_alias": bool(connected),
+                    "accepted": accepted,
+                })
+                if accepted:
+                    introduced.add(new_alias)
+            connected_graph = bool(outer_joins) and all(
+                item["accepted"] for item in edge_audit
+            )
+            checks.append({
+                "code": "fanout_join_graph_connections_observed"
+                if connected_graph else "fanout_join_graph_connections_unverified",
+                "status": "passed" if connected_graph else "skipped",
+                "severity": "info",
+                "metric": metric_name,
+                "relationship": relationship.get("name"),
+                "join_edge_audit": edge_audit,
+                "message": (
+                    "Each outer join connects a fresh alias to an introduced alias "
+                    "using one qualified equality; row uniqueness remains unproven."
+                    if connected_graph else
+                    "The outer join graph contains an unverified edge or alias."
+                ),
+            })
             # Explicitly classify outer join types for cardinality review.
             # INNER/LEFT joins can be non-multiplying with a unique right
             # key; RIGHT/FULL/CROSS and implicit joins need separate proofs.
