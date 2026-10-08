@@ -212,16 +212,37 @@ async def test_onboarded_vessel_aggregates_accept_valid_qualifiers(question, sql
 
 
 @pytest.mark.asyncio
-async def test_onboarded_msc_count_rejects_schema_as_column_qualifier():
-    sql = 'SELECT COUNT(DISTINCT astra."id") FROM "astra"."vessels" WHERE astra."operator" = \'MSC\''
+@pytest.mark.parametrize("sql", [
+    'SELECT COUNT(DISTINCT astra."id") FROM "astra"."vessels"',
+    'SELECT COUNT(DISTINCT astra."id") FROM "astra"."vessels" WHERE astra."operator" = \'MSC\'',
+])
+async def test_single_table_schema_column_qualifier_is_repaired(sql):
     service = orchestrator(sql)
     service._onboarding_allowed_tables = frozenset({"astra.vessels"})
     service._validator.validate.return_value.affected_tables = ["astra.vessels"]
+    response = await service._validate_and_execute(
+        question="How many vessels does MSC have?", sql=sql,
+        source="generator", confidence=1.0, execute=False,
+        governed_tables=["astra.vessels"],
+    )
+    assert response.status == "dry_run"
+    assert service._validator.validate.await_count == 2
+    repaired = service._validator.validate.await_args_list[-1].args[0]
+    assert 'astra."id"' not in repaired
+    assert 'astra."operator"' not in repaired
+    assert '"vessels"."id"' in repaired
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_schema_qualifier_is_not_repaired():
+    sql = 'SELECT COUNT(DISTINCT astra."id") FROM astra.vessels v JOIN astra.fixtures f ON v.id = f.vessel_id'
+    service = orchestrator(sql)
+    service._onboarding_allowed_tables = frozenset({"astra.vessels", "astra.fixtures"})
+    service._validator.validate.return_value.affected_tables = ["astra.vessels", "astra.fixtures"]
     with pytest.raises(SQLValidationError) as exc:
         await service._validate_and_execute(
-            question="How many vessels does MSC have?", sql=sql,
-            source="generator", confidence=1.0, execute=True,
-            governed_tables=["astra.vessels"],
+            question="Count joined vessels", sql=sql, source="generator",
+            confidence=1.0, execute=True, governed_tables=["astra.vessels", "astra.fixtures"],
         )
     assert exc.value.details["checks"][0]["code"] == "sql_identifier_qualifier_violation"
     service._database.execute.assert_not_awaited()
