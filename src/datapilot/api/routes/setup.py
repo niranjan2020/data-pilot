@@ -419,6 +419,44 @@ async def approve_setup_semantic_draft(source_id: int, payload: SemanticDraftApp
             await metadata.close()
 
 
+@router.post("/data-source/{source_id}/semantic-review/complete")
+async def complete_semantic_review(source_id: int, request: Request):
+    """Finish human dataset review; do not publish any relationship."""
+    metadata, owns = await _setup_metadata(request)
+    try:
+        if await metadata.get_active_data_source_id() != source_id:
+            raise HTTPException(status_code=409, detail="Datasource is not active.")
+        facts = await metadata.get_setup_facts()
+        if not (facts["ai_provider_ready"] and facts["data_source_ready"] and facts["data_selection_ready"]):
+            raise HTTPException(status_code=409, detail="Complete provider, datasource and dataset selection first.")
+        selected = await metadata.get_selected_datasets(source_id)
+        if not selected:
+            raise HTTPException(status_code=409, detail="Select at least one discovered dataset.")
+        approved = await metadata.list_semantic_datasets(source_id)
+        approved_keys = {
+            (item["schema_name"], item["table_name"])
+            for item in approved
+            if all(str(item.get(field) or "").strip() for field in ("description", "business_meaning", "grain"))
+        }
+        missing = sorted({
+            (item["schema_name"], item["table_name"]) for item in selected
+        } - approved_keys)
+        if missing:
+            raise HTTPException(
+                status_code=409,
+                detail="Approve dataset description, business meaning and row grain for every selected dataset: "
+                       + ", ".join(f"{schema}.{table}" for schema, table in missing),
+            )
+        # This is an explicit human-reviewed baseline, not a claim that
+        # semantic indexing, metric governance or relationship publication ran.
+        await metadata.update_setup_facts(semantic_model_ready=True)
+        return {"ready": True, "reviewed_datasets": len(approved_keys),
+                "relationships_published": False, "semantic_indexing_verified": False}
+    finally:
+        if owns:
+            await metadata.close()
+
+
 @router.get("/data-source/{source_id}/relationship-proposals", response_model=list[RelationshipCandidate])
 async def preview_relationship_proposals(source_id: int, request: Request):
     """Suggest joins without promoting naming heuristics to verified constraints."""
