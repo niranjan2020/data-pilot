@@ -13,6 +13,7 @@ from datapilot.domain.interfaces.ai_configuration import (
 from datapilot.infrastructure.metadata.postgresql import PostgreSQLMetadataProvider
 from datapilot.infrastructure.secrets.local_env import LocalEnvAIProviderSecretStore
 from datapilot.infrastructure.secrets.local_data_source import LocalDataSourceSecretStore
+from datapilot.infrastructure.database.saved_connection import open_saved_data_source
 
 router = APIRouter(prefix="/api/setup", tags=["Setup"])
 
@@ -186,5 +187,40 @@ async def save_setup_data_source(payload: PostgreSQLConnectionInput, request: Re
         await metadata.update_setup_facts(data_source_ready=True)
         return SavedDataSource(id=source_id, name=payload.name, connected=True)
     finally:
+        if owns_metadata:
+            await metadata.close()
+
+
+
+class SavedDiscoveryResponse(BaseModel):
+    data_source_id: int
+    schemas: list[str]
+    tables: int
+    persisted: bool
+
+
+@router.post("/data-source/{source_id}/discover", response_model=SavedDiscoveryResponse)
+async def discover_saved_source(source_id: int, request: Request) -> SavedDiscoveryResponse:
+    metadata, owns_metadata = await _setup_metadata(request)
+    store = getattr(request.app.state, "data_source_secret_store", None) or LocalDataSourceSecretStore()
+    provider = None
+    try:
+        try:
+            provider = await open_saved_data_source(metadata, store, source_id)
+            names = await provider.list_schemas()
+            schemas = [await provider.introspect_schema(name) for name in names]
+            for schema in schemas:
+                await metadata.save_schema(schema, data_source_id=source_id)
+            return SavedDiscoveryResponse(
+                data_source_id=source_id,
+                schemas=names,
+                tables=sum(len(schema.tables) for schema in schemas),
+                persisted=True,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="Saved datasource discovery failed. Check connection access and stored credentials.") from exc
+    finally:
+        if provider is not None:
+            await provider.close()
         if owns_metadata:
             await metadata.close()
