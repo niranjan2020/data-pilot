@@ -230,7 +230,8 @@ async def test_single_table_schema_column_qualifier_is_repaired(sql):
     repaired = service._validator.validate.await_args_list[-1].args[0]
     assert 'astra."id"' not in repaired
     assert 'astra."operator"' not in repaired
-    assert '"vessels"."id"' in repaired
+    # sqlglot emits unquoted lower-case table identifiers in PostgreSQL SQL.
+    assert 'vessels."id"' in repaired
 
 
 @pytest.mark.asyncio
