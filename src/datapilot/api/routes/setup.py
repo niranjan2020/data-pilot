@@ -278,6 +278,58 @@ async def rotate_saved_data_source_credential(
             await metadata.close()
 
 
+class DataSourceLoginUpdate(BaseModel):
+    username: str = Field(min_length=1, max_length=255)
+    password: SecretStr
+
+
+@router.put("/data-source/{source_id}/login")
+async def update_saved_data_source_login(
+    source_id: int, payload: DataSourceLoginUpdate, request: Request
+):
+    """Validate username/password together before replacing either saved value."""
+    metadata, owns_metadata = await _setup_metadata(request)
+    store = getattr(request.app.state, "data_source_secret_store", None) or LocalDataSourceSecretStore()
+    try:
+        record = await metadata.get_data_source(source_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Saved datasource not found.")
+        if record["provider"] != "postgresql":
+            raise HTTPException(status_code=422, detail="Unsupported datasource provider.")
+        username = payload.username.strip()
+        if not username:
+            raise HTTPException(status_code=422, detail="Username must not be empty.")
+        replacement = PostgreSQLConnectionInput(
+            name=record["name"], host=record["host"], port=record["port"],
+            database=record["database"], username=username,
+            sslmode=record["sslmode"], password=payload.password,
+        )
+        try:
+            connected = await test_postgresql_connection(replacement)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="New login validation failed; saved login unchanged.") from exc
+        if not connected:
+            raise HTTPException(status_code=422, detail="New login validation failed; saved login unchanged.")
+        old_password = store.resolve_for_runtime(source_id)
+        if old_password is None:
+            raise HTTPException(status_code=503, detail="Existing datasource secret unavailable.")
+        try:
+            await metadata.update_data_source_username(source_id, username)
+            store.put(source_id, payload.password.get_secret_value())
+        except Exception as exc:
+            try:
+                await metadata.update_data_source_username(source_id, record["username"])
+                store.put(source_id, old_password)
+            except Exception:
+                _logger.exception("Datasource login rollback failed for source id %s", source_id)
+                raise HTTPException(status_code=503, detail="Credential update failed; recovery required.") from exc
+            raise HTTPException(status_code=503, detail="Credential update failed; saved login restored.") from exc
+        return {"updated": True, "connected": True}
+    finally:
+        if owns_metadata:
+            await metadata.close()
+
+
 @router.get("/data-source/{source_id}/details")
 async def saved_data_source_details(source_id: int, request: Request):
     """Read non-secret connection settings without returning stored credentials."""
