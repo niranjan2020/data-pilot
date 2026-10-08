@@ -171,3 +171,32 @@ def test_metric_lineage_does_not_accept_unqualified_aggregate_column():
     sql = SQL.replace("SUM(p.amount)", "SUM(amount)")
     metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
     assert any(item["code"] == "metric_lineage_unverified" for item in checks(sql, metric))
+
+
+def test_metric_lineage_reused_alias_in_nested_scope_is_unverified():
+    sql = (
+        "SELECT SUM(p.amount), (SELECT SUM(p.amount) FROM demo.children p) AS child_total "
+        "FROM demo.parents p"
+    )
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
+    assert any(item["code"] == "metric_lineage_unverified" for item in checks(sql, metric))
+
+
+def test_metric_lineage_distinct_aliases_remain_verifiable():
+    sql = (
+        "SELECT SUM(p.amount), (SELECT COUNT(*) FROM demo.children c) AS child_total "
+        "FROM demo.parents p"
+    )
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
+    assert any(item["code"] == "metric_lineage_alignment" for item in checks(sql, metric))
+
+
+def test_metric_lineage_reused_alias_does_not_waive_fanout():
+    sql = (
+        "SELECT SUM(p.amount), (SELECT SUM(p.amount) FROM demo.children p) AS child_total "
+        "FROM demo.parents p JOIN demo.children c ON p.id = c.parent_id"
+    )
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
+    result = checks(sql, metric)
+    assert any(item["code"] == "metric_lineage_unverified" for item in result)
+    assert any(item["code"] == "join_fanout_violation" for item in result)
