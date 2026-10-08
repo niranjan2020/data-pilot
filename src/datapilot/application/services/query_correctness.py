@@ -972,6 +972,40 @@ def _fanout_checks(
                     "The full outer join graph lacks sufficient local uniqueness evidence."
                 ),
             })
+            # Explicitly classify outer join types for cardinality review.
+            # INNER/LEFT joins can be non-multiplying with a unique right
+            # key; RIGHT/FULL/CROSS and implicit joins need separate proofs.
+            join_types = []
+            unsupported_join_types = []
+            for edge in outer_joins:
+                side = str(edge.args.get("side") or "").upper()
+                kind = str(edge.args.get("kind") or "").upper()
+                if kind == "CROSS":
+                    join_type = "CROSS"
+                elif side in {"LEFT", "RIGHT", "FULL"}:
+                    join_type = side
+                elif kind in {"", "INNER"} and not side:
+                    join_type = "INNER"
+                else:
+                    join_type = "UNKNOWN"
+                join_types.append(join_type)
+                if join_type not in {"INNER", "LEFT"} or not isinstance(edge.args.get("on"), exp.EQ):
+                    unsupported_join_types.append(join_type)
+            checks.append({
+                "code": "fanout_join_types_supported"
+                if outer_joins and not unsupported_join_types else "fanout_join_types_unverified",
+                "status": "passed" if outer_joins and not unsupported_join_types else "skipped",
+                "severity": "info",
+                "metric": metric_name,
+                "relationship": relationship.get("name"),
+                "join_types": join_types,
+                "unsupported_join_types": unsupported_join_types,
+                "message": (
+                    "Join types admit further uniqueness analysis; fan-out is not waived."
+                    if outer_joins and not unsupported_join_types else
+                    "One or more join types or predicates need separate cardinality verification."
+                ),
+            })
             checks.append({
                 "code": "fanout_safety_evidence_incomplete",
                 "status": "skipped",
