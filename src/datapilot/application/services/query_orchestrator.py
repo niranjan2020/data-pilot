@@ -809,20 +809,40 @@ class QueryOrchestrator:
         # Reject unselected physical tables even when SQL is syntactically valid.
         allowed_tables = getattr(self, "_onboarding_allowed_tables", None)
         if allowed_tables is not None:
-            actual_tables = {
-                str(table).strip().strip('"').lower()
-                for table in validation.affected_tables
-            }
+            # Validator diagnostics may include quoted identifiers and aliases.
+            # Resolve actual physical tables from the validated SQL AST instead.
+            import sqlglot
+            from sqlglot import exp
+            try:
+                statements = sqlglot.parse(validation.sanitized_sql or sql, read="postgres")
+                if len(statements) != 1 or statements[0] is None:
+                    raise ValueError("Expected one SQL statement")
+                actual_tables = {
+                    f"{table.db}.{table.name}".casefold()
+                    for table in statements[0].find_all(exp.Table)
+                    if table.db and table.name
+                }
+                unqualified = {
+                    table.name for table in statements[0].find_all(exp.Table)
+                    if not table.db
+                }
+            except Exception as exc:
+                raise SQLValidationError(
+                    "Unable to verify selected datasets in generated SQL",
+                    details={"checks": [{"code": "dataset_selection_violation",
+                                         "status": "failed", "severity": "error",
+                                         "message": "SQL table-reference verification failed."}]},
+                ) from exc
             unauthorized = sorted(actual_tables - allowed_tables)
-            if not allowed_tables or unauthorized:
+            if not allowed_tables or unauthorized or unqualified:
                 raise SQLValidationError(
                     "Generated SQL references a dataset outside the onboarded selection",
                     details={"checks": [{
                         "code": "dataset_selection_violation",
                         "status": "failed",
                         "severity": "error",
-                        "message": "Query references unselected datasets: "
-                                   + ", ".join(unauthorized or ["no datasets selected"]),
+                        "message": "Query references unselected or unqualified datasets: "
+                                   + ", ".join(unauthorized + sorted(unqualified) or ["no datasets selected"]),
                     }]},
                 )
 
