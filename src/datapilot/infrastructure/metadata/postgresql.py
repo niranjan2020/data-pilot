@@ -421,6 +421,23 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                     )
                     return (await cursor.fetchone())[0]
 
+    async def get_data_source(self, source_id: int) -> Optional[dict]:
+        """Retrieve non-secret connection metadata for an explicitly selected source."""
+        await self.initialize()
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    """SELECT id, name, provider, host, port, database_name, username, sslmode
+                       FROM datapilot_catalog.data_sources WHERE id = %s""",
+                    (source_id,),
+                )
+                row = await cursor.fetchone()
+                if row is None:
+                    return None
+                keys = ("id", "name", "provider", "host", "port", "database", "username", "sslmode")
+                return dict(zip(keys, row))
+
     async def get_data_source_id(self, name: str) -> Optional[int]:
         await self.initialize()
         pool = await self._get_pool()
