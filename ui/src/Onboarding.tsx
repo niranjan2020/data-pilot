@@ -21,6 +21,10 @@ export function Onboarding({onReady}:{onReady:()=>void}){
  const [relationships,setRelationships]=useState<RelationshipCandidate[]>([]);
  const [relationshipReviews,setRelationshipReviews]=useState<Record<string,{cardinality:string;review_status:string;description:string}>>({});
  const relationshipKey=(r:RelationshipCandidate)=>[r.from_schema,r.from_table,r.from_column,r.to_schema,r.to_table,r.to_column].join("|");
+ type VerificationResult={structurally_valid:boolean;live_cardinality_verified:boolean;cardinality_holds:boolean;publishable:boolean;reasons:string[]};
+ const [verificationResults,setVerificationResults]=useState<Record<string,VerificationResult>>({});
+ const [verifyingKey,setVerifyingKey]=useState<string|null>(null);
+ const [verificationErrors,setVerificationErrors]=useState<Record<string,string>>({});
  const [relationshipSaving,setRelationshipSaving]=useState(false);
  const [relationshipError,setRelationshipError]=useState("");
  const [proposalError,setProposalError]=useState("");
@@ -141,8 +145,28 @@ export function Onboarding({onReady}:{onReady:()=>void}){
    const response=await fetch("/api/setup/data-source/"+savedSourceId+"/relationship-reviews",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({...rel,cardinality:review.cardinality,description:review.description,review_status})});
    if(!response.ok){const data=await response.json();throw new Error(data.detail||"Unable to save review.");}
    setRelationshipReviews(v=>({...v,[key]:{...review,review_status}}));
+   setVerificationResults(v=>{const next={...v};delete next[key];return next});
   }catch(e:any){setRelationshipError(e.message||"Unable to save relationship review.")}
   finally{setRelationshipSaving(false)}
+ }
+ async function verifyRelationship(rel:RelationshipCandidate){
+  if(savedSourceId===null)return;
+  const key=relationshipKey(rel);
+  const review=relationshipReviews[key];
+  if(!review||review.review_status!=="approved")return;
+  setVerifyingKey(key);
+  setVerificationErrors(v=>({...v,[key]:""}));
+  setVerificationResults(v=>{const next={...v};delete next[key];return next});
+  try{
+   const response=await fetch("/api/setup/data-source/"+savedSourceId+"/relationship-verification",{
+    method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({...rel,...review})
+   });
+   const data=await response.json();
+   if(!response.ok)throw new Error(typeof data.detail==="string"?data.detail:"Verification unavailable. Retry after checking the database connection.");
+   setVerificationResults(v=>({...v,[key]:data as VerificationResult}));
+  }catch(e:any){setVerificationErrors(v=>({...v,[key]:e.message||"Verification unavailable."}))}
+  finally{setVerifyingKey(null)}
  }
  async function approveSemantic(p:SemanticProposal){
   if(savedSourceId===null)return;
@@ -224,7 +248,13 @@ export function Onboarding({onReady}:{onReady:()=>void}){
  <option value="unknown">Unknown — needs review</option><option value="many_to_one">Many to one</option><option value="one_to_many">One to many</option><option value="one_to_one">One to one</option><option value="many_to_many">Many to many</option></select></label>
  <label>Relationship meaning <small>Optional context for future semantic modeling.</small><input value={relationshipReviews[relationshipKey(rel)]?.description||""} onChange={e=>setRelationshipReviews(v=>({...v,[relationshipKey(rel)]:{...v[relationshipKey(rel)],description:e.target.value}}))} placeholder="What does this relationship represent?"/></label>
  </div>
- <div className="semanticDraftFooter"><button type="button" disabled={relationshipSaving||(relationshipReviews[relationshipKey(rel)]?.cardinality||"unknown")==="unknown"} onClick={()=>saveRelationshipReview(rel,"approved")}>Approve relationship</button><button type="button" disabled={relationshipSaving} onClick={()=>saveRelationshipReview(rel,"rejected")}>Reject</button></div>
+ <div className="semanticDraftFooter"><button type="button" disabled={relationshipSaving||(relationshipReviews[relationshipKey(rel)]?.cardinality||"unknown")==="unknown"} onClick={()=>saveRelationshipReview(rel,"approved")}>Approve relationship</button><button type="button" disabled={relationshipSaving} onClick={()=>saveRelationshipReview(rel,"rejected")}>Reject</button><button type="button" disabled={verifyingKey!==null||relationshipSaving||relationshipReviews[relationshipKey(rel)]?.review_status!=="approved"} onClick={()=>verifyRelationship(rel)}>{verifyingKey===relationshipKey(rel)?"Verifying…":"Verify relationship"}</button></div>
+ {verificationErrors[relationshipKey(rel)]&&<p role="alert" className="relationshipVerification failed">{verificationErrors[relationshipKey(rel)]}</p>}
+ {verificationResults[relationshipKey(rel)]&&<div role="status" className={"relationshipVerification "+(verificationResults[relationshipKey(rel)].structurally_valid&&verificationResults[relationshipKey(rel)].live_cardinality_verified&&verificationResults[relationshipKey(rel)].cardinality_holds?"passed":"failed")}>
+ <strong>{verificationResults[relationshipKey(rel)].structurally_valid&&verificationResults[relationshipKey(rel)].live_cardinality_verified&&verificationResults[relationshipKey(rel)].cardinality_holds?"Live cardinality verified":"Relationship not verified"}</strong>
+ <p>{verificationResults[relationshipKey(rel)].reasons?.length?verificationResults[relationshipKey(rel)].reasons.join(" "):"Structural and live checks completed."}</p>
+ <small>Verification does not publish or activate this join.</small>
+ </div>
  </div>)}</div>}
  <p>Human review decisions are saved separately. Reviewed relationships are not yet activated for SQL generation.</p>
  </section>
