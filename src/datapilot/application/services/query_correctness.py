@@ -495,8 +495,11 @@ def _fanout_checks(
             for column in aggregate.find_all(exp.Column)
         ]
         direct_inputs = all(
-            len(list(aggregate.find_all(exp.Column))) == 1
-            and isinstance(aggregate.this, exp.Column)
+            not list(aggregate.find_all(exp.Column))
+            or (
+                len(list(aggregate.find_all(exp.Column))) == 1
+                and isinstance(aggregate.this, exp.Column)
+            )
             for aggregate in aggregates
         )
         resolved_columns = []
