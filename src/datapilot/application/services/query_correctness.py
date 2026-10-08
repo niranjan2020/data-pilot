@@ -810,6 +810,66 @@ def _fanout_checks(
                     "At least one join lacks independent derived grouping-key evidence."
                 ),
             })
+            # GROUP BY a single projected join key establishes at most one
+            # derived row per non-null key, provided the SELECT is simple.
+            # This is local uniqueness evidence, not proof that every other
+            # edge or the metric aggregation itself is fan-out safe.
+            unique_derived_keys = []
+            for edge in outer_joins:
+                derived = edge.this
+                predicate = edge.args.get("on")
+                if not isinstance(derived, exp.Subquery) or not isinstance(derived.this, exp.Select):
+                    continue
+                inner = derived.this
+                grouping = inner.args.get("group")
+                if (
+                    not isinstance(predicate, exp.EQ)
+                    or grouping is None or len(grouping.expressions) != 1
+                    or not isinstance(grouping.expressions[0], exp.Column)
+                    or inner.args.get("joins") or inner.args.get("with_")
+                    or inner.args.get("distinct") or inner.args.get("having")
+                    or inner.args.get("qualify") or inner.args.get("limit")
+                    or inner.args.get("offset")
+                    or any(isinstance(node, (exp.Subquery, exp.CTE, exp.Union, exp.Window))
+                           for node in inner.walk())
+                ):
+                    continue
+                alias = str(derived.alias_or_name or "").casefold()
+                key = next((
+                    str(left.name).casefold()
+                    for left, right in ((predicate.left, predicate.right), (predicate.right, predicate.left))
+                    if isinstance(left, exp.Column) and isinstance(right, exp.Column)
+                    and str(left.table or "").casefold() == alias
+                    and str(right.table or "").casefold() != alias
+                ), None)
+                if key is None:
+                    continue
+                grouped = grouping.expressions[0]
+                if any(
+                    isinstance(projection.this if isinstance(projection, exp.Alias) else projection, exp.Column)
+                    and str(projection.alias_or_name or "").casefold() == key
+                    and str((projection.this if isinstance(projection, exp.Alias) else projection).name).casefold()
+                    == str(grouped.name).casefold()
+                    and str((projection.this if isinstance(projection, exp.Alias) else projection).table or "").casefold()
+                    == str(grouped.table or "").casefold()
+                    for projection in inner.expressions
+                ):
+                    unique_derived_keys.append(f"{alias}.{key}")
+            checks.append({
+                "code": "fanout_derived_key_uniqueness_observed"
+                if unique_derived_keys else "fanout_derived_key_uniqueness_unverified",
+                "status": "passed" if unique_derived_keys else "skipped",
+                "severity": "info",
+                "metric": metric_name,
+                "relationship": relationship.get("name"),
+                "unique_derived_join_keys": unique_derived_keys,
+                "message": (
+                    "Simple GROUP BY establishes local derived-key uniqueness, "
+                    "but does not waive the governed fan-out violation."
+                    if unique_derived_keys else
+                    "Derived join-key uniqueness could not be established."
+                ),
+            })
             checks.append({
                 "code": "fanout_safety_evidence_incomplete",
                 "status": "skipped",
