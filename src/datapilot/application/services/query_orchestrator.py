@@ -787,33 +787,52 @@ class QueryOrchestrator:
             executable_sql, validation.affected_tables, validation.warnings,
         )
 
-        # Enforce authoritative publication at the final execution boundary,
-        # including dry-runs and regenerated SQL proposals. Legacy callers
-        # without a publication provider retain their existing behavior.
+        # Production queries must not bypass governance by omitting relationship
+        # contracts. Parse the validated SQL, including nested SELECTs, and
+        # require an authoritative publication for every physical JOIN.
         trusted_published_relationships = None
-        if getattr(self, "_relationship_publication_metadata", None) is not None and required_relationships:
+        publication_metadata = getattr(self, "_relationship_publication_metadata", None)
+        if publication_metadata is not None:
+            import sqlglot
+            from sqlglot import exp
             from datapilot.application.published_join_authorization import authorize_published_joins
-            source_id = (await self._relationship_publication_metadata.get_data_source_id(data_source_name)
-                         if data_source_name else None)
-            authorization = await authorize_published_joins(
-                self._relationship_publication_metadata, source_id,
-                executable_sql, required_relationships,
-            )
-            if not authorization.allowed:
+
+            try:
+                statements = sqlglot.parse(executable_sql, read="postgres")
+                has_join = any(isinstance(node, exp.Join)
+                               for statement in statements if statement is not None
+                               for node in statement.walk())
+            except Exception as exc:
                 raise SQLValidationError(
-                    "Generated SQL uses an unpublished or invalid relationship",
+                    "Cannot verify SQL relationship publication",
                     details={"checks": [{
                         "code": "relationship_publication_violation",
-                        "status": "failed",
-                        "severity": "error",
-                        "message": "; ".join(authorization.reasons),
+                        "status": "failed", "severity": "error",
+                        "message": "Unable to parse SQL for relationship authorization.",
                     }]},
-                )
+                ) from exc
 
-        if getattr(self, "_relationship_publication_metadata", None) is not None and required_relationships:
-            # The preceding authorization validated actual SQL against the grants.
-            # Pass only grants retrieved through the trusted metadata adapter.
-            trusted_published_relationships = await self._relationship_publication_metadata.list_current_relationship_publications(source_id)
+            if has_join or required_relationships:
+                source_id = (await publication_metadata.get_data_source_id(data_source_name)
+                             if data_source_name else None)
+                authorization = await authorize_published_joins(
+                    publication_metadata, source_id, executable_sql,
+                    required_relationships or [],
+                )
+                if not authorization.allowed:
+                    raise SQLValidationError(
+                        "Generated SQL uses an unpublished or invalid relationship",
+                        details={"checks": [{
+                            "code": "relationship_publication_violation",
+                            "status": "failed", "severity": "error",
+                            "message": "; ".join(authorization.reasons),
+                        }]},
+                    )
+                # Do not query the publication catalog twice: use exactly the
+                # grant snapshot validated above.
+                trusted_published_relationships = list(
+                    await publication_metadata.list_current_relationship_publications(source_id)
+                )
 
         correctness_checks = assess_query_correctness(
             affected_tables=validation.affected_tables,
