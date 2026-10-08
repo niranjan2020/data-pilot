@@ -21,7 +21,7 @@ export function Onboarding({onReady}:{onReady:()=>void}){
  const [relationships,setRelationships]=useState<RelationshipCandidate[]>([]);
  const [relationshipReviews,setRelationshipReviews]=useState<Record<string,{cardinality:string;review_status:string;description:string}>>({});
  const relationshipKey=(r:RelationshipCandidate)=>[r.from_schema,r.from_table,r.from_column,r.to_schema,r.to_table,r.to_column].join("|");
- type VerificationResult={structurally_valid:boolean;live_cardinality_verified:boolean;cardinality_holds:boolean;publishable:boolean;reasons:string[]};
+ type VerificationResult={structurally_valid:boolean;live_cardinality_verified:boolean;cardinality_holds:boolean;referential_integrity_checked?:boolean;unmatched_references?:boolean|null;nullable_references?:boolean|null;publishable:boolean;reasons:string[]};
  const [verificationResults,setVerificationResults]=useState<Record<string,VerificationResult>>({});
  const [verifyingKey,setVerifyingKey]=useState<string|null>(null);
  const [verificationErrors,setVerificationErrors]=useState<Record<string,string>>({});
@@ -250,8 +250,8 @@ export function Onboarding({onReady}:{onReady:()=>void}){
  </div>
  <div className="semanticDraftFooter"><button type="button" disabled={relationshipSaving||(relationshipReviews[relationshipKey(rel)]?.cardinality||"unknown")==="unknown"} onClick={()=>saveRelationshipReview(rel,"approved")}>Approve relationship</button><button type="button" disabled={relationshipSaving} onClick={()=>saveRelationshipReview(rel,"rejected")}>Reject</button><button type="button" disabled={verifyingKey!==null||relationshipSaving||relationshipReviews[relationshipKey(rel)]?.review_status!=="approved"} onClick={()=>verifyRelationship(rel)}>{verifyingKey===relationshipKey(rel)?"Verifying…":"Verify relationship"}</button></div>
  {verificationErrors[relationshipKey(rel)]&&<p role="alert" className="relationshipVerification failed">{verificationErrors[relationshipKey(rel)]}</p>}
- {verificationResults[relationshipKey(rel)]&&<div role="status" className={"relationshipVerification "+(verificationResults[relationshipKey(rel)].structurally_valid&&verificationResults[relationshipKey(rel)].live_cardinality_verified&&verificationResults[relationshipKey(rel)].cardinality_holds?"passed":"failed")}>
- <strong>{verificationResults[relationshipKey(rel)].structurally_valid&&verificationResults[relationshipKey(rel)].live_cardinality_verified&&verificationResults[relationshipKey(rel)].cardinality_holds?"Live cardinality verified":"Relationship not verified"}</strong>
+ {verificationResults[relationshipKey(rel)]&&<div role="status" className={"relationshipVerification "+(verificationResults[relationshipKey(rel)].structurally_valid&&verificationResults[relationshipKey(rel)].live_cardinality_verified&&verificationResults[relationshipKey(rel)].cardinality_holds&&verificationResults[relationshipKey(rel)].referential_integrity_checked&&verificationResults[relationshipKey(rel)].unmatched_references===false?"passed":"failed")}>
+ <strong>{verificationResults[relationshipKey(rel)].structurally_valid&&verificationResults[relationshipKey(rel)].live_cardinality_verified&&verificationResults[relationshipKey(rel)].cardinality_holds?"Cardinality and references verified":"Verification incomplete or requires review"}</strong>
  <p>{verificationResults[relationshipKey(rel)].reasons?.length?verificationResults[relationshipKey(rel)].reasons.join(" "):"Structural and live checks completed."}</p>
  <small>Verification does not publish or activate this join.</small>
  </div>}
