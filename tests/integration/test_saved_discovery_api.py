@@ -19,7 +19,11 @@ class FakeProvider:
 
     async def introspect_schema(self, name):
         assert name == "public"
-        return type("Schema", (), {"tables": [object(), object()]})()
+        from datapilot.domain.models.schema import SchemaMetadata, TableMetadata
+        return SchemaMetadata(schema_name="public", dialect="postgresql", tables=[
+            TableMetadata(name="one", schema_name="public"),
+            TableMetadata(name="two", schema_name="public"),
+        ])
 
 
 def test_discovery_uses_saved_connection_and_closes_it():
