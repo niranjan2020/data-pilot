@@ -149,3 +149,25 @@ def test_metric_lineage_rejects_wrong_source_column():
 
 def test_metric_lineage_without_physical_metadata_is_not_guessed():
     assert not any(item["code"].startswith("metric_lineage_") for item in checks(SQL))
+
+
+def test_metric_lineage_rejects_same_table_name_in_wrong_schema():
+    metric = {**METRIC, "table_name": "other.parents", "column_name": "amount"}
+    assert any(item["code"] == "metric_lineage_unverified" for item in checks(SQL, metric))
+
+
+def test_metric_lineage_accepts_explicit_schema_qualified_source():
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
+    assert any(item["code"] == "metric_lineage_alignment" for item in checks(SQL, metric))
+
+
+def test_metric_lineage_does_not_accept_nonaggregated_source_column():
+    sql = SQL.replace("SUM(p.amount)", "COUNT(*)")
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
+    assert any(item["code"] == "metric_lineage_unverified" for item in checks(sql, metric))
+
+
+def test_metric_lineage_does_not_accept_unqualified_aggregate_column():
+    sql = SQL.replace("SUM(p.amount)", "SUM(amount)")
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
+    assert any(item["code"] == "metric_lineage_unverified" for item in checks(sql, metric))
