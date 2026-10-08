@@ -27,6 +27,12 @@ async def test_review_verify_retrieve_change_invalidate():
     try:
         await provider.initialize()
         pool = await provider._get_pool()
+        # A dedicated test database is mandatory: this test mutates catalog rows.
+        # Never infer safety from a localhost host name or an existing dev database.
+        from urllib.parse import urlparse
+        db_name = urlparse(url).path.lstrip("/").lower()
+        if not (db_name.endswith("_test") or db_name.startswith("test_")):
+            pytest.skip("Use a dedicated database named *_test or test_* for integration tests.")
         async with pool.connection() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
