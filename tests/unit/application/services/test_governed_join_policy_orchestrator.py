@@ -76,8 +76,6 @@ async def test_approved_join_reaches_policy_gate_in_dry_run():
 # Exercise the configured production publication boundary, not just legacy policy.
 PUBLISHED = {
     **REL,
-    "from_table": "events",
-    "to_table": "assets",
     "review_status": "approved",
 }
 
