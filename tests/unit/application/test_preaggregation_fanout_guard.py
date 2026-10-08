@@ -128,3 +128,24 @@ def test_windowed_derived_aggregation_cannot_certify_grain():
 
 def test_plain_grouped_derived_aggregation_remains_proven():
     assert any(item["code"] == "preaggregation_grain_alignment" for item in checks(SQL))
+
+
+def test_metric_lineage_matches_declared_physical_source():
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
+    result = checks(SQL, metric)
+    assert any(item["code"] == "metric_lineage_alignment" for item in result)
+    assert any(item["code"] == "join_fanout_violation" for item in result)
+
+
+def test_metric_lineage_rejects_wrong_source_table():
+    metric = {**METRIC, "table_name": "demo.children", "column_name": "amount"}
+    assert any(item["code"] == "metric_lineage_unverified" for item in checks(SQL, metric))
+
+
+def test_metric_lineage_rejects_wrong_source_column():
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "other_amount"}
+    assert any(item["code"] == "metric_lineage_unverified" for item in checks(SQL, metric))
+
+
+def test_metric_lineage_without_physical_metadata_is_not_guessed():
+    assert not any(item["code"].startswith("metric_lineage_") for item in checks(SQL))
