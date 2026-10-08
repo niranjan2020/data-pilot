@@ -1399,29 +1399,31 @@ def assess_query_correctness(
     ) if sql else []
     filter_checks = _filter_checks(sql, required_filters=required_filters, dialect=dialect) if sql else []
     required_relationships = list(required_relationships)
-    # A reviewed relationship is not a published relationship. Never accept
-    # review-only evidence as authorization for generated SQL.
+    # Reviewed relationship records are not publication grants. Caller-supplied
+    # booleans and evidence cannot authorize SQL execution. Until a trusted
+    # publisher supplies an authoritative, persisted grant, fail closed.
     publication_checks = []
     for relationship in required_relationships:
         if relationship.get("review_status") is None and "verification_evidence" not in relationship:
-            continue  # Legacy published semantic relationships follow existing governance.
-        from datapilot.application.governed_join_policy import assess_governed_join
-        policy = relationship.get("join_policy")
-        join_type = {"matched_only": "INNER", "preserve_source": "LEFT"}.get(policy, "")
-        decision = assess_governed_join(
-            relationship,
-            relationship.get("verification_evidence"),
-            requested_join_type=join_type,
-            sql_governance_enforced=relationship.get("sql_governance_enforced") is True,
-            live_evidence_fresh=relationship.get("live_evidence_fresh") is True,
+            continue  # Legacy semantic relationships use the existing join validators.
+        from datapilot.application.join_policy_governance import (
+            validate_governed_join_policy, validate_governed_join_graph,
+        )
+        # Validate the actual SQL, never an expected join type inferred from policy.
+        sql_decision = validate_governed_join_policy(sql, relationship)
+        if not sql_decision.allowed:
+            reasons = list(sql_decision.reasons)
+        else:
+            reasons = []
+        reasons.append(
+            "Relationship is reviewed but not published by trusted metadata governance."
         )
         publication_checks.append({
-            "code": "relationship_publication_alignment" if decision.allowed else "relationship_publication_violation",
-            "status": "passed" if decision.allowed else "failed",
-            "severity": "info" if decision.allowed else "error",
+            "code": "relationship_publication_violation",
+            "status": "failed",
+            "severity": "error",
             "relationship": str(relationship.get("name") or "relationship"),
-            "message": "Governed relationship publication contract is satisfied."
-                       if decision.allowed else "; ".join(decision.reasons),
+            "message": "; ".join(reasons),
         })
     relationship_checks = _relationship_checks(sql, required_relationships=required_relationships, dialect=dialect) if sql else []
     # The join graph is authoritative for SQL containing multiple physical joins.
