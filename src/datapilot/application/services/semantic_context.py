@@ -336,7 +336,16 @@ class SemanticContextAssembler:
         if explicit_metric_ids:
             selected_metrics = [m for m in metrics if m["id"] in bounded_metric_ids]
         elif explicit_entity_ids:
-            selected_metrics = []
+            # A question can ask for a configured metric without spelling out its
+            # title, e.g. "how many delivered and on-order vessels". Resolve
+            # only a unique metric owned by the explicit entity. Never choose
+            # arbitrarily between multiple metric definitions.
+            aggregate_intent = bool(re.search(
+                r"\b(how many|number of|count|total|average|avg|sum)\b",
+                normalized_question,
+            ))
+            owner_metrics = [m for m in metrics if m["entity_id"] in entity_ids]
+            selected_metrics = owner_metrics if aggregate_intent and len(owner_metrics) == 1 else []
         elif bounded_metric_ids:
             selected_metrics = [m for m in metrics if m["id"] in bounded_metric_ids]
         else:
