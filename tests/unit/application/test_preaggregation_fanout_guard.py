@@ -71,3 +71,36 @@ def test_preaggregation_requires_single_grouping_key():
     sql = SQL.replace("GROUP BY parent_id", "GROUP BY parent_id, category_id")
     result = checks(sql)
     assert any(item["code"] == "preaggregation_grain_unverified" for item in result)
+
+
+def test_each_derived_aggregation_join_receives_own_grain_check():
+    sql = (
+        "SELECT p.id, SUM(p.amount) FROM demo.parents p "
+        "JOIN (SELECT parent_id, COUNT(*) AS n FROM demo.children GROUP BY parent_id) c "
+        "ON p.id = c.parent_id "
+        "JOIN (SELECT parent_id, COUNT(*) AS n FROM demo.events GROUP BY category_id) e "
+        "ON p.id = e.parent_id GROUP BY p.id"
+    )
+    result = checks(sql)
+    grain = [item["code"] for item in result if item["code"].startswith("preaggregation_grain_")]
+    assert grain == ["preaggregation_grain_alignment", "preaggregation_grain_unverified"]
+    assert any(item["code"] == "join_fanout_violation" for item in result)
+
+
+def test_nested_join_cannot_prove_derived_table_grain():
+    sql = SQL.replace(
+        "FROM demo.children GROUP BY parent_id",
+        "FROM demo.children ch JOIN demo.events ev ON ch.parent_id = ev.parent_id GROUP BY parent_id",
+    )
+    result = checks(sql)
+    assert any(item["code"] == "preaggregation_grain_unverified" for item in result)
+
+
+def test_unrelated_scalar_aggregation_not_reported_as_join_grain():
+    sql = (
+        "SELECT p.id, (SELECT COUNT(*) FROM demo.children) AS total "
+        "FROM demo.parents p JOIN demo.children c ON p.id = c.parent_id"
+    )
+    result = checks(sql)
+    assert not any(item["code"].startswith("preaggregation_grain_") for item in result)
+    assert any(item["code"] == "join_fanout_violation" for item in result)
