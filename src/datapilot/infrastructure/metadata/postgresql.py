@@ -524,6 +524,44 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                     for row in await cursor.fetchall()
                 ]
 
+    async def get_selected_datasets(self, data_source_id: int) -> list[dict]:
+        await self.initialize()
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    """CREATE TABLE IF NOT EXISTS datapilot_catalog.selected_datasets (
+                        data_source_id BIGINT NOT NULL REFERENCES datapilot_catalog.data_sources(id) ON DELETE CASCADE,
+                        schema_name TEXT NOT NULL,
+                        table_name TEXT NOT NULL,
+                        PRIMARY KEY (data_source_id, schema_name, table_name)
+                    )"""
+                )
+                await cursor.execute(
+                    "SELECT schema_name, table_name FROM datapilot_catalog.selected_datasets WHERE data_source_id = %s ORDER BY schema_name, table_name",
+                    (data_source_id,),
+                )
+                return [{"schema_name": row[0], "table_name": row[1]} for row in await cursor.fetchall()]
+
+    async def replace_selected_datasets(self, data_source_id: int, selections: list[dict]) -> None:
+        """Atomically replace approved datasets after checking the discovered catalog."""
+        discovered = await self.list_catalog_tables(data_source_id)
+        allowed = {(row["schema_name"], row["table_name"]) for row in discovered}
+        selected = {(row["schema_name"], row["table_name"]) for row in selections}
+        if not selected or not selected.issubset(allowed):
+            raise ValueError("Selection must contain only discovered datasets and cannot be empty")
+        await self.get_selected_datasets(data_source_id)
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.transaction():
+                async with connection.cursor() as cursor:
+                    await cursor.execute("DELETE FROM datapilot_catalog.selected_datasets WHERE data_source_id = %s", (data_source_id,))
+                    for schema_name, table_name in sorted(selected):
+                        await cursor.execute(
+                            "INSERT INTO datapilot_catalog.selected_datasets (data_source_id, schema_name, table_name) VALUES (%s, %s, %s)",
+                            (data_source_id, schema_name, table_name),
+                        )
+
     async def save_semantic_dataset(
         self, *, data_source_id: int, schema_name: str, table_name: str,
         description: Optional[str], business_meaning: Optional[str],
