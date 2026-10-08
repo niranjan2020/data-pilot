@@ -12,6 +12,8 @@ export function Onboarding({onReady}:{onReady:()=>void}){
  const [db,setDb]=useState({name:"My Database",host:"host.docker.internal",port:5432,database:"postgres",username:"postgres",password:"",sslmode:"prefer"});
  const [dbTested,setDbTested]=useState(false);
  const [savedSourceId,setSavedSourceId]=useState<number|null>(null);
+ const [savedSources,setSavedSources]=useState<{id:number;name:string;provider:string}[]>([]);
+ const [candidateId,setCandidateId]=useState<number|null>(null);
  const [discovery,setDiscovery]=useState<{schemas:string[];tables:number}|null>(null);
  async function refresh(){
   const response=await fetch("/api/setup/status");
@@ -24,7 +26,15 @@ export function Onboarding({onReady}:{onReady:()=>void}){
   fetch("/api/setup/data-source/active").then(async response=>{
    if(!response.ok)throw new Error("No saved datasource found. Please check your setup.");
    const source=await response.json();setSavedSourceId(source.id);
-  }).catch(e=>setError(String(e.message||e)));
+  }).catch(async ()=>{
+   try{
+    const response=await fetch("/api/setup/data-sources");
+    if(!response.ok)throw new Error("Unable to list saved databases.");
+    const sources=await response.json();setSavedSources(sources);
+    if(sources.length)setCandidateId(sources[0].id);
+    else setError("No saved databases found. Please reconnect your database.");
+   }catch(e:any){setError(e.message||"Unable to restore saved databases")}
+  });
  },[status?.current_step,savedSourceId]);
 
  async function validateProvider(e:React.FormEvent){
@@ -53,6 +63,16 @@ export function Onboarding({onReady}:{onReady:()=>void}){
    const saved=await response.json();setSavedSourceId(saved.id);
    setDb(v=>({...v,password:""}));setDbTested(false);await refresh();
   }catch(e:any){setError(e.message||"Unable to save database")}
+  finally{setBusy(false)}
+ }
+ async function activateSavedDatabase(){
+  if(candidateId===null)return;
+  setBusy(true);setError("");
+  try{
+   const response=await fetch("/api/setup/data-source/"+candidateId+"/activate",{method:"POST"});
+   if(!response.ok)throw new Error("Saved database connection unavailable. Verify the database is running and its stored credentials are valid.");
+   setSavedSourceId(candidateId);await refresh();
+  }catch(e:any){setError(e.message||"Unable to activate saved database")}
   finally{setBusy(false)}
  }
  async function discoverSavedDatabase(){
@@ -85,7 +105,7 @@ export function Onboarding({onReady}:{onReady:()=>void}){
    <button type="submit" disabled={busy}>{busy?"Testing…":"Test connection"}</button>
    {dbTested&&<div><p role="status">Connection successful. Save this connection to continue.</p><button type="button" disabled={busy} onClick={saveDatabase}>{busy?"Saving…":"Save & Continue"}</button></div>}
   </form>}
-  {status?.current_step==="data_selection"&&<div className="onboardingForm"><h2>3. Discover & select</h2><p>Discover the saved database without entering credentials again. Dataset approval will follow.</p>{savedSourceId!==null?<button disabled={busy} onClick={discoverSavedDatabase}>{busy?"Discovering…":"Discover saved database"}</button>:<p>Reloading saved datasource selection is coming next. Do not enter credentials again.</p>}{discovery&&<p role="status">Discovered {discovery.tables} tables across {discovery.schemas.length} schemas. Dataset selection is not enabled yet.</p>}</div>}
+  {status?.current_step==="data_selection"&&<div className="onboardingForm"><h2>3. Discover & select</h2><p>Discover the saved database without entering credentials again. Dataset approval will follow.</p>{savedSourceId!==null?<button disabled={busy} onClick={discoverSavedDatabase}>{busy?"Discovering…":"Discover saved database"}</button>:<div><p>Select the saved database to continue without re-entering credentials.</p>{savedSources.length>0?<><label>Saved database<select value={candidateId??""} onChange={e=>setCandidateId(Number(e.target.value))}>{savedSources.map(s=><option key={s.id} value={s.id}>{s.name} ({s.provider})</option>)}</select></label><button disabled={busy||candidateId===null} onClick={activateSavedDatabase}>{busy?"Connecting…":"Use saved database"}</button></>:<p>Checking saved database connections…</p>}</div>}{discovery&&<p role="status">Discovered {discovery.tables} tables across {discovery.schemas.length} schemas. Dataset selection is not enabled yet.</p>}</div>}
   {status&&status.current_step!=="ai_provider"&&status.current_step!=="data_source"&&status.current_step!=="data_selection"&&!status.ready&&<div className="onboardingForm"><h2>{labels[status.current_step]||"Continue setup"}</h2><p>This onboarding action is scheduled for the next Stage C implementation. Your progress is persisted across restarts.</p><button onClick={()=>refresh().catch(e=>setError(String(e.message||e)))}>Refresh setup status</button></div>}
   {error&&<div className="onboardingError" role="alert">{error} <button type="button" onClick={()=>refresh().then(()=>setError("")).catch(e=>setError(String(e.message||e)))}>Retry</button></div>}
  </div></div>
