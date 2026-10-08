@@ -856,6 +856,29 @@ class QueryOrchestrator:
                                          "status": "failed", "severity": "error",
                                          "message": "SQL table-reference verification failed."}]},
                 ) from exc
+            # A schema name is not a valid column qualifier. Qualifiers must
+            # resolve to a table alias or physical table name in the statement.
+            # Reject the LLM's astra."id" when FROM astra.vessels.
+            physical_tables = list(statements[0].find_all(exp.Table))
+            valid_qualifiers = {
+                (table.alias_or_name or "").casefold()
+                for table in physical_tables
+            }
+            valid_qualifiers.update(table.name.casefold() for table in physical_tables)
+            invalid_qualifiers = sorted({
+                column.table for column in statements[0].find_all(exp.Column)
+                if column.table and column.table.casefold() not in valid_qualifiers
+            })
+            if invalid_qualifiers:
+                raise SQLValidationError(
+                    "Generated SQL contains an invalid column qualifier",
+                    details={"checks": [{
+                        "code": "sql_identifier_qualifier_violation",
+                        "status": "failed", "severity": "error",
+                        "message": "Unknown table aliases or column qualifiers: "
+                                   + ", ".join(invalid_qualifiers),
+                    }]},
+                )
             unauthorized = sorted(actual_tables - allowed_tables)
             if not allowed_tables or unauthorized or unqualified:
                 raise SQLValidationError(
