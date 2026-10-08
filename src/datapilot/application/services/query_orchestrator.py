@@ -158,9 +158,37 @@ class QueryOrchestrator:
                 [x["name"] for x in governed_context.get("metrics", [])],
                 [x["name"] for x in governed_context.get("business_rules", [])],
             )
-        schema = schema or await self._load_relevant_schema(
-            retrieved_context, governed_context, contextual_question
-        )
+        allowed_tables = getattr(self, "_onboarding_allowed_tables", None)
+        if allowed_tables is not None:
+            if not allowed_tables:
+                raise SQLValidationError("No datasets are selected for querying")
+            # Selected onboarding tables are the physical query boundary even
+            # when the semantic index is empty or contains legacy candidates.
+            selected_schemas = sorted({name.split(".", 1)[0] for name in allowed_tables})
+            selected_discoveries = [
+                await self._database.introspect_schema(schema_name)
+                for schema_name in selected_schemas
+            ]
+            selected_physical = [
+                table for discovery in selected_discoveries
+                for table in discovery.tables
+                if f"{table.schema_name}.{table.name}".lower() in allowed_tables
+            ]
+            if not selected_physical:
+                raise SQLValidationError("Selected datasets are unavailable in the active datasource")
+            schema = selected_discoveries[0].model_copy(update={"tables": selected_physical})
+            governed_context["datasets"] = [
+                item for item in governed_context.get("datasets", [])
+                if f"{item.get('schema_name')}.{item.get('table_name')}".lower() in allowed_tables
+            ]
+            governed_context["entities"] = [
+                item for item in governed_context.get("entities", [])
+                if f"{item.get('schema_name')}.{item.get('table_name')}".lower() in allowed_tables
+            ]
+        else:
+            schema = schema or await self._load_relevant_schema(
+                retrieved_context, governed_context, contextual_question
+            )
         logger.info(
             "query physical_schema tables=%s",
             [f"{t.schema_name}.{t.name}" for t in schema.tables],
