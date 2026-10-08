@@ -468,36 +468,46 @@ def _fanout_checks(
         source_parts = source_table.split(".")
         source_name = source_parts[-1]
         source_schema = source_parts[-2] if len(source_parts) > 1 else None
-        matching_tables = [
-            table for table in tree.find_all(exp.Table)
-            if str(table.name).casefold() == source_name
-            and (source_schema is None or str(table.db or "").casefold() == source_schema)
-        ]
-        matching_aliases = {str(table.alias_or_name).casefold() for table in matching_tables}
-        # Aliases can be reused inside nested SQL scopes. Without a scope-aware
-        # resolver, treat any alias collision as ambiguous rather than proving
-        # that an aggregate belongs to the declared metric source.
-        all_tables = list(tree.find_all(exp.Table))
-        alias_unambiguous = (
-            len(matching_tables) == 1
-            and all(
-                table is matching_tables[0]
-                or str(table.alias_or_name).casefold() not in matching_aliases
-                for table in all_tables
-            )
-        )
-        # A same-named column in a different relation is not metric lineage.
-        # Restrict matches to qualified columns inside actual aggregate functions.
+        # Resolve each aggregate column in its own SELECT block. A reused
+        # alias in an independent subquery is not the same physical source.
+        def select_scope(node: exp.Expression) -> exp.Select | None:
+            parent = node.parent
+            while parent is not None and not isinstance(parent, exp.Select):
+                parent = parent.parent
+            return parent if isinstance(parent, exp.Select) else None
+
+        def local_tables(scope: exp.Select) -> list[exp.Table]:
+            sources = []
+            from_clause = scope.args.get("from_")
+            if from_clause is not None and isinstance(from_clause.this, exp.Table):
+                sources.append(from_clause.this)
+            for join in scope.args.get("joins") or []:
+                if isinstance(join.this, exp.Table):
+                    sources.append(join.this)
+            return sources
+
         aggregate_columns = [
             column for aggregate in tree.find_all(exp.AggFunc)
             for column in aggregate.find_all(exp.Column)
             if str(column.name).casefold() == source_column
         ]
-        verified = (
-            alias_unambiguous
-            and bool(aggregate_columns)
-            and all(str(column.table or "").casefold() in matching_aliases for column in aggregate_columns)
-        )
+        resolved_columns = []
+        for column in aggregate_columns:
+            scope = select_scope(column)
+            alias = str(column.table or "").casefold()
+            if scope is None or not alias:
+                resolved_columns.append(False)
+                continue
+            candidates = [
+                table for table in local_tables(scope)
+                if str(table.alias_or_name).casefold() == alias
+            ]
+            resolved_columns.append(
+                len(candidates) == 1
+                and str(candidates[0].name).casefold() == source_name
+                and (source_schema is None or str(candidates[0].db or "").casefold() == source_schema)
+            )
+        verified = bool(aggregate_columns) and all(resolved_columns)
         lineage_checks.append({
             "code": "metric_lineage_alignment" if verified else "metric_lineage_unverified",
             "status": "passed" if verified else "skipped",
