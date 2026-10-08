@@ -7,7 +7,7 @@ import json
 _logger = logging.getLogger("datapilot.setup")
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, SecretStr, Field
 
 from datapilot.application.setup_state import SetupStatus, derive_setup_status
 from datapilot.application.semantic_bootstrap import DatasetProposal, propose_datasets
@@ -236,6 +236,44 @@ async def activate_setup_data_source(source_id: int, request: Request):
     finally:
         if provider is not None:
             await provider.close()
+        if owns_metadata:
+            await metadata.close()
+
+
+class DataSourceCredentialRotation(BaseModel):
+    password: SecretStr
+
+
+@router.put("/data-source/{source_id}/credential")
+async def rotate_saved_data_source_credential(
+    source_id: int, payload: DataSourceCredentialRotation, request: Request
+):
+    """Validate a replacement password before atomically replacing the saved secret."""
+    metadata, owns_metadata = await _setup_metadata(request)
+    store = getattr(request.app.state, "data_source_secret_store", None) or LocalDataSourceSecretStore()
+    try:
+        record = await metadata.get_data_source(source_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Saved datasource not found.")
+        if record["provider"] != "postgresql":
+            raise HTTPException(status_code=422, detail="Unsupported datasource provider.")
+        replacement = PostgreSQLConnectionInput(
+            name=record["name"], host=record["host"], port=record["port"],
+            database=record["database"], username=record["username"],
+            sslmode=record["sslmode"], password=payload.password,
+        )
+        try:
+            connected = await test_postgresql_connection(replacement)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="Replacement credential validation failed; existing credential unchanged.") from exc
+        if not connected:
+            raise HTTPException(status_code=422, detail="Replacement credential validation failed; existing credential unchanged.")
+        try:
+            store.put(source_id, payload.password.get_secret_value())
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Unable to save replacement credential.") from exc
+        return {"updated": True, "connected": True}
+    finally:
         if owns_metadata:
             await metadata.close()
 
