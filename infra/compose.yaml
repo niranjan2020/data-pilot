@@ -47,13 +47,20 @@ services:
       interval: 5s
       timeout: 5s
       retries: 12
+      start_period: 30s
 
   web:
     build:
       context: ..
       dockerfile: ui/Dockerfile
     ports:
-      - "3000:80"
+      - "127.0.0.1:3000:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
     depends_on:
       api:
         condition: service_healthy
