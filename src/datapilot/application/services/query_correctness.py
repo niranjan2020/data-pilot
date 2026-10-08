@@ -456,6 +456,40 @@ def _fanout_checks(
             return parts[0], parts[1]
         return None
 
+    # Metric lineage is advisory until semantic entity-to-table provenance is
+    # available. Verify an explicit physical source column in an aggregate,
+    # rather than inferring ownership from the metric's display name.
+    lineage_checks: list[dict[str, Any]] = []
+    for metric in metrics:
+        source_column = str(metric.get("column_name") or "").strip().casefold()
+        source_table = str(metric.get("table_name") or "").strip().casefold()
+        if not source_column or not source_table:
+            continue
+        source_table = source_table.split(".")[-1]
+        matching_tables = [
+            table for table in tree.find_all(exp.Table)
+            if str(table.name).casefold() == source_table
+        ]
+        matching_aliases = {str(table.alias_or_name).casefold() for table in matching_tables}
+        aggregate_columns = [
+            column for aggregate in tree.find_all(exp.AggFunc)
+            for column in aggregate.find_all(exp.Column)
+            if str(column.name).casefold() == source_column
+        ]
+        verified = (
+            len(matching_tables) == 1
+            and bool(aggregate_columns)
+            and all(str(column.table or "").casefold() in matching_aliases for column in aggregate_columns)
+        )
+        lineage_checks.append({
+            "code": "metric_lineage_alignment" if verified else "metric_lineage_unverified",
+            "status": "passed" if verified else "skipped",
+            "severity": "info",
+            "metric": str(metric.get("name") or "metric"),
+            "message": "Aggregate references the declared physical metric source." if verified
+                       else "Metric source could not be established from the SQL aggregate.",
+        })
+
     checks: list[dict[str, Any]] = []
     for metric in metrics:
         metric_entity_id = metric.get("entity_id")
@@ -498,9 +532,9 @@ def _fanout_checks(
             })
 
     if checks:
-        return grain_checks + checks
+        return lineage_checks + grain_checks + checks
 
-    return grain_checks + [{
+    return lineage_checks + grain_checks + [{
         "code": "join_fanout_alignment",
         "status": "passed",
         "severity": "info",
