@@ -329,3 +329,34 @@ def test_count_distinct_does_not_emit_risky_metric_ownership_check():
     sql = SQL.replace("SUM(p.amount)", "COUNT(DISTINCT p.id)")
     result = checks(sql, metric)
     assert not any(item["code"].startswith("fanout_metric_ownership_") for item in result)
+
+
+def test_fanout_proof_obligations_report_confirmed_lineage_and_grain():
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
+    result = checks(SQL, metric)
+    evidence = next(item for item in result if item["code"] == "fanout_safety_evidence_incomplete")
+    assert evidence["metric_ownership_verified"] is True
+    assert evidence["preaggregation_grain_verified"] is True
+    assert evidence["join_cardinality_safe"] is False
+    assert any(item["code"] == "join_fanout_violation" for item in result)
+
+
+def test_fanout_proof_obligations_reject_unverified_metric_ownership():
+    metric = {**METRIC, "table_name": "demo.children", "column_name": "amount"}
+    evidence = next(item for item in checks(SQL, metric) if item["code"] == "fanout_safety_evidence_incomplete")
+    assert evidence["metric_ownership_verified"] is False
+    assert evidence["join_cardinality_safe"] is False
+
+
+def test_fanout_proof_obligations_reject_unverified_grain():
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
+    sql = "SELECT SUM(p.amount) FROM demo.parents p JOIN demo.children c ON p.id = c.parent_id"
+    evidence = next(item for item in checks(sql, metric) if item["code"] == "fanout_safety_evidence_incomplete")
+    assert evidence["preaggregation_grain_verified"] is False
+    assert evidence["join_cardinality_safe"] is False
+
+
+def test_fanout_proof_obligations_not_emitted_for_count_distinct():
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "id", "aggregation": "count_distinct"}
+    sql = SQL.replace("SUM(p.amount)", "COUNT(DISTINCT p.id)")
+    assert not any(item["code"] == "fanout_safety_evidence_incomplete" for item in checks(sql, metric))
