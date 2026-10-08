@@ -360,3 +360,32 @@ def test_fanout_proof_obligations_not_emitted_for_count_distinct():
     metric = {**METRIC, "table_name": "demo.parents", "column_name": "id", "aggregation": "count_distinct"}
     sql = SQL.replace("SUM(p.amount)", "COUNT(DISTINCT p.id)")
     assert not any(item["code"] == "fanout_safety_evidence_incomplete" for item in checks(sql, metric))
+
+
+def test_fanout_join_grain_key_observed_for_grouped_derived_join():
+    evidence = next(item for item in checks(SQL) if item["code"] == "fanout_join_grain_key_observed")
+    assert evidence["joined_grain_keys"] == ["c.parent_id"]
+    assert any(item["code"] == "join_fanout_violation" for item in checks(SQL))
+
+
+def test_fanout_join_grain_key_unverified_for_direct_join():
+    sql = "SELECT SUM(p.amount) FROM demo.parents p JOIN demo.children c ON p.id = c.parent_id"
+    assert any(item["code"] == "fanout_join_grain_key_unverified" for item in checks(sql))
+
+
+def test_fanout_join_grain_key_unverified_for_non_equality_join():
+    sql = (
+        "SELECT SUM(p.amount) FROM demo.parents p "
+        "JOIN (SELECT parent_id, COUNT(*) AS n FROM demo.children GROUP BY parent_id) c "
+        "ON p.id > c.parent_id"
+    )
+    assert any(item["code"] == "fanout_join_grain_key_unverified" for item in checks(sql))
+
+
+def test_fanout_join_grain_key_unverified_when_join_uses_non_grouped_projection():
+    sql = (
+        "SELECT SUM(p.amount) FROM demo.parents p "
+        "JOIN (SELECT parent_id, MAX(id) AS other_id FROM demo.children GROUP BY parent_id) c "
+        "ON p.id = c.other_id"
+    )
+    assert any(item["code"] == "fanout_join_grain_key_unverified" for item in checks(sql))
