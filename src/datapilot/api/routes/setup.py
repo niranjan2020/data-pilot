@@ -14,6 +14,7 @@ from datapilot.application.semantic_bootstrap import DatasetProposal, propose_da
 from datapilot.application.relationship_bootstrap import RelationshipCandidate, propose_relationships
 from datapilot.application.relationship_verification import preflight_relationship
 from datapilot.infrastructure.database.relationship_cardinality import verify_live_cardinality
+from datapilot.infrastructure.database.relationship_integrity import verify_referential_integrity
 from datapilot.application.data_source_onboarding import PostgreSQLConnectionInput, test_postgresql_connection
 from datapilot.domain.interfaces.ai_configuration import (
     AIProviderConfiguration,
@@ -530,9 +531,18 @@ async def verify_reviewed_relationship(source_id: int, payload: RelationshipRevi
             return {"structurally_valid": True, "live_cardinality_verified": False,
                     "cardinality_holds": False, "publishable": False,
                     "reasons": ["Live verification unavailable."]}
+        integrity = None
+        if evidence.checked and evidence.cardinality_holds:
+            integrity = await verify_referential_integrity(provider, saved)
+        reasons = [evidence.reason] if evidence.reason else []
+        if integrity is not None and integrity.reason:
+            reasons.append(integrity.reason)
         return {"structurally_valid": True, "live_cardinality_verified": evidence.checked,
-                "cardinality_holds": evidence.cardinality_holds, "publishable": False,
-                "reasons": [evidence.reason] if evidence.reason else []}
+                "cardinality_holds": evidence.cardinality_holds,
+                "referential_integrity_checked": integrity.checked if integrity else False,
+                "unmatched_references": integrity.unmatched_references if integrity else None,
+                "nullable_references": integrity.nullable_references if integrity else None,
+                "publishable": False, "reasons": reasons}
     finally:
         if provider is not None:
             await provider.close()
