@@ -278,3 +278,27 @@ def test_lineage_rejects_mixed_derived_aggregate_inputs():
     )
     metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
     assert any(item["code"] == "metric_lineage_unverified" for item in checks(sql, metric))
+
+
+def test_lineage_does_not_certify_mixed_direct_aggregate_expression():
+    sql = "SELECT SUM(p.amount + p.other_amount) FROM demo.parents p"
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
+    assert any(item["code"] == "metric_lineage_unverified" for item in checks(sql, metric))
+
+
+def test_lineage_does_not_certify_two_distinct_aggregate_sources():
+    sql = "SELECT SUM(p.amount), SUM(p.other_amount) FROM demo.parents p"
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
+    assert any(item["code"] == "metric_lineage_unverified" for item in checks(sql, metric))
+
+
+def test_lineage_keeps_direct_metric_with_unrelated_count_star():
+    sql = "SELECT SUM(p.amount), COUNT(*) FROM demo.parents p"
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
+    assert any(item["code"] == "metric_lineage_alignment" for item in checks(sql, metric))
+
+
+def test_lineage_rejects_transformed_direct_metric():
+    sql = "SELECT SUM(ABS(p.amount)) FROM demo.parents p"
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
+    assert any(item["code"] == "metric_lineage_unverified" for item in checks(sql, metric))
