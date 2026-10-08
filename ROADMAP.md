@@ -54,6 +54,13 @@
 - After restarting all four containers, `GET /api/setup/readiness` returned HTTP 200 with `ready=true`, `setup_ready=true`, and metadata storage, AI provider and datasource all `ready`.
 - C2 deployment and first-run onboarding acceptance satisfied; follow-on first governed query, broader UX and relationship publication are separate work. Keep the isolated project and original volumes intact.
 
+**C3 datasource UX refinement — implemented, awaiting build verification (2026-10-08)**
+
+- Admin Studio now keeps saved datasource identity separate from the editable new-connection test form; no longer copies the saved datasource name into fields alongside localhost/postgres defaults.
+- Clarifies that the connection form tests another connection and that saved onboarding credentials are managed separately.
+- C2 restart readiness was verified as true after full-container restart; browser refresh persistence should still be checked.
+- UI build and regression verification are pending.
+
 **C2 isolated fresh-install bootstrap — PASS (user-verified 2026-10-08)**
 
 - Using Compose project `datapilot-c2-clean` with isolated PostgreSQL, Qdrant and secrets volumes, all four services built and became healthy.
