@@ -87,12 +87,52 @@ def test_invalid_live_evidence_fails(field, value):
     assert publication(checks(review))["status"] == "failed"
 
 
-def test_fully_authorized_review_passes_publication_gate():
+def test_caller_claimed_authorization_cannot_publish_relationship():
     review = {**REVIEW, "verification_evidence": evidence(),
               "sql_governance_enforced": True, "live_evidence_fresh": True}
-    assert publication(checks(review))["status"] == "passed"
+    assert publication(checks(review))["status"] == "failed"
 
 
 def test_legacy_semantic_relationship_does_not_get_fake_review_gate():
     review = {key: value for key, value in REVIEW.items() if key != "review_status"}
     assert not any(c["code"].startswith("relationship_publication_") for c in checks(review))
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT o.id FROM sales.orders o LEFT JOIN sales.customers c ON o.customer_id = c.id",
+    "SELECT o.id FROM sales.orders o RIGHT JOIN sales.customers c ON o.customer_id = c.id",
+    "SELECT o.id FROM sales.orders o FULL JOIN sales.customers c ON o.customer_id = c.id",
+    "SELECT o.id FROM sales.orders o CROSS JOIN sales.customers c",
+    "SELECT o.id FROM sales.orders o INNER JOIN sales.customers c ON o.id = c.id",
+    "SELECT o.id FROM sales.customers c INNER JOIN sales.orders o ON o.customer_id = c.id",
+    "SELECT o.id FROM sales.orders o INNER JOIN sales.customers c ON o.customer_id = c.id OR o.id = c.id",
+    "SELECT o.id FROM sales.orders o INNER JOIN sales.customers c ON o.customer_id = c.id AND c.id > 0",
+    "SELECT o.id FROM sales.orders o JOIN sales.customers c USING (customer_id)",
+    "SELECT o.id FROM sales.orders o",
+    "SELECT 1",
+    "INVALID SQL ???",
+])
+def test_reviewed_relationship_sql_mismatch_never_publishes(sql):
+    review = {**REVIEW, "verification_evidence": evidence(),
+              "sql_governance_enforced": True, "live_evidence_fresh": True}
+    result = publication(checks(review, sql=sql))
+    assert result["status"] == "failed"
+    assert result["severity"] == "error"
+
+
+@pytest.mark.parametrize("status", ["approved", "rejected", "pending", "", None])
+@pytest.mark.parametrize("flag", [True, False, None, 1, "true"])
+def test_caller_cannot_force_publication_with_flags(status, flag):
+    review = {**REVIEW, "review_status": status,
+              "verification_evidence": evidence(),
+              "sql_governance_enforced": flag,
+              "live_evidence_fresh": flag}
+    assert publication(checks(review))["status"] == "failed"
+
+
+def test_actual_sql_join_type_is_reported_as_violation():
+    review = {**REVIEW, "verification_evidence": evidence(),
+              "sql_governance_enforced": True, "live_evidence_fresh": True}
+    wrong_sql = "SELECT o.id FROM sales.orders o LEFT JOIN sales.customers c ON o.customer_id = c.id"
+    result = publication(checks(review, sql=wrong_sql))
+    assert "Join type violates" in result["message"]
