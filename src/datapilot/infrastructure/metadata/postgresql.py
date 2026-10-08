@@ -536,17 +536,22 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                         to_schema TEXT NOT NULL, to_table TEXT NOT NULL, to_column TEXT NOT NULL,
                         cardinality TEXT NOT NULL, review_status TEXT NOT NULL,
                         description TEXT NOT NULL DEFAULT '',
+                        join_policy TEXT NOT NULL DEFAULT 'unconfigured',
                         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                         PRIMARY KEY (data_source_id, from_schema, from_table, from_column, to_schema, to_table, to_column)
                     )""")
                 await cursor.execute("""
+                    ALTER TABLE datapilot_catalog.reviewed_relationships
+                    ADD COLUMN IF NOT EXISTS join_policy TEXT NOT NULL DEFAULT 'unconfigured'
+                """)
+                await cursor.execute("""
                     SELECT from_schema, from_table, from_column, to_schema, to_table,
-                           to_column, cardinality, review_status, description
+                           to_column, cardinality, review_status, description, join_policy
                     FROM datapilot_catalog.reviewed_relationships
                     WHERE data_source_id = %s ORDER BY from_schema, from_table, from_column
                 """, (data_source_id,))
                 return [dict(zip(("from_schema","from_table","from_column","to_schema","to_table",
-                                  "to_column","cardinality","review_status","description"), row))
+                                  "to_column","cardinality","review_status","description","join_policy"), row))
                         for row in await cursor.fetchall()]
 
     async def save_reviewed_relationship(self, data_source_id: int, relationship: dict) -> None:
@@ -557,17 +562,18 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                 await cursor.execute("""
                     INSERT INTO datapilot_catalog.reviewed_relationships
                         (data_source_id, from_schema, from_table, from_column, to_schema,
-                         to_table, to_column, cardinality, review_status, description)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                         to_table, to_column, cardinality, review_status, description, join_policy)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (data_source_id, from_schema, from_table, from_column,
                                  to_schema, to_table, to_column)
                     DO UPDATE SET cardinality=EXCLUDED.cardinality,
                                   review_status=EXCLUDED.review_status,
-                                  description=EXCLUDED.description, updated_at=NOW()
+                                  description=EXCLUDED.description,
+                                  join_policy=EXCLUDED.join_policy, updated_at=NOW()
                 """, (data_source_id, relationship["from_schema"], relationship["from_table"],
                       relationship["from_column"], relationship["to_schema"], relationship["to_table"],
                       relationship["to_column"], relationship["cardinality"],
-                      relationship["review_status"], relationship["description"]))
+                      relationship["review_status"], relationship["description"], relationship.get("join_policy", "unconfigured")))
 
     async def list_catalog_foreign_keys(self, data_source_id: int) -> list[dict]:
         """Return declared constraints from the latest discovered snapshots only."""
