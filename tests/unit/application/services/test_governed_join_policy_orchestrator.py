@@ -145,3 +145,47 @@ async def test_wrong_join_type_denied_even_when_relationship_published():
     with pytest.raises(SQLValidationError):
         await governed_validate(service, INNER, [PUBLISHED], execute=True)
     service._database.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_published_join_with_wrong_key_fails_before_execution():
+    service, metadata = governed_service(WRONG_KEY, [PUBLISHED])
+    with pytest.raises(SQLValidationError):
+        await governed_validate(service, WRONG_KEY, [PUBLISHED], execute=True)
+    metadata.list_current_relationship_publications.assert_awaited_once()
+    service._database.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unknown_datasource_fails_without_publication_lookup():
+    service, metadata = governed_service(LEFT, [PUBLISHED], source_id=None)
+    with pytest.raises(SQLValidationError):
+        await governed_validate(service, LEFT, [PUBLISHED], execute=True)
+    metadata.get_data_source_id.assert_awaited_once_with("sample")
+    metadata.list_current_relationship_publications.assert_not_awaited()
+    service._database.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_join_inside_nested_select_without_contract_fails_closed():
+    sql = "SELECT * FROM (SELECT e.id FROM demo.events e LEFT JOIN demo.assets a ON e.asset_id = a.id) q"
+    service, metadata = governed_service(sql, [PUBLISHED])
+    with pytest.raises(SQLValidationError):
+        await governed_validate(service, sql, [], execute=True)
+    metadata.list_current_relationship_publications.assert_not_awaited()
+    service._database.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_non_join_query_does_not_need_publication_lookup():
+    sql = "SELECT e.id FROM demo.events e"
+    service, metadata = governed_service(sql, [PUBLISHED])
+    service._validator.validate.return_value.affected_tables = ["demo.events"]
+    response = await service._validate_and_execute(
+        question="Show events", sql=sql, source="generator",
+        confidence=1.0, execute=False, data_source_name="sample",
+        governed_tables=["demo.events"], required_relationships=[],
+    )
+    assert response.status == "dry_run"
+    metadata.get_data_source_id.assert_not_awaited()
+    metadata.list_current_relationship_publications.assert_not_awaited()
