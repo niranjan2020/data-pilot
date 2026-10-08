@@ -197,6 +197,9 @@ CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_relationships (
     UNIQUE (data_source_id, name)
 );
 
+ALTER TABLE datapilot_catalog.semantic_relationships
+    ADD COLUMN IF NOT EXISTS join_policy TEXT NOT NULL DEFAULT 'unconfigured';
+
 CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_metrics (
     id BIGSERIAL PRIMARY KEY,
     data_source_id BIGINT NOT NULL REFERENCES datapilot_catalog.data_sources(id) ON DELETE CASCADE,
@@ -982,8 +985,11 @@ class PostgreSQLMetadataProvider(MetadataProvider):
         self, *, data_source_id: int, name: str, from_entity_id: int,
         from_column: str, to_entity_id: int, to_column: str,
         cardinality: str, description: Optional[str],
+        join_policy: str = "unconfigured",
     ) -> int:
         await self.initialize()
+        if join_policy not in {"unconfigured", "preserve_source", "matched_only"}:
+            raise MetadataError("Unsupported semantic relationship join policy")
         if from_entity_id == to_entity_id:
             raise MetadataError("A semantic relationship must connect two different entities")
         pool = await self._get_pool()
@@ -1003,8 +1009,8 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                         """
                         INSERT INTO datapilot_catalog.semantic_relationships
                             (data_source_id, name, from_entity_id, from_column,
-                             to_entity_id, to_column, cardinality, description)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                             to_entity_id, to_column, cardinality, description, join_policy)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (data_source_id, name) DO UPDATE SET
                             from_entity_id = EXCLUDED.from_entity_id,
                             from_column = EXCLUDED.from_column,
@@ -1012,11 +1018,12 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                             to_column = EXCLUDED.to_column,
                             cardinality = EXCLUDED.cardinality,
                             description = EXCLUDED.description,
+                            join_policy = EXCLUDED.join_policy,
                             updated_at = NOW()
                         RETURNING id
                         """,
                         (data_source_id, name, from_entity_id, from_column,
-                         to_entity_id, to_column, cardinality, description),
+                         to_entity_id, to_column, cardinality, description, join_policy),
                     )
                     return (await cursor.fetchone())[0]
 
@@ -1029,7 +1036,7 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                     """
                     SELECT r.id, r.name, r.from_entity_id, fe.name, r.from_column,
                            r.to_entity_id, te.name, r.to_column, r.cardinality,
-                           r.description
+                           r.description, r.join_policy
                     FROM datapilot_catalog.semantic_relationships r
                     JOIN datapilot_catalog.semantic_entities fe ON fe.id = r.from_entity_id
                     JOIN datapilot_catalog.semantic_entities te ON te.id = r.to_entity_id
@@ -1044,7 +1051,7 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                     "from_column": row[4],
                     "to_entity_id": row[5], "to_entity_name": row[6],
                     "to_column": row[7], "cardinality": row[8],
-                    "description": row[9],
+                    "description": row[9], "join_policy": row[10],
                 } for row in await cursor.fetchall()]
 
     async def save_semantic_metric(
