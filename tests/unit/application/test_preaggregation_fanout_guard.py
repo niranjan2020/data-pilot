@@ -251,3 +251,30 @@ def test_lineage_rejects_joined_derived_projection():
     )
     metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
     assert any(item["code"] == "metric_lineage_unverified" for item in checks(sql, metric))
+
+
+def test_lineage_traces_renamed_derived_metric_projection():
+    sql = "SELECT SUM(d.total_value) FROM (SELECT p.amount AS total_value FROM demo.parents p) d"
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
+    assert any(item["code"] == "metric_lineage_alignment" for item in checks(sql, metric))
+
+
+def test_lineage_rejects_renamed_projection_from_wrong_column():
+    sql = "SELECT SUM(d.total_value) FROM (SELECT p.other_amount AS total_value FROM demo.parents p) d"
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
+    assert any(item["code"] == "metric_lineage_unverified" for item in checks(sql, metric))
+
+
+def test_lineage_rejects_renamed_projection_from_wrong_table():
+    sql = "SELECT SUM(d.total_value) FROM (SELECT p.amount AS total_value FROM demo.children p) d"
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
+    assert any(item["code"] == "metric_lineage_unverified" for item in checks(sql, metric))
+
+
+def test_lineage_rejects_mixed_derived_aggregate_inputs():
+    sql = (
+        "SELECT SUM(d.total_value) + SUM(d.other_value) "
+        "FROM (SELECT p.amount AS total_value, p.other_amount AS other_value FROM demo.parents p) d"
+    )
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
+    assert any(item["code"] == "metric_lineage_unverified" for item in checks(sql, metric))
