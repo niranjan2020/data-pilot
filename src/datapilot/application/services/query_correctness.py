@@ -634,6 +634,37 @@ def _fanout_checks(
                     ),
                 })
 
+            # Aggregate all three independent proof obligations. A verified
+            # derived-table grain is not proof that the metric's join is safe:
+            # the metric must also be traced to its governed physical source,
+            # and the relationship must be shown not to multiply metric rows.
+            ownership_confirmed = (
+                lineage_evidence is not None
+                and lineage_evidence["code"] == "metric_lineage_alignment"
+            )
+            grain_confirmed = any(
+                item.get("code") == "preaggregation_grain_alignment"
+                and item.get("status") == "passed"
+                for item in grain_checks
+            )
+            checks.append({
+                "code": "fanout_safety_evidence_incomplete",
+                "status": "skipped",
+                "severity": "info",
+                "metric": metric_name,
+                "relationship": relationship.get("name"),
+                "metric_ownership_verified": ownership_confirmed,
+                "preaggregation_grain_verified": grain_confirmed,
+                "join_cardinality_safe": False,
+                "message": (
+                    "Metric ownership and preaggregation grain are evidence only; "
+                    "the governed one-to-many join still lacks a non-multiplication proof."
+                    if ownership_confirmed and grain_confirmed
+                    else "Fan-out safety cannot be established from the available "
+                         "metric ownership, grain, and cardinality evidence."
+                ),
+            })
+
             checks.append({
                 "code": "join_fanout_violation",
                 "status": "failed",
