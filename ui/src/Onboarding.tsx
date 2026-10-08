@@ -9,6 +9,8 @@ export function Onboarding({onReady}:{onReady:()=>void}){
  const [provider,setProvider]=useState("gemini");
  const [model,setModel]=useState("");
  const [apiKey,setApiKey]=useState("");
+ const [db,setDb]=useState({name:"My Database",host:"host.docker.internal",port:5432,database:"postgres",username:"postgres",password:"",sslmode:"prefer"});
+ const [dbTested,setDbTested]=useState(false);
  async function refresh(){
   const response=await fetch("/api/setup/status");
   if(!response.ok)throw new Error("Unable to load setup status. Check the Data Pilot API.");
@@ -24,6 +26,15 @@ export function Onboarding({onReady}:{onReady:()=>void}){
   }catch(e:any){setError(e.message||"Provider validation failed")}
   finally{setBusy(false)}
  }
+ async function testDatabase(e:React.FormEvent){
+  e.preventDefault();setBusy(true);setError("");setDbTested(false);
+  try{
+   const response=await fetch("/api/setup/data-source/test",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(db)});
+   if(!response.ok)throw new Error("Connection failed. Check host, port, credentials, network and SSL.");
+   setDbTested(true);
+  }catch(e:any){setError(e.message||"Connection failed")}
+  finally{setBusy(false)}
+ }
  return <div className="onboardingPage"><div className="onboardingCard">
   <div className="onboardingBrand"><span className="mark">DP</span><div><strong>Data Pilot</strong><small>Open-source analytics engine</small></div></div>
   <p className="eyebrow">FIRST-RUN SETUP</p><h1>Welcome to Data Pilot</h1>
@@ -37,7 +48,14 @@ export function Onboarding({onReady}:{onReady:()=>void}){
    <label>API key<input value={apiKey} onChange={e=>setApiKey(e.target.value)} type="password" autoComplete="off" placeholder="Provider API key"/></label>
    <button type="submit" disabled={busy||!model.trim()}>{busy?"Validating…":"Save and validate provider"}</button>
   </form>}
-  {status&&status.current_step!=="ai_provider"&&!status.ready&&<div className="onboardingForm"><h2>{labels[status.current_step]||"Continue setup"}</h2><p>This onboarding action is scheduled for the next Stage C implementation. Your progress is persisted across restarts.</p><button onClick={()=>refresh().catch(e=>setError(String(e.message||e)))}>Refresh setup status</button></div>}
+  {status?.current_step==="data_source"&&<form className="onboardingForm" onSubmit={testDatabase}>
+   <h2>2. Connect PostgreSQL</h2><p>Test connectivity from inside the API container. For a database on your Windows host, use <code>host.docker.internal</code> instead of localhost.</p>
+   {(["name","host","port","database","username","password"] as const).map(field=><label key={field}>{field==="database"?"Database":field.charAt(0).toUpperCase()+field.slice(1)}<input required type={field==="password"?"password":field==="port"?"number":"text"} autoComplete={field==="password"?"off":undefined} value={db[field]} onChange={e=>{setDb(v=>({...v,[field]:field==="port"?Number(e.target.value):e.target.value}));setDbTested(false)}}/></label>)}
+   <label>SSL mode<select value={db.sslmode} onChange={e=>{setDb(v=>({...v,sslmode:e.target.value}));setDbTested(false)}}><option value="prefer">Prefer</option><option value="require">Require</option><option value="disable">Disable (local only)</option><option value="verify-full">Verify full</option></select></label>
+   <button type="submit" disabled={busy}>{busy?"Testing…":"Test connection"}</button>
+   {dbTested&&<p role="status">Connection successful. This test does not save credentials or advance setup; persistent connection setup is the next implementation step.</p>}
+  </form>}
+  {status&&status.current_step!=="ai_provider"&&status.current_step!=="data_source"&&!status.ready&&<div className="onboardingForm"><h2>{labels[status.current_step]||"Continue setup"}</h2><p>This onboarding action is scheduled for the next Stage C implementation. Your progress is persisted across restarts.</p><button onClick={()=>refresh().catch(e=>setError(String(e.message||e)))}>Refresh setup status</button></div>}
   {error&&<div className="onboardingError" role="alert">{error} <button type="button" onClick={()=>refresh().then(()=>setError("")).catch(e=>setError(String(e.message||e)))}>Retry</button></div>}
  </div></div>
 }
