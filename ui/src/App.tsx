@@ -99,6 +99,20 @@ export function App(){
  const [savedSourceId,setSavedSourceId]=useState<number|null>(null);
  const [savedSourceName,setSavedSourceName]=useState("");
  const [connectionTestName,setConnectionTestName]=useState("AdventureWorks");
+ const [savedSourceDetails,setSavedSourceDetails]=useState<{host:string;port:number;database:string;username:string;sslmode:string}|null>(null);
+ const [savedSourceTestMessage,setSavedSourceTestMessage]=useState("");
+ const [savedSourceTesting,setSavedSourceTesting]=useState(false);
+ async function testSavedSource(){
+  if(savedSourceId===null)return;
+  setSavedSourceTesting(true);setSavedSourceTestMessage("");
+  try{
+   const response=await fetch(API+"/api/setup/data-source/"+savedSourceId+"/test",{method:"POST"});
+   if(!response.ok)throw new Error("Saved connection test failed. Check connectivity and stored credentials.");
+   setSavedSourceTestMessage("Saved datasource connection successful.");
+  }catch(error){setSavedSourceTestMessage(error instanceof Error?error.message:"Saved connection test failed.")}
+  finally{setSavedSourceTesting(false)}
+ }
+
  const [sourceRestoreError,setSourceRestoreError]=useState("");
  useEffect(()=>{
   let cancelled=false;
@@ -113,6 +127,11 @@ export function App(){
     if(cancelled)return;
     setSavedSourceId(source.id);
     setSavedSourceName(source.name);
+    const detailsResponse=await fetch(API+"/api/setup/data-source/"+source.id+"/details");
+    if(detailsResponse.ok){
+     const details=await detailsResponse.json();
+     if(!cancelled)setSavedSourceDetails({host:details.host,port:details.port,database:details.database,username:details.username,sslmode:details.sslmode});
+    }
     setForm(previous=>({...previous,name:source.name,password:""}));
     const bySchema=new Map<string,any[]>();
     for(const table of catalog.datasets||[]){
@@ -179,7 +198,7 @@ export function App(){
  {savedSourceId!==null&&<p className="notice">Active saved datasource: <strong>{savedSourceName}</strong> · Discovered schema restored from onboarding. Credentials remain securely stored by the setup service.</p>}
  {sourceRestoreError&&<p className="notice">{sourceRestoreError}</p>}
  {active==="AI Provider"&&<section className="grid"><article className="wide"><h3>Saved AI provider</h3><p>Update the saved model or rotate its API key without repeating onboarding. Credentials are sent to the setup API and are never returned by read endpoints.</p><p>Credential: <strong>{aiConfig.credential_configured?"Available":"Missing — update required"}</strong> · Validation: <strong>{aiValidated===null?"Unknown":aiValidated?"Ready":"Not ready"}</strong></p><div className="semanticForm"><label>Provider<input value={aiConfig.provider} disabled readOnly/></label><label>Model<input value={aiConfig.model} onChange={e=>setAiConfig({...aiConfig,model:e.target.value})}/></label><label>Provider API key<input type="password" autoComplete="new-password" value={aiKey} onChange={e=>setAiKey(e.target.value)} placeholder="Leave blank to retain the saved key"/></label></div><div className="actions"><button className="primary" disabled={aiBusy||!aiConfig.model.trim()||(!aiConfig.credential_configured&&!aiKey.trim())} onClick={saveAiConfig}>{aiBusy?"Saving…":"Save AI provider"}</button><button className="secondary" disabled={aiBusy} onClick={loadAiConfig}>Refresh status</button></div>{aiMessage&&<p className="notice">{aiMessage}</p>}</article></section>}
- {active==="Data Sources"&&<section className="grid"><article className="wide"><div className="cardTitle"><Database size={20}/><h3>PostgreSQL connection test</h3><span>Development</span></div>
+ {active==="Data Sources"&&<section className="grid">{savedSourceId!==null&&<article className="wide"><h3>Saved datasource connection</h3><p><strong>{savedSourceName}</strong> — configuration stored securely. Password is never displayed.</p>{savedSourceDetails&&<p>Host: <strong>{savedSourceDetails.host}</strong> · Port: <strong>{savedSourceDetails.port}</strong> · Database: <strong>{savedSourceDetails.database}</strong> · Username: <strong>{savedSourceDetails.username}</strong> · SSL: <strong>{savedSourceDetails.sslmode}</strong></p>}<div className="actions"><button onClick={testSavedSource} disabled={savedSourceTesting}>{savedSourceTesting?"Testing…":"Test saved connection"}</button></div>{savedSourceTestMessage&&<p className="notice">{savedSourceTestMessage}</p>}</article>}<article className="wide"><div className="cardTitle"><Database size={20}/><h3>PostgreSQL connection test</h3><span>Development</span></div>
  <div className="formGrid"><label>Name<input value={connectionTestName} onChange={e=>setConnectionTestName(e.target.value)}/></label><label>Host<input value={form.host} onChange={e=>update("host",e.target.value)}/></label>
  <label>Port<input type="number" value={form.port} onChange={e=>update("port",Number(e.target.value))}/></label><label>Database<input value={form.database} onChange={e=>update("database",e.target.value)}/></label>
  <label>Username<input value={form.username} onChange={e=>update("username",e.target.value)}/></label><label>Password<input type="password" value={form.password} onChange={e=>update("password",e.target.value)}/></label></div>
