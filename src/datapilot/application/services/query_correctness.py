@@ -634,6 +634,59 @@ def _fanout_checks(
                     ),
                 })
 
+            # Compare a direct SQL join against the governed physical edge.
+            # Key matching is evidence of policy alignment, NOT evidence that
+            # a one-to-many join preserves metric-row cardinality.
+            from_schema = str(relationship.get("from_schema") or "").casefold()
+            to_schema = str(relationship.get("to_schema") or "").casefold()
+            from_table = str(relationship.get("from_table") or "").split(".")[-1].casefold()
+            to_table = str(relationship.get("to_table") or "").split(".")[-1].casefold()
+            from_column = str(relationship.get("from_column") or "").casefold()
+            to_column = str(relationship.get("to_column") or "").casefold()
+            keys_declared = all((from_schema, to_schema, from_table, to_table, from_column, to_column))
+            matching_edges = []
+            if keys_declared and isinstance(tree, exp.Select):
+                root_clause = tree.args.get("from_")
+                root_table = root_clause.this if root_clause is not None else None
+                introduced = [root_table] if isinstance(root_table, exp.Table) else []
+                for edge in tree.args.get("joins") or []:
+                    target = edge.this
+                    predicate = edge.args.get("on")
+                    if isinstance(target, exp.Table) and isinstance(predicate, exp.EQ):
+                        for source in introduced:
+                            source_id = (str(source.db or "").casefold(), str(source.name).casefold())
+                            target_id = (str(target.db or "").casefold(), str(target.name).casefold())
+                            approved_from = (from_schema, from_table)
+                            approved_to = (to_schema, to_table)
+                            if {source_id, target_id} != {approved_from, approved_to}:
+                                continue
+                            from_alias = str((source if source_id == approved_from else target).alias_or_name).casefold()
+                            to_alias = str((source if source_id == approved_to else target).alias_or_name).casefold()
+                            expected = {(from_alias, from_column), (to_alias, to_column)}
+                            if isinstance(predicate.left, exp.Column) and isinstance(predicate.right, exp.Column):
+                                actual = {
+                                    (str(col.table or "").casefold(), str(col.name).casefold())
+                                    for col in (predicate.left, predicate.right)
+                                }
+                                if actual == expected:
+                                    matching_edges.append(f"{from_alias}.{from_column}={to_alias}.{to_column}")
+                    if isinstance(target, exp.Table):
+                        introduced.append(target)
+            checks.append({
+                "code": "fanout_relationship_keys_matched"
+                if len(matching_edges) == 1 else "fanout_relationship_keys_unverified",
+                "status": "passed" if len(matching_edges) == 1 else "skipped",
+                "severity": "info",
+                "metric": metric_name,
+                "relationship": relationship.get("name"),
+                "matched_join_keys": matching_edges,
+                "message": (
+                    "SQL equality matches the governed physical relationship keys; "
+                    "one-to-many fan-out remains unsafe."
+                    if len(matching_edges) == 1 else
+                    "The governed relationship keys could not be matched to one direct SQL join."
+                ),
+            })
             # Aggregate all three independent proof obligations. A verified
             # derived-table grain is not proof that the metric's join is safe:
             # the metric must also be traced to its governed physical source,
