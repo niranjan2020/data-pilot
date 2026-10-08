@@ -48,7 +48,7 @@ def propose_relationships(catalog: list[dict], selected: list[dict], foreign_key
 
     for source in sorted(allowed):
         for target in sorted(allowed):
-            if source == target or source not in columns or target not in columns:
+            if source == target or source[0] != target[0] or source not in columns or target not in columns:
                 continue
             # Only propose an explicit <target_table>_id -> id naming match.
             # This is NOT evidence of a valid join or cardinality.
