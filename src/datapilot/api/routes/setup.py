@@ -13,6 +13,7 @@ from datapilot.application.setup_state import SetupStatus, derive_setup_status
 from datapilot.application.semantic_bootstrap import DatasetProposal, propose_datasets
 from datapilot.application.relationship_bootstrap import RelationshipCandidate, propose_relationships
 from datapilot.application.relationship_verification import preflight_relationship
+from datapilot.application.relationship_publication import assess_relationship_publication
 from datapilot.infrastructure.database.relationship_cardinality import verify_live_cardinality
 from datapilot.infrastructure.database.relationship_integrity import verify_referential_integrity
 from datapilot.application.data_source_onboarding import PostgreSQLConnectionInput, test_postgresql_connection
@@ -540,6 +541,17 @@ async def verify_reviewed_relationship(source_id: int, payload: RelationshipRevi
         reasons = [evidence.reason] if evidence.reason else []
         if integrity is not None and integrity.reason:
             reasons.append(integrity.reason)
+        eligibility = assess_relationship_publication(
+            saved,
+            structural_valid=True,
+            live_cardinality_verified=evidence.checked,
+            cardinality_holds=evidence.cardinality_holds,
+            referential_integrity_checked=integrity.checked if integrity else False,
+            unmatched_references=integrity.unmatched_references if integrity else None,
+            nullable_references=integrity.nullable_references if integrity else None,
+            policy_enforced_by_sql_governance=False,
+        )
+        reasons.extend(eligibility.reasons)
         return {"structurally_valid": True, "live_cardinality_verified": evidence.checked,
                 "cardinality_holds": evidence.cardinality_holds,
                 "referential_integrity_checked": integrity.checked if integrity else False,
