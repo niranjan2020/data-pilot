@@ -842,3 +842,51 @@ def test_unique_right_multi_join_chain_matrix(second_join, expected):
             else "fanout_unique_right_join_chain_incomplete")
     assert any(item["code"] == code for item in result)
     assert any(item["code"] == "join_fanout_violation" for item in result)
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT SUM(p.amount) FROM demo.parents p JOIN demo.children c ON p.id = c.parent_id",
+        "SELECT SUM(p.amount) FROM demo.parents p LEFT JOIN demo.children c ON p.id = c.parent_id",
+        "SELECT SUM(p.amount) FROM demo.parents p RIGHT JOIN demo.children c ON p.id = c.parent_id",
+        "SELECT SUM(p.amount) FROM demo.parents p FULL JOIN demo.children c ON p.id = c.parent_id",
+        "SELECT SUM(p.amount) FROM demo.parents p CROSS JOIN demo.children c",
+        "SELECT SUM(p.amount) FROM demo.parents p JOIN demo.children c ON p.id > c.parent_id",
+        "SELECT SUM(p.amount) FROM demo.parents p JOIN demo.children c ON p.id = c.parent_id AND c.id > 0",
+        "SELECT SUM(p.amount) FROM demo.parents p JOIN (SELECT parent_id FROM demo.children GROUP BY parent_id) c ON p.id = c.parent_id",
+        "SELECT SUM(p.amount) FROM demo.parents p LEFT JOIN (SELECT parent_id FROM demo.children GROUP BY parent_id) c ON p.id = c.parent_id",
+        "SELECT SUM(p.amount) FROM demo.parents p JOIN (SELECT parent_id, id FROM demo.children GROUP BY parent_id, id) c ON p.id = c.parent_id",
+        "SELECT AVG(p.amount) FROM demo.parents p JOIN demo.children c ON p.id = c.parent_id",
+        "SELECT COUNT(p.id) FROM demo.parents p JOIN demo.children c ON p.id = c.parent_id",
+    ],
+)
+def test_cardinality_summary_integrated_and_never_waives_fanout(sql):
+    result = checks(sql)
+    summary = next(item for item in result if item["code"].startswith("fanout_cardinality_evidence_"))
+    assert summary["join_cardinality_safe"] is False
+    assert len(summary["evidence"]) == 7
+    assert summary["missing_evidence"]
+    assert any(item["code"] == "join_fanout_violation" and item["status"] == "failed"
+               for item in result)
+
+
+@pytest.mark.parametrize(
+    "join_clause,missing",
+    [
+        ("JOIN demo.children c ON p.id = c.parent_id", "unique_right_join_chain"),
+        ("LEFT JOIN demo.children c ON p.id = c.parent_id", "unique_right_join_chain"),
+        ("RIGHT JOIN demo.children c ON p.id = c.parent_id", "supported_join_types"),
+        ("FULL JOIN demo.children c ON p.id = c.parent_id", "supported_join_types"),
+        ("CROSS JOIN demo.children c", "connected_join_graph"),
+        ("JOIN demo.children c ON p.id > c.parent_id", "connected_join_graph"),
+        ("JOIN (SELECT parent_id FROM demo.children GROUP BY parent_id) c ON p.id = c.parent_id", "metric_ownership"),
+        ("JOIN (SELECT parent_id FROM demo.children GROUP BY parent_id) c ON p.id = c.parent_id", "governed_derived_edge"),
+    ],
+)
+def test_cardinality_summary_identifies_missing_evidence(join_clause, missing):
+    sql = f"SELECT SUM(p.amount) FROM demo.parents p {join_clause}"
+    result = checks(sql)
+    summary = next(item for item in result if item["code"].startswith("fanout_cardinality_evidence_"))
+    assert missing in summary["missing_evidence"]
+    assert summary["join_cardinality_safe"] is False
