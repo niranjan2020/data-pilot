@@ -536,3 +536,30 @@ def test_relationship_key_match_allows_unrelated_distinct_table():
     result = _relationship_key_checks(sql)
     assert any(item["code"] == "fanout_relationship_keys_matched" for item in result)
     assert any(item["code"] == "join_fanout_violation" for item in result)
+
+
+def test_derived_grouping_key_uniqueness_observed_without_waiving_fanout():
+    result = checks(SQL)
+    evidence = next(item for item in result if item["code"] == "fanout_derived_key_uniqueness_observed")
+    assert evidence["unique_derived_join_keys"] == ["c.parent_id"]
+    assert any(item["code"] == "join_fanout_violation" for item in result)
+
+
+def test_derived_key_uniqueness_unverified_for_direct_join():
+    sql = "SELECT SUM(p.amount) FROM demo.parents p JOIN demo.children c ON p.id = c.parent_id"
+    assert any(item["code"] == "fanout_derived_key_uniqueness_unverified" for item in checks(sql))
+
+
+def test_derived_key_uniqueness_unverified_for_nested_join():
+    sql = (
+        "SELECT SUM(p.amount) FROM demo.parents p "
+        "JOIN (SELECT c.parent_id, COUNT(*) AS n FROM demo.children c "
+        "JOIN demo.parents x ON x.id = c.parent_id GROUP BY c.parent_id) d "
+        "ON p.id = d.parent_id"
+    )
+    assert any(item["code"] == "fanout_derived_key_uniqueness_unverified" for item in checks(sql))
+
+
+def test_derived_key_uniqueness_unverified_with_limit():
+    sql = SQL.replace("GROUP BY parent_id)", "GROUP BY parent_id LIMIT 1)")
+    assert any(item["code"] == "fanout_derived_key_uniqueness_unverified" for item in checks(sql))
