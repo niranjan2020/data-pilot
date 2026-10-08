@@ -19,6 +19,7 @@ from datapilot.domain.models import (
     QueryResult,
     SchemaMetadata,
     TableMetadata,
+    UniqueConstraintMetadata,
 )
 
 
@@ -296,6 +297,22 @@ class PostgreSQLDatabaseProvider(DatabaseProvider):
             ORDER BY source_cls.relname, source_cols.position
         """
 
+        unique_sql = """
+            SELECT cls.relname, con.conname, con.contype,
+                   array_agg(att.attname ORDER BY key_columns.ordinality) AS key_columns
+            FROM pg_constraint con
+            JOIN pg_class cls ON cls.oid = con.conrelid
+            JOIN pg_namespace ns ON ns.oid = cls.relnamespace
+            JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS key_columns(attnum, ordinality)
+              ON TRUE
+            JOIN pg_attribute att
+              ON att.attrelid = cls.oid AND att.attnum = key_columns.attnum
+            WHERE ns.nspname = %s AND con.contype IN ('p', 'u')
+              AND con.convalidated
+            GROUP BY cls.relname, con.conname, con.contype
+            ORDER BY cls.relname, con.conname
+        """
+
         try:
             pool = await self._get_pool()
             async with pool.connection() as connection:
@@ -308,6 +325,9 @@ class PostgreSQLDatabaseProvider(DatabaseProvider):
 
                     await cursor.execute(fk_sql, (schema,))
                     fk_rows = await cursor.fetchall()
+
+                    await cursor.execute(unique_sql, (schema,))
+                    unique_rows = await cursor.fetchall()
         except DatabaseConnectionError:
             raise
         except Exception as exc:
@@ -346,6 +366,17 @@ class PostgreSQLDatabaseProvider(DatabaseProvider):
                     referenced_column=row[3],
                 )
             )
+
+        for table_name, constraint_name, constraint_type, columns in unique_rows:
+            table = tables.get(table_name)
+            if table is not None:
+                table.unique_constraints.append(
+                    UniqueConstraintMetadata(
+                        name=constraint_name,
+                        columns=list(columns),
+                        is_primary_key=constraint_type == 'p',
+                    )
+                )
 
         return SchemaMetadata(
             schema_name=schema,
