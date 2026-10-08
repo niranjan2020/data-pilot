@@ -37,7 +37,7 @@ def orchestrator(sql):
 
 async def validate(service, sql, *, execute=False, relationship=None):
     return await service._validate_and_execute(
-        question="Show events and assets", sql=sql, source="test",
+        question="Show events and assets", sql=sql, source="generator",
         confidence=1.0, execute=execute,
         governed_tables=["demo.events", "demo.assets"],
         required_relationships=[relationship or REL],
