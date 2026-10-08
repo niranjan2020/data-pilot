@@ -699,6 +699,39 @@ def _fanout_checks(
                     "No simple derived grouping-key equality join was identified."
                 ),
             })
+            # A grouping-key observation only covers one edge. Record whether
+            # every JOIN in the outer SELECT has that structural evidence.
+            # Nested JOINs, additional direct joins and other join types must
+            # not silently inherit a single derived table's grain evidence.
+            outer_joins = list(tree.args.get("joins") or []) if isinstance(tree, exp.Select) else []
+            all_outer_joins_covered = (
+                bool(outer_joins)
+                and len(joined_grain_keys) == len(outer_joins)
+                and all(
+                    isinstance(join.this, exp.Subquery)
+                    and isinstance(join.this.this, exp.Select)
+                    and not join.this.this.args.get("joins")
+                    and not any(isinstance(node, (exp.Subquery, exp.CTE, exp.Union))
+                                for node in join.this.this.walk())
+                    for join in outer_joins
+                )
+            )
+            checks.append({
+                "code": "fanout_join_coverage_observed"
+                if all_outer_joins_covered else "fanout_join_coverage_incomplete",
+                "status": "passed" if all_outer_joins_covered else "skipped",
+                "severity": "info",
+                "metric": metric_name,
+                "relationship": relationship.get("name"),
+                "outer_join_count": len(outer_joins),
+                "observed_grain_key_count": len(joined_grain_keys),
+                "message": (
+                    "Every outer join has a derived grouping-key observation; "
+                    "this is not a cardinality or fan-out safety proof."
+                    if all_outer_joins_covered else
+                    "At least one join lacks independent derived grouping-key evidence."
+                ),
+            })
             checks.append({
                 "code": "fanout_safety_evidence_incomplete",
                 "status": "skipped",
