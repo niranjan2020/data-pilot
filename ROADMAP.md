@@ -5,7 +5,7 @@
 > **Rule:** update this file whenever a milestone is completed, reprioritized, or a benchmark exposes a new reliability gap. Benchmark evidence, not feature speculation, drives Stage A.
 
 **Last updated:** 2026-10-08  
-**Current focus:** Core OSS — Stage C2: one-command local deployment  
+**Current focus:** Core OSS — Stage C3: AI provider and datasource onboarding refinement (C2 acceptance passed)  
 **Current semantic evaluation baseline:** 39/39 passed (100.0%) through the live production pipeline after B4 dialect isolation (p50 2.986 s, p95 4.249 s).  
 **Current unit regression baseline:** **995 passed** (user-verified 2026-10-08, `git pull && python -m pytest tests/unit -q`, before subsequent metadata/UI fixes). Full integration/evaluation suite and clean-machine onboarding are not verified by this count.
 
@@ -46,6 +46,13 @@
 - Add negative and positive regression/evaluation cases for current versus historical questions, missing/wrong filters, join placement, and accidental leakage of inactive rows.
 - **Dependency:** complete C2 clean-install gate first; schedule this alongside C4–C5 discovery and semantic approval. Value discovery/canonical value resolution remain C4–C5 backlog as well.
 - **Status:** requirements recorded; runtime enforcement NOT implemented.
+
+**C2 full isolated onboarding and restart acceptance — PASS (user-verified 2026-10-08)**
+
+- Fresh project `datapilot-c2-clean` on port 3001: first-run welcome; Gemini provider validated; PostgreSQL connection tested/saved; 292 tables discovered across 15 schemas; `astra.fixtures` and `astra.vessels` selected; both semantic dataset definitions approved; Finish semantic review transitioned to Admin Studio.
+- Relationship `astra.fixtures.vessel_id → astra.vessels.id` passed cardinality/reference verification. Join-policy publication remains gated; not a C2 requirement.
+- After restarting all four containers, `GET /api/setup/readiness` returned HTTP 200 with `ready=true`, `setup_ready=true`, and metadata storage, AI provider and datasource all `ready`.
+- C2 deployment and first-run onboarding acceptance satisfied; follow-on first governed query, broader UX and relationship publication are separate work. Keep the isolated project and original volumes intact.
 
 **C2 isolated fresh-install bootstrap — PASS (user-verified 2026-10-08)**
 
