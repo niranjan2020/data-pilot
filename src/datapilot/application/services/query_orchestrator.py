@@ -1172,6 +1172,12 @@ class QueryOrchestrator:
                 "to_table": f"{right.get('schema_name')}.{right.get('table_name')}",
                 "to_column": relationship.get("to_column"),
                 "cardinality": relationship.get("cardinality"),
+                # Only published relationship records carry this policy. Do not
+                # infer a policy for legacy metadata or human review drafts.
+                **({"join_policy": relationship["join_policy"],
+                    "from_schema": left.get("schema_name"),
+                    "to_schema": right.get("schema_name")}
+                   if "join_policy" in relationship else {}),
             })
         return required
 
