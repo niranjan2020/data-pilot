@@ -103,6 +103,7 @@ async def get_query_orchestrator(
         semantic_retriever=semantic_retriever,
         semantic_context_assembler=semantic_context_assembler,
         sql_identifier_binder=SQLGlotIdentifierBinder(),
+        relationship_publication_metadata=metadata_catalog,
     )
 
     request.app.state.query_database = database
