@@ -37,8 +37,8 @@ def validate_governed_join_policy(sql: str, relationship: dict) -> JoinPolicyDec
         return JoinPolicyDecision(False, ("SQL parsing failed.",))
     if any(isinstance(node, (exp.Subquery, exp.CTE, exp.Union)) for node in tree.walk()):
         return JoinPolicyDecision(False, ("Nested queries require separate join-policy verification.",))
-    source = (relationship["from_schema"].lower(), relationship["from_table"].lower())
-    target = (relationship["to_schema"].lower(), relationship["to_table"].lower())
+    source = (relationship["from_schema"].lower(), relationship["from_table"].split(".")[-1].lower())
+    target = (relationship["to_schema"].lower(), relationship["to_table"].split(".")[-1].lower())
     tables = tree.find_all(exp.Table)
     occurrences = [(str(t.db or "").lower(), str(t.name).lower(), str(t.alias_or_name).lower()) for t in tables]
     if sum((schema, name) == source for schema, name, _ in occurrences) != 1 or sum((schema, name) == target for schema, name, _ in occurrences) != 1:
