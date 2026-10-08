@@ -1006,6 +1006,38 @@ def _fanout_checks(
                     "One or more join types or predicates need separate cardinality verification."
                 ),
             })
+            # Inspect where aggregates execute relative to the risky joins.
+            # An aggregate in the outer SELECT sees the joined row set;
+            # a scalar aggregate inside an unrelated subquery must not count.
+            outer_aggregates = []
+            if isinstance(tree, exp.Select):
+                for projection in tree.expressions:
+                    for node in projection.walk():
+                        if isinstance(node, exp.AggFunc) and node.find_ancestor(exp.Select) is tree:
+                            outer_aggregates.append(node.key.casefold())
+            if not isinstance(tree, exp.Select):
+                placement = "nested_query"
+            elif outer_aggregates and outer_joins:
+                placement = "after_outer_joins"
+            elif outer_aggregates:
+                placement = "outer_aggregate_no_outer_join"
+            else:
+                placement = "no_outer_aggregate"
+            checks.append({
+                "code": "fanout_aggregate_placement_observed"
+                if placement == "after_outer_joins" else "fanout_aggregate_placement_unverified",
+                "status": "passed" if placement == "after_outer_joins" else "skipped",
+                "severity": "info",
+                "metric": metric_name,
+                "relationship": relationship.get("name"),
+                "aggregate_placement": placement,
+                "outer_aggregations": outer_aggregates,
+                "message": (
+                    "Outer aggregate executes after outer joins; duplication risk remains."
+                    if placement == "after_outer_joins" else
+                    "Outer aggregate placement cannot establish joined-row semantics."
+                ),
+            })
             checks.append({
                 "code": "fanout_safety_evidence_incomplete",
                 "status": "skipped",
