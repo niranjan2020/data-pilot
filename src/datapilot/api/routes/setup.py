@@ -293,3 +293,44 @@ async def discover_saved_source(source_id: int, request: Request) -> SavedDiscov
             await provider.close()
         if owns_metadata:
             await metadata.close()
+
+
+class DatasetSelectionItem(BaseModel):
+    schema_name: str
+    table_name: str
+
+
+class DatasetSelectionRequest(BaseModel):
+    datasets: list[DatasetSelectionItem]
+
+
+@router.get("/data-source/{source_id}/datasets")
+async def list_discovered_datasets(source_id: int, request: Request):
+    metadata, owns = await _setup_metadata(request)
+    try:
+        if await metadata.get_active_data_source_id() != source_id:
+            raise HTTPException(status_code=409, detail="Select this datasource before browsing datasets.")
+        return {
+            "datasets": await metadata.list_catalog_tables(source_id),
+            "selected": await metadata.get_selected_datasets(source_id),
+        }
+    finally:
+        if owns:
+            await metadata.close()
+
+
+@router.put("/data-source/{source_id}/datasets")
+async def approve_discovered_datasets(source_id: int, payload: DatasetSelectionRequest, request: Request):
+    metadata, owns = await _setup_metadata(request)
+    try:
+        if await metadata.get_active_data_source_id() != source_id:
+            raise HTTPException(status_code=409, detail="Datasource is not active.")
+        try:
+            await metadata.replace_selected_datasets(source_id, [item.model_dump() for item in payload.datasets])
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Select at least one valid discovered dataset.") from exc
+        await metadata.update_setup_facts(data_selection_ready=True, semantic_model_ready=False)
+        return {"selected_count": len(set((item.schema_name, item.table_name) for item in payload.datasets)), "ready": True}
+    finally:
+        if owns:
+            await metadata.close()
