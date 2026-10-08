@@ -597,3 +597,31 @@ def test_governed_derived_unique_key_rejects_wrong_join_column():
 def test_governed_derived_unique_key_rejects_missing_metadata():
     assert any(item["code"] == "fanout_governed_derived_uniqueness_unverified"
                for item in checks(SQL))
+
+
+def test_graph_uniqueness_observed_for_single_governed_derived_join():
+    result = _governed_derived_checks(SQL)
+    evidence = next(item for item in result if item["code"] == "fanout_join_graph_uniqueness_observed")
+    assert evidence["outer_join_count"] == 1
+    assert evidence["unique_derived_edge_count"] == 1
+    assert any(item["code"] == "join_fanout_violation" for item in result)
+
+
+def test_graph_uniqueness_incomplete_for_additional_direct_join():
+    sql = SQL.replace(" GROUP BY p.id", " JOIN demo.children extra ON extra.parent_id = p.id GROUP BY p.id")
+    assert any(item["code"] == "fanout_join_graph_uniqueness_incomplete"
+               for item in _governed_derived_checks(sql))
+
+
+def test_graph_uniqueness_incomplete_without_governed_metadata():
+    assert any(item["code"] == "fanout_join_graph_uniqueness_incomplete" for item in checks(SQL))
+
+
+def test_graph_uniqueness_incomplete_for_duplicate_derived_alias():
+    sql = (
+        "SELECT SUM(p.amount) FROM demo.parents p "
+        "JOIN (SELECT parent_id FROM demo.children GROUP BY parent_id) c ON p.id = c.parent_id "
+        "JOIN (SELECT parent_id FROM demo.children GROUP BY parent_id) c ON p.id = c.parent_id"
+    )
+    assert any(item["code"] == "fanout_join_graph_uniqueness_incomplete"
+               for item in _governed_derived_checks(sql))
