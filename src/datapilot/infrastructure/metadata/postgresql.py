@@ -524,6 +524,36 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                     for row in await cursor.fetchall()
                 ]
 
+    async def list_catalog_foreign_keys(self, data_source_id: int) -> list[dict]:
+        """Return declared constraints from the latest discovered snapshots only."""
+        await self.initialize()
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    WITH latest AS (
+                        SELECT DISTINCT ON (schema_name) id
+                        FROM datapilot_catalog.schema_snapshots
+                        WHERE data_source_id = %s
+                        ORDER BY schema_name, discovered_at DESC, id DESC
+                    )
+                    SELECT t.schema_name, t.table_name, fk.constrained_column,
+                           fk.referenced_table, fk.referenced_column
+                    FROM datapilot_catalog.foreign_keys fk
+                    JOIN datapilot_catalog.tables t ON t.id = fk.table_id
+                    JOIN latest l ON l.id = t.snapshot_id
+                    ORDER BY t.schema_name, t.table_name, fk.constrained_column
+                    """,
+                    (data_source_id,),
+                )
+                return [
+                    {"schema_name": row[0], "table_name": row[1],
+                     "from_column": row[2], "referenced_table": row[3],
+                     "to_column": row[4]}
+                    for row in await cursor.fetchall()
+                ]
+
     async def get_selected_datasets(self, data_source_id: int) -> list[dict]:
         await self.initialize()
         pool = await self._get_pool()
