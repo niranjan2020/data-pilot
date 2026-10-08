@@ -302,3 +302,30 @@ def test_lineage_rejects_transformed_direct_metric():
     sql = "SELECT SUM(ABS(p.amount)) FROM demo.parents p"
     metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
     assert any(item["code"] == "metric_lineage_unverified" for item in checks(sql, metric))
+
+
+def test_risky_relationship_reports_confirmed_metric_ownership():
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
+    result = checks(SQL, metric)
+    assert any(item["code"] == "fanout_metric_ownership_confirmed" for item in result)
+    assert any(item["code"] == "join_fanout_violation" for item in result)
+
+
+def test_risky_relationship_reports_unverified_metric_ownership():
+    metric = {**METRIC, "table_name": "demo.children", "column_name": "amount"}
+    result = checks(SQL, metric)
+    assert any(item["code"] == "fanout_metric_ownership_unverified" for item in result)
+    assert any(item["code"] == "join_fanout_violation" for item in result)
+
+
+def test_risky_relationship_without_physical_metadata_keeps_existing_violation():
+    result = checks(SQL)
+    assert not any(item["code"].startswith("fanout_metric_ownership_") for item in result)
+    assert any(item["code"] == "join_fanout_violation" for item in result)
+
+
+def test_count_distinct_does_not_emit_risky_metric_ownership_check():
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "id", "aggregation": "count_distinct"}
+    sql = SQL.replace("SUM(p.amount)", "COUNT(DISTINCT p.id)")
+    result = checks(sql, metric)
+    assert not any(item["code"].startswith("fanout_metric_ownership_") for item in result)
