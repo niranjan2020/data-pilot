@@ -12,6 +12,8 @@ from pydantic import BaseModel, Field
 from datapilot.application.setup_state import SetupStatus, derive_setup_status
 from datapilot.application.semantic_bootstrap import DatasetProposal, propose_datasets
 from datapilot.application.relationship_bootstrap import RelationshipCandidate, propose_relationships
+from datapilot.application.relationship_verification import preflight_relationship
+from datapilot.infrastructure.database.relationship_cardinality import verify_live_cardinality
 from datapilot.application.data_source_onboarding import PostgreSQLConnectionInput, test_postgresql_connection
 from datapilot.domain.interfaces.ai_configuration import (
     AIProviderConfiguration,
@@ -485,5 +487,54 @@ async def save_relationship_review(source_id: int, payload: RelationshipReviewIn
         await metadata.save_reviewed_relationship(source_id, payload.model_dump())
         return {"review_status": payload.review_status, "governed_join_active": False}
     finally:
+        if owns:
+            await metadata.close()
+
+
+@router.post("/data-source/{source_id}/relationship-verification")
+async def verify_reviewed_relationship(source_id: int, payload: RelationshipReviewInput, request: Request):
+    """Verify a persisted human review against current schema and live data.
+
+    Never activates a governed join. All unavailable or stale evidence fails closed.
+    """
+    metadata, owns = await _setup_metadata(request)
+    provider = None
+    try:
+        if await metadata.get_active_data_source_id() != source_id:
+            raise HTTPException(status_code=409, detail="Datasource is not active.")
+        identity = ("from_schema", "from_table", "from_column", "to_schema", "to_table", "to_column")
+        reviews = await metadata.list_reviewed_relationships(source_id)
+        saved = next((r for r in reviews if all(r.get(k) == getattr(payload, k) for k in identity)), None)
+        if saved is None:
+            raise HTTPException(status_code=404, detail="Relationship review not found.")
+        if saved.get("review_status") != "approved":
+            raise HTTPException(status_code=409, detail="Relationship must be approved before verification.")
+        if saved.get("cardinality") != payload.cardinality:
+            raise HTTPException(status_code=409, detail="Review has changed; refresh before verification.")
+        selected = await metadata.get_selected_datasets(source_id)
+        allowed = {(r["schema_name"], r["table_name"]) for r in selected}
+        if (saved["from_schema"], saved["from_table"]) not in allowed or (saved["to_schema"], saved["to_table"]) not in allowed:
+            raise HTTPException(status_code=409, detail="Relationship datasets are no longer selected.")
+        catalog = await metadata.list_catalog_tables(source_id)
+        foreign_keys = await metadata.list_catalog_foreign_keys(source_id)
+        structural = preflight_relationship(saved, catalog, foreign_keys)
+        if not structural.structurally_valid:
+            return {"structurally_valid": False, "live_cardinality_verified": False,
+                    "cardinality_holds": False, "publishable": False, "reasons": structural.reasons}
+        store = getattr(request.app.state, "data_source_secret_store", None) or LocalDataSourceSecretStore()
+        try:
+            provider = await open_saved_data_source(metadata, store, source_id)
+            evidence = await verify_live_cardinality(provider, saved)
+        except Exception:
+            _logger.warning("Relationship verification unavailable: source_id=%s", source_id)
+            return {"structurally_valid": True, "live_cardinality_verified": False,
+                    "cardinality_holds": False, "publishable": False,
+                    "reasons": ["Live verification unavailable."]}
+        return {"structurally_valid": True, "live_cardinality_verified": evidence.checked,
+                "cardinality_holds": evidence.cardinality_holds, "publishable": False,
+                "reasons": [evidence.reason] if evidence.reason else []}
+    finally:
+        if provider is not None:
+            await provider.close()
         if owns:
             await metadata.close()
