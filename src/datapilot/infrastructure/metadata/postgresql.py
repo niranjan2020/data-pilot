@@ -524,6 +524,51 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                     for row in await cursor.fetchall()
                 ]
 
+    async def list_reviewed_relationships(self, data_source_id: int) -> list[dict]:
+        await self.initialize()
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS datapilot_catalog.reviewed_relationships (
+                        data_source_id BIGINT NOT NULL REFERENCES datapilot_catalog.data_sources(id) ON DELETE CASCADE,
+                        from_schema TEXT NOT NULL, from_table TEXT NOT NULL, from_column TEXT NOT NULL,
+                        to_schema TEXT NOT NULL, to_table TEXT NOT NULL, to_column TEXT NOT NULL,
+                        cardinality TEXT NOT NULL, review_status TEXT NOT NULL,
+                        description TEXT NOT NULL DEFAULT '',
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        PRIMARY KEY (data_source_id, from_schema, from_table, from_column, to_schema, to_table, to_column)
+                    )""")
+                await cursor.execute("""
+                    SELECT from_schema, from_table, from_column, to_schema, to_table,
+                           to_column, cardinality, review_status, description
+                    FROM datapilot_catalog.reviewed_relationships
+                    WHERE data_source_id = %s ORDER BY from_schema, from_table, from_column
+                """, (data_source_id,))
+                return [dict(zip(("from_schema","from_table","from_column","to_schema","to_table",
+                                  "to_column","cardinality","review_status","description"), row))
+                        for row in await cursor.fetchall()]
+
+    async def save_reviewed_relationship(self, data_source_id: int, relationship: dict) -> None:
+        await self.list_reviewed_relationships(data_source_id)
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute("""
+                    INSERT INTO datapilot_catalog.reviewed_relationships
+                        (data_source_id, from_schema, from_table, from_column, to_schema,
+                         to_table, to_column, cardinality, review_status, description)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (data_source_id, from_schema, from_table, from_column,
+                                 to_schema, to_table, to_column)
+                    DO UPDATE SET cardinality=EXCLUDED.cardinality,
+                                  review_status=EXCLUDED.review_status,
+                                  description=EXCLUDED.description, updated_at=NOW()
+                """, (data_source_id, relationship["from_schema"], relationship["from_table"],
+                      relationship["from_column"], relationship["to_schema"], relationship["to_table"],
+                      relationship["to_column"], relationship["cardinality"],
+                      relationship["review_status"], relationship["description"]))
+
     async def list_catalog_foreign_keys(self, data_source_id: int) -> list[dict]:
         """Return declared constraints from the latest discovered snapshots only."""
         await self.initialize()
