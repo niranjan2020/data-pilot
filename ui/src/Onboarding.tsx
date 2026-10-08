@@ -19,6 +19,9 @@ export function Onboarding({onReady}:{onReady:()=>void}){
  const [proposals,setProposals]=useState<SemanticProposal[]>([]);
  type RelationshipCandidate={from_schema:string;from_table:string;from_column:string;to_schema:string;to_table:string;to_column:string;provenance:string;verified:boolean;status:string};
  const [relationships,setRelationships]=useState<RelationshipCandidate[]>([]);
+ const [relationshipReviews,setRelationshipReviews]=useState<Record<string,{cardinality:string;review_status:string;description:string}>>({});
+ const relationshipKey=(r:RelationshipCandidate)=>[r.from_schema,r.from_table,r.from_column,r.to_schema,r.to_table,r.to_column].join("|");
+ const [relationshipSaving,setRelationshipSaving]=useState(false);
  const [relationshipError,setRelationshipError]=useState("");
  const [proposalError,setProposalError]=useState("");
  const [semanticEdits,setSemanticEdits]=useState<Record<string,{description:string;business_meaning:string;grain:string;aliases:string}>>({});
@@ -119,6 +122,9 @@ export function Onboarding({onReady}:{onReady:()=>void}){
   const relationshipResponse=await fetch("/api/setup/data-source/"+sourceId+"/relationship-proposals");
   if(relationshipResponse.ok){setRelationships(await relationshipResponse.json());setRelationshipError("");}
   else{setRelationshipError("Unable to load relationship candidates.");}
+  const reviewsResponse=await fetch("/api/setup/data-source/"+sourceId+"/relationship-reviews");
+  if(reviewsResponse.ok){const reviews=await reviewsResponse.json();const values:Record<string,{cardinality:string;review_status:string;description:string}>={};for(const review of reviews)values[relationshipKey(review)]={cardinality:review.cardinality,review_status:review.review_status,description:review.description};setRelationshipReviews(values);}
+
 
  }
  useEffect(()=>{
@@ -126,6 +132,18 @@ export function Onboarding({onReady}:{onReady:()=>void}){
    loadProposals(savedSourceId).catch(e=>setProposalError(String(e.message||e)));
   }
  },[status?.current_step,savedSourceId]);
+ async function saveRelationshipReview(rel:RelationshipCandidate,review_status:"approved"|"rejected"){
+  if(savedSourceId===null)return;
+  const key=relationshipKey(rel);
+  const review=relationshipReviews[key]||{cardinality:"unknown",review_status:"",description:""};
+  setRelationshipSaving(true);setRelationshipError("");
+  try{
+   const response=await fetch("/api/setup/data-source/"+savedSourceId+"/relationship-reviews",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({...rel,cardinality:review.cardinality,description:review.description,review_status})});
+   if(!response.ok){const data=await response.json();throw new Error(data.detail||"Unable to save review.");}
+   setRelationshipReviews(v=>({...v,[key]:{...review,review_status}}));
+  }catch(e:any){setRelationshipError(e.message||"Unable to save relationship review.")}
+  finally{setRelationshipSaving(false)}
+ }
  async function approveSemantic(p:SemanticProposal){
   if(savedSourceId===null)return;
   const key=datasetKey(p.schema_name,p.table_name);
@@ -199,9 +217,16 @@ export function Onboarding({onReady}:{onReady:()=>void}){
  {relationships.length===0?<p>No declared foreign keys or same-schema naming matches found among the selected datasets. You can still define joins during later semantic modeling.</p>:
  <div className="relationshipCandidateList">{relationships.map(rel=><div key={JSON.stringify(rel)} className="relationshipCandidate">
  <div><strong>{rel.from_schema}.{rel.from_table}.{rel.from_column}</strong><span> → </span><strong>{rel.to_schema}.{rel.to_table}.{rel.to_column}</strong></div>
- <div className="relationshipEvidence">{rel.verified?"Declared database foreign key":"Unverified column-name suggestion"} · {rel.provenance} · Draft only</div>
+ <div className="relationshipEvidence">{rel.verified?"Declared database foreign key":"Unverified column-name suggestion"} · {rel.provenance} · {relationshipReviews[relationshipKey(rel)]?.review_status||"Pending review"}</div>
+ <div className="semanticDraftFields">
+ <label>Join cardinality <small>From table → To table. Confirm using business knowledge and key uniqueness.</small>
+ <select value={relationshipReviews[relationshipKey(rel)]?.cardinality||"unknown"} onChange={e=>setRelationshipReviews(v=>({...v,[relationshipKey(rel)]:{...v[relationshipKey(rel)],cardinality:e.target.value}}))}>
+ <option value="unknown">Unknown — needs review</option><option value="many_to_one">Many to one</option><option value="one_to_many">One to many</option><option value="one_to_one">One to one</option><option value="many_to_many">Many to many</option></select></label>
+ <label>Relationship meaning <small>Optional context for future semantic modeling.</small><input value={relationshipReviews[relationshipKey(rel)]?.description||""} onChange={e=>setRelationshipReviews(v=>({...v,[relationshipKey(rel)]:{...v[relationshipKey(rel)],description:e.target.value}}))} placeholder="What does this relationship represent?"/></label>
+ </div>
+ <div className="semanticDraftFooter"><button type="button" disabled={relationshipSaving||(relationshipReviews[relationshipKey(rel)]?.cardinality||"unknown")==="unknown"} onClick={()=>saveRelationshipReview(rel,"approved")}>Approve relationship</button><button type="button" disabled={relationshipSaving} onClick={()=>saveRelationshipReview(rel,"rejected")}>Reject</button></div>
  </div>)}</div>}
- <p>Approval and cardinality validation will follow. A matching column name is not proof that a join is correct.</p>
+ <p>Human review decisions are saved separately. Reviewed relationships are not yet activated for SQL generation.</p>
  </section>
  {proposals.map(p=>{const key=datasetKey(p.schema_name,p.table_name);const edit=semanticEdits[key];const update=(field:"description"|"business_meaning"|"grain"|"aliases",value:string)=>setSemanticEdits(v=>({...v,[key]:{...v[key],[field]:value}}));return <section key={key} className="semanticDraftCard">
  <div className="semanticDraftHeader"><div><h3>{p.schema_name}.{p.table_name}</h3><p>{p.attributes.length} columns · Primary key: {p.key_columns.length?p.key_columns.join(", "):"not discovered"}</p></div><span className={approvedKeys.includes(key)?"semanticDraftStatus approved":"semanticDraftStatus"}>{approvedKeys.includes(key)?"Approved":"Needs review"}</span></div>
