@@ -32,6 +32,14 @@ If `--wait` is unsupported by your Compose version, use `docker compose -f infra
 
 **Local-only defaults:** the UI binds to `127.0.0.1:3000`, and the bundled PostgreSQL password is for local development only. Do not expose this Compose stack to a public network without replacing development credentials and adding production security controls.
 
+**Windows CMD C2 smoke test (after startup):**
+
+```bat
+docker compose -f infra/compose.yaml up --build -d --wait && docker compose -f infra/compose.yaml ps && curl.exe -fsS http://localhost:3000/health && curl.exe -i http://localhost:3000/health/ready && curl.exe -i http://localhost:3000/api/setup/readiness
+```
+
+Check that all four core services (`postgres`, `qdrant`, `api`, `web`) are healthy, the UI loads at http://localhost:3000, and the setup endpoint reports the expected first-run state. A `200` response from `/health` only proves API liveness; inspect the JSON/status from readiness endpoints rather than assuming onboarding is complete. If the command fails, collect `docker compose -f infra/compose.yaml ps` and `docker compose -f infra/compose.yaml logs --tail=100 api web postgres qdrant` before resetting any volumes.
+
 **Stage C2 verification pending:** the command above is the intended startup path; clean-machine Windows/macOS/Linux installation and first-run Welcome-screen acceptance have not yet been independently verified.
 
 ---
