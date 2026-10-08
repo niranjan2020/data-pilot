@@ -28,7 +28,7 @@ EVIDENCE = {
     ("policy_enforced_by_sql_governance", False),
 ])
 def test_publication_rejected_without_complete_evidence(key, value):
-    evidence = {**EVIDENCE, key: value, "policy_enforced_by_sql_governance": True}
+    evidence = {**EVIDENCE, "policy_enforced_by_sql_governance": True, key: value}
     result = assess_relationship_publication(REVIEW, **evidence)
     assert not result.eligible
     assert result.reasons
