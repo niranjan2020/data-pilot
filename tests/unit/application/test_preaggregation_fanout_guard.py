@@ -389,3 +389,28 @@ def test_fanout_join_grain_key_unverified_when_join_uses_non_grouped_projection(
         "ON p.id = c.other_id"
     )
     assert any(item["code"] == "fanout_join_grain_key_unverified" for item in checks(sql))
+
+
+def test_join_coverage_observed_for_single_simple_derived_join():
+    result = checks(SQL)
+    evidence = next(item for item in result if item["code"] == "fanout_join_coverage_observed")
+    assert evidence["outer_join_count"] == 1
+    assert evidence["observed_grain_key_count"] == 1
+    assert any(item["code"] == "join_fanout_violation" for item in result)
+
+
+def test_join_coverage_incomplete_with_additional_direct_join():
+    sql = SQL.replace(" GROUP BY p.id", " JOIN demo.children extra ON extra.parent_id = p.id GROUP BY p.id")
+    result = checks(sql)
+    assert any(item["code"] == "fanout_join_coverage_incomplete" for item in result)
+    assert any(item["code"] == "join_fanout_violation" for item in result)
+
+
+def test_join_coverage_incomplete_for_direct_join_only():
+    sql = "SELECT SUM(p.amount) FROM demo.parents p JOIN demo.children c ON p.id = c.parent_id"
+    assert any(item["code"] == "fanout_join_coverage_incomplete" for item in checks(sql))
+
+
+def test_join_coverage_incomplete_for_non_equality_derived_join():
+    sql = SQL.replace("ON p.id = c.parent_id", "ON p.id > c.parent_id")
+    assert any(item["code"] == "fanout_join_coverage_incomplete" for item in checks(sql))
