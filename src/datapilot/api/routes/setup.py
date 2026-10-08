@@ -12,6 +12,7 @@ from datapilot.domain.interfaces.ai_configuration import (
 )
 from datapilot.infrastructure.metadata.postgresql import PostgreSQLMetadataProvider
 from datapilot.infrastructure.secrets.local_env import LocalEnvAIProviderSecretStore
+from datapilot.infrastructure.secrets.local_data_source import LocalDataSourceSecretStore
 
 router = APIRouter(prefix="/api/setup", tags=["Setup"])
 
@@ -148,3 +149,42 @@ async def test_data_source_connection(payload: PostgreSQLConnectionInput) -> Con
     if not connected:
         raise HTTPException(status_code=422, detail="PostgreSQL connection failed. Check host, port, credentials, network and SSL settings.")
     return ConnectionTestResult(connected=True)
+
+
+class SavedDataSource(BaseModel):
+    id: int
+    name: str
+    connected: bool
+
+
+@router.post("/data-source", response_model=SavedDataSource)
+async def save_setup_data_source(payload: PostgreSQLConnectionInput, request: Request) -> SavedDataSource:
+    """Validate, persist non-secret metadata and encrypted credential, then advance."""
+    metadata, owns_metadata = await _setup_metadata(request)
+    secret_store = getattr(request.app.state, "data_source_secret_store", None)
+    if secret_store is None:
+        secret_store = LocalDataSourceSecretStore()
+    try:
+        await metadata.update_setup_facts(data_source_ready=False, data_selection_ready=False, semantic_model_ready=False)
+        try:
+            connected = await test_postgresql_connection(payload)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="PostgreSQL connection failed. Check host, port, credentials, network and SSL settings.") from exc
+        if not connected:
+            raise HTTPException(status_code=422, detail="PostgreSQL connection failed. Check host, port, credentials, network and SSL settings.")
+        source_id = await metadata.save_data_source(
+            name=payload.name, provider="postgresql", host=payload.host,
+            port=payload.port, database_name=payload.database,
+            username=payload.username, sslmode=payload.sslmode,
+        )
+        try:
+            secret_store.put(source_id, payload.password.get_secret_value())
+            if secret_store.resolve_for_runtime(source_id) != payload.password.get_secret_value():
+                raise RuntimeError("Credential verification failed")
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Unable to persist datasource credentials.") from exc
+        await metadata.update_setup_facts(data_source_ready=True)
+        return SavedDataSource(id=source_id, name=payload.name, connected=True)
+    finally:
+        if owns_metadata:
+            await metadata.close()
