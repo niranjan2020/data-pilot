@@ -98,7 +98,7 @@ def test_missing_evidence(evidence):
 
 @pytest.mark.parametrize("seconds", [1, 30, 60, 300])
 def test_custom_max_age(seconds):
-    assert not valid(proof(), max_age=timedelta(seconds=seconds))
+    assert valid(proof(), max_age=timedelta(seconds=seconds)) is (seconds >= 60)
 
 
 def test_iso_zulu_timestamp_supported():
