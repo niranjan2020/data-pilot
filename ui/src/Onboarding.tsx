@@ -63,6 +63,17 @@ export function Onboarding({onReady}:{onReady:()=>void}){
  },[status?.current_step,savedSourceId]);
 
 
+ async function finishSemanticReview(){
+  if(savedSourceId===null)return;
+  setBusy(true);setError("");
+  try{
+   const response=await fetch("/api/setup/data-source/"+savedSourceId+"/semantic-review/complete",{method:"POST"});
+   const result=await response.json();
+   if(!response.ok)throw new Error(typeof result.detail==="string"?result.detail:"Unable to complete semantic review.");
+   await refresh();
+  }catch(e:any){setError(e.message||"Unable to complete semantic review")}
+  finally{setBusy(false)}
+ }
  async function validateProvider(e:React.FormEvent){
   e.preventDefault();setBusy(true);setError("");
   try{
@@ -276,6 +287,8 @@ export function Onboarding({onReady}:{onReady:()=>void}){
  <div className="semanticDraftFooter"><button type="button" disabled={busy||!edit?.description.trim()||!edit?.business_meaning.trim()||!edit?.grain.trim()} onClick={()=>approveSemantic(p)}>{approvedKeys.includes(key)?"Save updated definition":"Approve definition"}</button><span>Human approval · Indexing pending</span></div>
  {p.warnings.length>0&&<details className="semanticDraftDetails"><summary>Review notes ({p.warnings.length})</summary>{p.warnings.map(w=><p key={w}>{w}</p>)}</details>}
  </section>})}
+ <p>Review completion requires an approved description, business meaning and row grain for every selected dataset. This does not publish relationships or verify semantic indexing.</p>
+ <button type="button" disabled={busy||savedSourceId===null||proposals.length===0||proposals.some(p=>!approvedKeys.includes(datasetKey(p.schema_name,p.table_name)))} onClick={finishSemanticReview}>{busy?"Finishing…":"Finish semantic review"}</button>
  <p>Approval persists reviewed dataset definitions only. Query readiness requires subsequent semantic indexing and validation.</p>{approvalMessage&&<p role="status">{approvalMessage}</p>}
  </div>}
  {status&&status.current_step!=="ai_provider"&&status.current_step!=="data_source"&&status.current_step!=="data_selection"&&status.current_step!=="semantic_review"&&!status.ready&&<div className="onboardingForm"><h2>{labels[status.current_step]||"Continue setup"}</h2><p>This onboarding action is scheduled for the next Stage C implementation. Your progress is persisted across restarts.</p><button onClick={()=>refresh().catch(e=>setError(String(e.message||e)))}>Refresh setup status</button></div>}
