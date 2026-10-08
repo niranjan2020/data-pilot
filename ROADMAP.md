@@ -4,10 +4,38 @@
 >
 > **Rule:** update this file whenever a milestone is completed, reprioritized, or a benchmark exposes a new reliability gap. Benchmark evidence, not feature speculation, drives Stage A.
 
-**Last updated:** 2026-10-07  
+**Last updated:** 2026-10-08  
 **Current focus:** Core OSS — Stage C2: one-command local deployment  
 **Current semantic evaluation baseline:** 39/39 passed (100.0%) through the live production pipeline after B4 dialect isolation (p50 2.986 s, p95 4.249 s).  
-**Current full automated regression baseline:** 331/331 passed after B4 dialect isolation.
+**Current unit regression baseline:** **645/645 passed** (user-verified 2026-10-08, `python -m pytest tests/unit -q`). Full integration/evaluation suite and clean-machine onboarding are not verified by this count.
+
+---
+
+## 2026-10-08 roadmap audit and delivery priorities
+
+**Primary active milestone: C2 — one-command local deployment.** C1 is complete. C2–C8 remain open until their individual exit criteria are demonstrated; a green unit suite does not establish that Docker startup, onboarding, or first-answer time targets work on a clean machine.
+
+**Verified checkpoints**
+- Latest user-executed unit suite: **645 passed** (`python -m pytest tests/unit -q`).
+- Last recorded live semantic evaluation: **39/39 passed**, after B4; **not rerun** at the 645-test checkpoint.
+- Stage A and documented B1–B4 milestones remain complete as recorded below. Preserve existing B5/B6 status where documented; do not infer completion from test growth.
+- C1 onboarding contract and persisted state: complete. C2 deployment: active; clean-machine exit gate not yet demonstrated.
+
+**Recent correctness hardening — implemented, not a release gate substitute**
+- Governed join graph, grouping, time grain, aggregation placement, and conservative fan-out diagnostics.
+- Derived join-key uniqueness, join connectivity, join-type classification, right-hand derived uniqueness evidence, and cardinality evidence summaries.
+- Explicit physical unique-key *metadata* validation with negative/adversarial regression coverage.
+- These diagnostics do **not** prove end-to-end metric-row preservation, automatically inspect database UNIQUE constraints, or waive `join_fanout_violation`. A declared `*_unique_key_verified` flag must only be supplied by trusted catalog evidence; it is not proof merely because an API caller supplied it.
+
+**Priority order (avoid indefinite correctness-only iteration)**
+1. **C2 now:** verify Compose startup, dependency health, migrations, first-run Welcome screen, and actionable startup errors on a clean supported machine. Record the actual command and observed outcomes.
+2. **C3–C4:** usable model-provider/target-Postgres connection wizard and automatic schema/constraint discovery with reviewable table selection.
+3. **C5–C7:** human-approved semantic bootstrap, Admin/Data Readiness, and trustworthy Ask experience.
+4. **C8:** clean-machine Windows/macOS/Linux validation, TTFA measurement, sample data, and onboarding resilience.
+5. **Parallel bounded correctness track:** connect *trusted discovered* PK/UNIQUE metadata to governed joins; test safe and unsafe multi-join cardinality with execution-backed fixtures; retain fail-closed behavior until proven. Avoid treating added unit-test count as proof of correctness.
+6. **Stage D and SaaS:** unchanged release and customer-demand gates; SaaS remains deferred.
+
+**Next validation commands:** `python -m pytest tests/unit -q` for unit regression, plus the existing evaluation harness and a documented clean Docker Compose run. Record each separately; do not conflate unit tests with live pipeline or installation success.
 
 ---
 
@@ -221,7 +249,7 @@ Do **not** weaken expectations to preserve a headline benchmark score. Correctne
 
 ---
 
-## Stage B: Robustness and query-engine hardening — CURRENT
+## Stage B: Robustness and query-engine hardening — historical milestones / ongoing safety maintenance
 
 Stage A is complete. Stage B hardens recovery, provider isolation, resource safety, and diagnostics without weakening deterministic correctness.
 
