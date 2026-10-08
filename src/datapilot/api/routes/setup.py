@@ -184,12 +184,30 @@ async def save_setup_data_source(payload: PostgreSQLConnectionInput, request: Re
                 raise RuntimeError("Credential verification failed")
         except Exception as exc:
             raise HTTPException(status_code=503, detail="Unable to persist datasource credentials.") from exc
+        await metadata.set_active_data_source_id(source_id)
         await metadata.update_setup_facts(data_source_ready=True)
         return SavedDataSource(id=source_id, name=payload.name, connected=True)
     finally:
         if owns_metadata:
             await metadata.close()
 
+
+
+@router.get("/data-source/active")
+async def active_setup_data_source(request: Request):
+    """Return the selected non-secret datasource identity after restart."""
+    metadata, owns_metadata = await _setup_metadata(request)
+    try:
+        source_id = await metadata.get_active_data_source_id()
+        if source_id is None:
+            raise HTTPException(status_code=404, detail="No active datasource selected.")
+        record = await metadata.get_data_source(source_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Active datasource no longer exists.")
+        return {"id": record["id"], "name": record["name"], "provider": record["provider"]}
+    finally:
+        if owns_metadata:
+            await metadata.close()
 
 
 class SavedDiscoveryResponse(BaseModel):
