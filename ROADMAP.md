@@ -47,6 +47,15 @@
 - **Dependency:** complete C2 clean-install gate first; schedule this alongside C4–C5 discovery and semantic approval. Value discovery/canonical value resolution remain C4–C5 backlog as well.
 - **Status:** requirements recorded; runtime enforcement NOT implemented.
 
+**C2 isolated fresh-install bootstrap — PASS (user-verified 2026-10-08)**
+
+- Using Compose project `datapilot-c2-clean` with isolated PostgreSQL, Qdrant and secrets volumes, all four services built and became healthy.
+- `http://localhost:3001/health` returned HTTP 200, status ok.
+- `http://localhost:3001/api/setup/readiness` returned HTTP 200 with `ready=false`, `setup_ready=false`, `metadata_storage=ready`, `ai_provider=not_ready`, `data_source=not_ready` as expected.
+- Browser displayed **Welcome to Data Pilot**, first-run provider configuration and blocked subsequent onboarding steps.
+- **Still open:** validate AI provider, datasource, discovery/selection, semantic review and first governed query on the isolated installation; verify persisted setup after restart. Do not mark C2 complete prematurely.
+- Keep primary `infra` Compose volumes intact.
+
 **C2 existing-install smoke test — PASS (user-verified 2026-10-08)**
 
 - `docker compose -f infra/compose.yaml up --build -d --wait`: all four services healthy (PostgreSQL, Qdrant, API, web).
