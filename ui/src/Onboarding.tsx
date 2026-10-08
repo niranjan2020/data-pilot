@@ -19,7 +19,7 @@ export function Onboarding({onReady}:{onReady:()=>void}){
  const [proposals,setProposals]=useState<SemanticProposal[]>([]);
  type RelationshipCandidate={from_schema:string;from_table:string;from_column:string;to_schema:string;to_table:string;to_column:string;provenance:string;verified:boolean;status:string};
  const [relationships,setRelationships]=useState<RelationshipCandidate[]>([]);
- const [relationshipReviews,setRelationshipReviews]=useState<Record<string,{cardinality:string;review_status:string;description:string}>>({});
+ const [relationshipReviews,setRelationshipReviews]=useState<Record<string,{cardinality:string;review_status:string;description:string;join_policy:string}>>({});
  const relationshipKey=(r:RelationshipCandidate)=>[r.from_schema,r.from_table,r.from_column,r.to_schema,r.to_table,r.to_column].join("|");
  type VerificationResult={structurally_valid:boolean;live_cardinality_verified:boolean;cardinality_holds:boolean;referential_integrity_checked?:boolean;unmatched_references?:boolean|null;nullable_references?:boolean|null;publishable:boolean;reasons:string[]};
  const [verificationResults,setVerificationResults]=useState<Record<string,VerificationResult>>({});
@@ -127,7 +127,7 @@ export function Onboarding({onReady}:{onReady:()=>void}){
   if(relationshipResponse.ok){setRelationships(await relationshipResponse.json());setRelationshipError("");}
   else{setRelationshipError("Unable to load relationship candidates.");}
   const reviewsResponse=await fetch("/api/setup/data-source/"+sourceId+"/relationship-reviews");
-  if(reviewsResponse.ok){const reviews=await reviewsResponse.json();const values:Record<string,{cardinality:string;review_status:string;description:string}>={};for(const review of reviews)values[relationshipKey(review)]={cardinality:review.cardinality,review_status:review.review_status,description:review.description};setRelationshipReviews(values);}
+  if(reviewsResponse.ok){const reviews=await reviewsResponse.json();const values:Record<string,{cardinality:string;review_status:string;description:string;join_policy:string}>={};for(const review of reviews)values[relationshipKey(review)]={cardinality:review.cardinality,review_status:review.review_status,description:review.description,join_policy:review.join_policy||"unconfigured"};setRelationshipReviews(values);}
 
 
  }
@@ -139,7 +139,7 @@ export function Onboarding({onReady}:{onReady:()=>void}){
  async function saveRelationshipReview(rel:RelationshipCandidate,review_status:"approved"|"rejected"){
   if(savedSourceId===null)return;
   const key=relationshipKey(rel);
-  const review=relationshipReviews[key]||{cardinality:"unknown",review_status:"",description:""};
+  const review=relationshipReviews[key]||{cardinality:"unknown",review_status:"",description:"",join_policy:"unconfigured"};
   setRelationshipSaving(true);setRelationshipError("");
   try{
    const response=await fetch("/api/setup/data-source/"+savedSourceId+"/relationship-reviews",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({...rel,cardinality:review.cardinality,description:review.description,review_status})});
@@ -246,6 +246,12 @@ export function Onboarding({onReady}:{onReady:()=>void}){
  <label>Join cardinality <small>From table → To table. Confirm using business knowledge and key uniqueness.</small>
  <select value={relationshipReviews[relationshipKey(rel)]?.cardinality||"unknown"} onChange={e=>setRelationshipReviews(v=>({...v,[relationshipKey(rel)]:{...v[relationshipKey(rel)],cardinality:e.target.value}}))}>
  <option value="unknown">Unknown — needs review</option><option value="many_to_one">Many to one</option><option value="one_to_many">One to many</option><option value="one_to_one">One to one</option><option value="many_to_many">Many to many</option></select></label>
+ <label>Join behavior <small>Choose how source records without a matching target should be handled. This does not publish the join.</small>
+ <select value={relationshipReviews[relationshipKey(rel)]?.join_policy||"unconfigured"} onChange={e=>setRelationshipReviews(v=>({...v,[relationshipKey(rel)]:{...v[relationshipKey(rel)],join_policy:e.target.value}}))}>
+ <option value="unconfigured">Not configured — publishing blocked</option>
+ <option value="preserve_source">Preserve source rows (LEFT JOIN)</option>
+ <option value="matched_only">Matched rows only (INNER JOIN)</option>
+ </select></label>
  <label>Relationship meaning <small>Optional context for future semantic modeling.</small><input value={relationshipReviews[relationshipKey(rel)]?.description||""} onChange={e=>setRelationshipReviews(v=>({...v,[relationshipKey(rel)]:{...v[relationshipKey(rel)],description:e.target.value}}))} placeholder="What does this relationship represent?"/></label>
  </div>
  <div className="semanticDraftFooter"><button type="button" disabled={relationshipSaving||(relationshipReviews[relationshipKey(rel)]?.cardinality||"unknown")==="unknown"} onClick={()=>saveRelationshipReview(rel,"approved")}>Approve relationship</button><button type="button" disabled={relationshipSaving} onClick={()=>saveRelationshipReview(rel,"rejected")}>Reject</button><button type="button" disabled={verifyingKey!==null||relationshipSaving||relationshipReviews[relationshipKey(rel)]?.review_status!=="approved"} onClick={()=>verifyRelationship(rel)}>{verifyingKey===relationshipKey(rel)?"Verifying…":"Verify relationship"}</button></div>
