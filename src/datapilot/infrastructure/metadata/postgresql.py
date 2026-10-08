@@ -659,6 +659,24 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                 fingerprint = review_fingerprint(persisted)
                 if fingerprint != review_fingerprint(review):
                     return False
+                # Reverification changes the evidence generation: revoke any
+                # prior publication atomically before writing replacement proof.
+                await cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS datapilot_catalog.relationship_publications (
+                        data_source_id BIGINT NOT NULL REFERENCES datapilot_catalog.data_sources(id) ON DELETE CASCADE,
+                        from_schema TEXT NOT NULL, from_table TEXT NOT NULL, from_column TEXT NOT NULL,
+                        to_schema TEXT NOT NULL, to_table TEXT NOT NULL, to_column TEXT NOT NULL,
+                        review_fingerprint TEXT NOT NULL, verification_fingerprint TEXT NOT NULL,
+                        published_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        PRIMARY KEY (data_source_id, from_schema, from_table, from_column,
+                                     to_schema, to_table, to_column)
+                    )
+                """)
+                await cursor.execute("""
+                    DELETE FROM datapilot_catalog.relationship_publications
+                    WHERE data_source_id=%s AND from_schema=%s AND from_table=%s
+                      AND from_column=%s AND to_schema=%s AND to_table=%s AND to_column=%s
+                """, (data_source_id, *(review[k] for k in keys)))
                 await cursor.execute("""
                     INSERT INTO datapilot_catalog.relationship_verifications
                     (data_source_id, from_schema, from_table, from_column, to_schema,
