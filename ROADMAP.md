@@ -11,6 +11,17 @@
 
 ---
 
+## C4 schema discovery — first increment (2026-10-08)
+
+- Added `UniqueConstraintMetadata` to the physical `TableMetadata` discovery contract (constraint name, ordered columns, PK flag), backward-compatible default empty list.
+- PostgreSQL introspection now reads validated `pg_constraint` PK/UNIQUE constraints, preserving composite column order.
+- Added two unit regressions for round-trip composite uniqueness and legacy catalog payloads.
+- **Awaiting user verification:** unit suite and live Astra schema rediscovery. No claims of test success yet.
+- **Not yet implemented:** UNIQUE indexes without constraints, partial/expression index analysis, candidate value discovery, bounded distinct-value sampling, review/publish UX, persistence of unique evidence across all catalog snapshots, or enforcement in SQL validation.
+- Next C4 increment: determine existing schema snapshot serialization paths and expose reviewed constraint evidence; then bounded, opt-in categorical value proposals. Do not execute unbounded `SELECT DISTINCT` across all 292 discovered tables.
+
+---
+
 ## 2026-10-08 C3 credential-management acceptance
 
 - User verified **998 unit tests passed** after adding three saved-datasource login regression tests (invalid login, successful replacement, secret-write rollback).
