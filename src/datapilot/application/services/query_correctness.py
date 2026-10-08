@@ -474,6 +474,18 @@ def _fanout_checks(
             and (source_schema is None or str(table.db or "").casefold() == source_schema)
         ]
         matching_aliases = {str(table.alias_or_name).casefold() for table in matching_tables}
+        # Aliases can be reused inside nested SQL scopes. Without a scope-aware
+        # resolver, treat any alias collision as ambiguous rather than proving
+        # that an aggregate belongs to the declared metric source.
+        all_tables = list(tree.find_all(exp.Table))
+        alias_unambiguous = (
+            len(matching_tables) == 1
+            and all(
+                table is matching_tables[0]
+                or str(table.alias_or_name).casefold() not in matching_aliases
+                for table in all_tables
+            )
+        )
         # A same-named column in a different relation is not metric lineage.
         # Restrict matches to qualified columns inside actual aggregate functions.
         aggregate_columns = [
@@ -482,7 +494,7 @@ def _fanout_checks(
             if str(column.name).casefold() == source_column
         ]
         verified = (
-            len(matching_tables) == 1
+            alias_unambiguous
             and bool(aggregate_columns)
             and all(str(column.table or "").casefold() in matching_aliases for column in aggregate_columns)
         )
