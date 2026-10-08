@@ -224,3 +224,30 @@ def test_scope_aware_lineage_rejects_same_alias_wrong_schema():
     sql = "SELECT SUM(p.amount) FROM other.parents p"
     metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
     assert any(item["code"] == "metric_lineage_unverified" for item in checks(sql, metric))
+
+
+def test_lineage_traces_simple_derived_table_projection():
+    sql = "SELECT SUM(d.amount) FROM (SELECT p.amount FROM demo.parents p) d"
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
+    assert any(item["code"] == "metric_lineage_alignment" for item in checks(sql, metric))
+
+
+def test_lineage_rejects_derived_projection_from_wrong_schema():
+    sql = "SELECT SUM(d.amount) FROM (SELECT p.amount FROM other.parents p) d"
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
+    assert any(item["code"] == "metric_lineage_unverified" for item in checks(sql, metric))
+
+
+def test_lineage_rejects_derived_expression_projection():
+    sql = "SELECT SUM(d.amount) FROM (SELECT p.amount * 2 AS amount FROM demo.parents p) d"
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
+    assert any(item["code"] == "metric_lineage_unverified" for item in checks(sql, metric))
+
+
+def test_lineage_rejects_joined_derived_projection():
+    sql = (
+        "SELECT SUM(d.amount) FROM (SELECT p.amount FROM demo.parents p "
+        "JOIN demo.children c ON p.id = c.parent_id) d"
+    )
+    metric = {**METRIC, "table_name": "demo.parents", "column_name": "amount"}
+    assert any(item["code"] == "metric_lineage_unverified" for item in checks(sql, metric))
