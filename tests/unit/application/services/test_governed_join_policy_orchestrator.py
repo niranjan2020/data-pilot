@@ -189,3 +189,39 @@ async def test_non_join_query_does_not_need_publication_lookup():
     assert response.status == "dry_run"
     metadata.get_data_source_id.assert_not_awaited()
     metadata.list_current_relationship_publications.assert_not_awaited()
+
+
+# Three Astra regression scenarios reported during first-run onboarding.
+@pytest.mark.asyncio
+@pytest.mark.parametrize("question,sql", [
+    ("How many vessels are there?",
+     'SELECT COUNT(DISTINCT "id") FROM "astra"."vessels"'),
+    ("How many on order and delivered vessels does MSC have?",
+     "SELECT vessel_status, COUNT(DISTINCT id) FROM astra.vessels "
+     "WHERE operator = 'MSC' GROUP BY vessel_status"),
+])
+async def test_onboarded_vessel_aggregates_accept_valid_qualifiers(question, sql):
+    service = orchestrator(sql)
+    service._onboarding_allowed_tables = frozenset({"astra.vessels"})
+    service._validator.validate.return_value.affected_tables = ["astra.vessels"]
+    response = await service._validate_and_execute(
+        question=question, sql=sql, source="generator",
+        confidence=1.0, execute=False, governed_tables=["astra.vessels"],
+    )
+    assert response.status == "dry_run"
+
+
+@pytest.mark.asyncio
+async def test_onboarded_msc_count_rejects_schema_as_column_qualifier():
+    sql = 'SELECT COUNT(DISTINCT astra."id") FROM "astra"."vessels" WHERE astra."operator" = \'MSC\''
+    service = orchestrator(sql)
+    service._onboarding_allowed_tables = frozenset({"astra.vessels"})
+    service._validator.validate.return_value.affected_tables = ["astra.vessels"]
+    with pytest.raises(SQLValidationError) as exc:
+        await service._validate_and_execute(
+            question="How many vessels does MSC have?", sql=sql,
+            source="generator", confidence=1.0, execute=True,
+            governed_tables=["astra.vessels"],
+        )
+    assert exc.value.details["checks"][0]["code"] == "sql_identifier_qualifier_violation"
+    service._database.execute.assert_not_awaited()
