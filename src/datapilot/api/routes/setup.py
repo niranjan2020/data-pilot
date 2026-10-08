@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from datapilot.application.setup_state import SetupStatus, derive_setup_status
+from datapilot.application.data_source_onboarding import PostgreSQLConnectionInput, test_postgresql_connection
 from datapilot.domain.interfaces.ai_configuration import (
     AIProviderConfiguration,
     AIProviderKind,
@@ -131,3 +132,19 @@ async def setup_status(request: Request) -> SetupStatus:
     finally:
         if owns_metadata:
             await metadata.close()
+
+
+class ConnectionTestResult(BaseModel):
+    connected: bool
+
+
+@router.post("/data-source/test", response_model=ConnectionTestResult)
+async def test_data_source_connection(payload: PostgreSQLConnectionInput) -> ConnectionTestResult:
+    """Validate customer PostgreSQL connectivity without persisting credentials or readiness."""
+    try:
+        connected = await test_postgresql_connection(payload)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="PostgreSQL connection failed. Check host, port, credentials, network and SSL settings.") from exc
+    if not connected:
+        raise HTTPException(status_code=422, detail="PostgreSQL connection failed. Check host, port, credentials, network and SSL settings.")
+    return ConnectionTestResult(connected=True)
