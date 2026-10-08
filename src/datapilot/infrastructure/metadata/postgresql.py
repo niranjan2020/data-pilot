@@ -1124,7 +1124,7 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                             )
                         value_mappings = attribute.get("value_mappings") or []
                         canonical_seen = set()
-                        synonym_seen = set()
+                        synonym_seen = {}
                         for mapping in value_mappings:
                             canonical = mapping["canonical_value"].strip()
                             normalized = canonical.casefold()
@@ -1135,11 +1135,15 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                                 v.strip() for v in mapping.get("synonyms", [])
                                 if isinstance(v, str) and v.strip()
                             })
+                            # Repeating the canonical value as its own synonym
+                            # is harmless (e.g. ON ORDER / on order). Reject only
+                            # aliases shared by different canonical values.
                             for alias in [canonical, *aliases]:
                                 key = alias.casefold()
-                                if key in synonym_seen:
+                                owner = synonym_seen.get(key)
+                                if owner is not None and owner != normalized:
                                     raise MetadataError("Conflicting canonical value synonyms")
-                                synonym_seen.add(key)
+                                synonym_seen[key] = normalized
                             await cursor.execute(
                                 """
                                 INSERT INTO datapilot_catalog.semantic_attribute_values
