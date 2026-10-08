@@ -8,6 +8,7 @@ from sqlglot import exp, parse_one
 
 from datapilot.infrastructure.sql.dialects import sqlglot_dialect
 from datapilot.application.services.cardinality_evidence import summarize_cardinality_evidence
+from datapilot.application.services.physical_key_evidence import assess_declared_unique_key
 
 
 def _normalise(name: str) -> str:
@@ -1153,6 +1154,9 @@ def _fanout_checks(
                     "Outer aggregate placement cannot establish joined-row semantics."
                 ),
             })
+            # Unique-key declarations must be verified explicitly; cardinality
+            # labels and inferred join structure are not physical constraints.
+            checks.append(assess_declared_unique_key(relationship, side="to"))
             checks.append(summarize_cardinality_evidence(
                 {
                     "metric_ownership": bool(ownership_confirmed),
