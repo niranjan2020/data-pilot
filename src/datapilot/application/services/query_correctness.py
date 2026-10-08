@@ -1399,6 +1399,30 @@ def assess_query_correctness(
     ) if sql else []
     filter_checks = _filter_checks(sql, required_filters=required_filters, dialect=dialect) if sql else []
     required_relationships = list(required_relationships)
+    # A reviewed relationship is not a published relationship. Never accept
+    # review-only evidence as authorization for generated SQL.
+    publication_checks = []
+    for relationship in required_relationships:
+        if relationship.get("review_status") is None and "verification_evidence" not in relationship:
+            continue  # Legacy published semantic relationships follow existing governance.
+        from datapilot.application.governed_join_policy import assess_governed_join
+        policy = relationship.get("join_policy")
+        join_type = {"matched_only": "INNER", "preserve_source": "LEFT"}.get(policy, "")
+        decision = assess_governed_join(
+            relationship,
+            relationship.get("verification_evidence"),
+            requested_join_type=join_type,
+            sql_governance_enforced=relationship.get("sql_governance_enforced") is True,
+            live_evidence_fresh=relationship.get("live_evidence_fresh") is True,
+        )
+        publication_checks.append({
+            "code": "relationship_publication_alignment" if decision.allowed else "relationship_publication_violation",
+            "status": "passed" if decision.allowed else "failed",
+            "severity": "info" if decision.allowed else "error",
+            "relationship": str(relationship.get("name") or "relationship"),
+            "message": "Governed relationship publication contract is satisfied."
+                       if decision.allowed else "; ".join(decision.reasons),
+        })
     relationship_checks = _relationship_checks(sql, required_relationships=required_relationships, dialect=dialect) if sql else []
     # The join graph is authoritative for SQL containing multiple physical joins.
     # Do not silently skip governance when the context exposes only one edge.
@@ -1436,7 +1460,7 @@ def assess_query_correctness(
                 })
     fanout_checks = _fanout_checks(sql, governed_metrics=governed_metrics, required_relationships=required_relationships, dialect=dialect) if sql else []
     time_checks = _time_checks(sql, required_time_plan=required_time_plan, dialect=dialect) if sql else []
-    semantic_checks = metric_checks + grouping_checks + filter_checks + relationship_checks + join_policy_checks + fanout_checks + time_checks
+    semantic_checks = metric_checks + grouping_checks + filter_checks + relationship_checks + publication_checks + join_policy_checks + fanout_checks + time_checks
 
     if not governed:
         return semantic_checks + [{
