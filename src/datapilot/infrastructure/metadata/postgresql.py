@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS datapilot_catalog.data_sources (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE datapilot_catalog.setup_state ADD COLUMN IF NOT EXISTS active_data_source_id BIGINT;
+
 ALTER TABLE IF EXISTS datapilot_catalog.schema_snapshots ADD COLUMN IF NOT EXISTS data_source_id BIGINT REFERENCES datapilot_catalog.data_sources(id) ON DELETE CASCADE;
 
 ALTER TABLE IF EXISTS datapilot_catalog.schema_snapshots
@@ -420,6 +422,32 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                         (name, provider, host, port, database_name, username, sslmode),
                     )
                     return (await cursor.fetchone())[0]
+
+    async def set_active_data_source_id(self, source_id: int) -> None:
+        await self.initialize()
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    "UPDATE datapilot_catalog.setup_state SET active_data_source_id = %s, updated_at = NOW() WHERE id = 1",
+                    (source_id,),
+                )
+
+    async def get_active_data_source_id(self) -> Optional[int]:
+        await self.initialize()
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    "SELECT active_data_source_id FROM datapilot_catalog.setup_state WHERE id = 1"
+                )
+                row = await cursor.fetchone()
+                if row and row[0] is not None:
+                    return row[0]
+                # Upgrade path for existing single-datasource local installations.
+                await cursor.execute("SELECT id FROM datapilot_catalog.data_sources ORDER BY id LIMIT 2")
+                candidates = await cursor.fetchall()
+                return candidates[0][0] if len(candidates) == 1 else None
 
     async def get_data_source(self, source_id: int) -> Optional[dict]:
         """Retrieve non-secret connection metadata for an explicitly selected source."""
