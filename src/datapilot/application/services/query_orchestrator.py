@@ -788,7 +788,7 @@ class QueryOrchestrator:
         # Enforce authoritative publication at the final execution boundary,
         # including dry-runs and regenerated SQL proposals. Legacy callers
         # without a publication provider retain their existing behavior.
-        if self._relationship_publication_metadata is not None and required_relationships:
+        if getattr(self, "_relationship_publication_metadata", None) is not None and required_relationships:
             from datapilot.application.published_join_authorization import authorize_published_joins
             source_id = await self._relationship_publication_metadata.get_active_data_source_id()
             authorization = await authorize_published_joins(
