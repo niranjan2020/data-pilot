@@ -160,6 +160,29 @@ class QueryOrchestrator:
             )
         allowed_tables = getattr(self, "_onboarding_allowed_tables", None)
         if allowed_tables is not None:
+            # First-run schema discovery is not semantic approval. In particular,
+            # counts/sums/averages need a reviewed metric rather than an LLM
+            # guess based on primary keys or column names.
+            import re
+            aggregate_intent = bool(re.search(
+                r"\b(how many|count|number of|total|average|avg|sum|revenue|percentage|percent|rate)\b",
+                contextual_question, flags=re.IGNORECASE,
+            ))
+            if aggregate_intent and not governed_context.get("metrics"):
+                raise SQLValidationError(
+                    "A governed metric is required for this business question",
+                    details={"checks": [{
+                        "code": "semantic_metric_not_configured",
+                        "status": "failed",
+                        "severity": "error",
+                        "message": (
+                            "No approved metric was resolved for this question. "
+                            "Configure and publish the business metric in Admin Studio "
+                            "before treating an aggregate as a governed answer."
+                        ),
+                    }]},
+                )
+
             if not allowed_tables:
                 raise SQLValidationError("No datasets are selected for querying")
             # Selected onboarding tables are the physical query boundary even
