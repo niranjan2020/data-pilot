@@ -166,6 +166,13 @@ CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_attribute_synonyms (
     PRIMARY KEY (attribute_id, synonym)
 );
 
+CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_attribute_values (
+    attribute_id BIGINT NOT NULL REFERENCES datapilot_catalog.semantic_attributes(id) ON DELETE CASCADE,
+    canonical_value TEXT NOT NULL,
+    synonyms JSONB NOT NULL DEFAULT '[]'::jsonb,
+    PRIMARY KEY (attribute_id, canonical_value)
+);
+
 CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_time_dimensions (
     id BIGSERIAL PRIMARY KEY,
     data_source_id BIGINT NOT NULL REFERENCES datapilot_catalog.data_sources(id) ON DELETE CASCADE,
@@ -1101,6 +1108,32 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                                 """,
                                 (attribute_id, synonym),
                             )
+                        value_mappings = attribute.get("value_mappings") or []
+                        canonical_seen = set()
+                        synonym_seen = set()
+                        for mapping in value_mappings:
+                            canonical = mapping["canonical_value"].strip()
+                            normalized = canonical.casefold()
+                            if not canonical or normalized in canonical_seen:
+                                raise MetadataError("Duplicate or empty canonical attribute value")
+                            canonical_seen.add(normalized)
+                            aliases = sorted({
+                                v.strip() for v in mapping.get("synonyms", [])
+                                if isinstance(v, str) and v.strip()
+                            })
+                            for alias in [canonical, *aliases]:
+                                key = alias.casefold()
+                                if key in synonym_seen:
+                                    raise MetadataError("Conflicting canonical value synonyms")
+                                synonym_seen.add(key)
+                            await cursor.execute(
+                                """
+                                INSERT INTO datapilot_catalog.semantic_attribute_values
+                                    (attribute_id, canonical_value, synonyms)
+                                VALUES (%s, %s, %s::jsonb)
+                                """,
+                                (attribute_id, canonical, json.dumps(aliases)),
+                            )
                     return entity_id
 
     async def list_semantic_entities(self, data_source_id: int) -> list[dict]:
@@ -1147,12 +1180,26 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                             """,
                             (attribute[0],),
                         )
+                        synonyms = [s[0] for s in await cursor.fetchall()]
+                        await cursor.execute(
+                            """
+                            SELECT canonical_value, synonyms
+                            FROM datapilot_catalog.semantic_attribute_values
+                            WHERE attribute_id = %s
+                            ORDER BY canonical_value
+                            """, (attribute[0],),
+                        )
+                        value_mappings = [
+                            {"canonical_value": value, "synonyms": aliases or []}
+                            for value, aliases in await cursor.fetchall()
+                        ]
                         attributes.append({
                             "name": attribute[1],
                             "description": attribute[2],
                             "column_name": attribute[3],
                             "operators": attribute[4] or ["="],
-                            "synonyms": [s[0] for s in await cursor.fetchall()],
+                            "synonyms": synonyms,
+                            "value_mappings": value_mappings,
                         })
                     entities.append({
                         "id": row[0],
