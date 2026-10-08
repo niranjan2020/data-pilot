@@ -399,6 +399,7 @@ def _fanout_checks(
 
     # Verify the join grain of a simple aggregated derived table. This is
     # diagnostic evidence only, not a waiver of governed fan-out violations.
+    grain_checks: list[dict[str, Any]] = []
     for join in tree.find_all(exp.Join):
         derived = join.this
         if not isinstance(derived, exp.Subquery) or not isinstance(derived.this, exp.Select):
@@ -424,16 +425,19 @@ def _fanout_checks(
         grouped_columns = {str(col.name).casefold() for col in grouping.expressions if isinstance(col, exp.Column)} if grouping else set()
         grain_proven = bool(joined_key and any(alias_name == joined_key and physical_name in grouped_columns for alias_name, physical_name in projected_keys))
         # Require a simple column-only GROUP BY and prohibit DISTINCT / grouping sets.
-        grain_proven = grain_proven and bool(grouping) and all(isinstance(item, exp.Column) for item in grouping.expressions) and len(grouping.expressions) == 1 and not inner.args.get("distinct")
-        return_check = {
+        grain_proven = (grain_proven and bool(grouping)
+                        and all(isinstance(item, exp.Column) for item in grouping.expressions)
+                        and len(grouping.expressions) == 1
+                        and not inner.args.get("distinct")
+                        and not inner.args.get("joins")
+                        and not inner.args.get("with_")
+                        and not any(isinstance(node, (exp.Subquery, exp.CTE, exp.Union)) for node in inner.walk()))
+        grain_checks.append({
             "code": "preaggregation_grain_alignment" if grain_proven else "preaggregation_grain_unverified",
             "status": "passed" if grain_proven else "skipped",
             "severity": "info",
             "message": "Derived dataset is grouped by its projected join key." if grain_proven else "Derived dataset join-key uniqueness was not established.",
-        }
-        break
-    else:
-        return_check = None
+        })
 
     # Do not mark a pre-aggregated plan safe merely because it is nested.
     # Cardinality checks below still apply; a separate grain proof is needed
@@ -489,9 +493,9 @@ def _fanout_checks(
             })
 
     if checks:
-        return ([return_check] if return_check else []) + checks
+        return grain_checks + checks
 
-    return ([return_check] if return_check else []) + [{
+    return grain_checks + [{
         "code": "join_fanout_alignment",
         "status": "passed",
         "severity": "info",
