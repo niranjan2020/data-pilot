@@ -78,7 +78,8 @@ def test_bad_evidence_fails_closed(field, value):
 ])
 def test_unapproved_or_fanout_contract_fails(field, value):
     review = {**BASE, field: value}
-    assert not assess_governed_join(review, proof(review), requested_join_type="INNER",
+    evidence = proof(review) if value else proof()
+    assert not assess_governed_join(review, evidence, requested_join_type="INNER",
                                     sql_governance_enforced=True, live_evidence_fresh=True).allowed
 
 
