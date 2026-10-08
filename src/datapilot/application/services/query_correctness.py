@@ -465,12 +465,17 @@ def _fanout_checks(
         source_table = str(metric.get("table_name") or "").strip().casefold()
         if not source_column or not source_table:
             continue
-        source_table = source_table.split(".")[-1]
+        source_parts = source_table.split(".")
+        source_name = source_parts[-1]
+        source_schema = source_parts[-2] if len(source_parts) > 1 else None
         matching_tables = [
             table for table in tree.find_all(exp.Table)
-            if str(table.name).casefold() == source_table
+            if str(table.name).casefold() == source_name
+            and (source_schema is None or str(table.db or "").casefold() == source_schema)
         ]
         matching_aliases = {str(table.alias_or_name).casefold() for table in matching_tables}
+        # A same-named column in a different relation is not metric lineage.
+        # Restrict matches to qualified columns inside actual aggregate functions.
         aggregate_columns = [
             column for aggregate in tree.find_all(exp.AggFunc)
             for column in aggregate.find_all(exp.Column)
