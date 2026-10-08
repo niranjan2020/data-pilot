@@ -10,6 +10,9 @@ from datapilot.core.config import Settings, get_settings
 from datapilot.core.exceptions import ConfigurationError
 from datapilot.domain.query import QueryRequest, QueryResponse
 from datapilot.infrastructure.database.postgresql import PostgreSQLDatabaseProvider
+from datapilot.infrastructure.database.saved_connection import open_saved_data_source
+from datapilot.infrastructure.secrets.local_data_source import LocalDataSourceSecretStore
+from datapilot.infrastructure.secrets.local_env import LocalEnvAIProviderSecretStore
 from datapilot.infrastructure.llm.gemini import GeminiLLMProvider
 from datapilot.infrastructure.metadata.semantic_postgresql import PostgreSQLSemanticCatalogProvider
 from datapilot.infrastructure.metadata.postgresql import PostgreSQLMetadataProvider
@@ -52,19 +55,37 @@ async def get_query_orchestrator(
     if existing is not None:
         return existing
 
-    if not settings.default_database_url:
-        raise ConfigurationError("DEFAULT_DATABASE_URL is required for /api/query")
-    if settings.gemini_api_key is None:
-        raise ConfigurationError(
-            "An LLM provider credential is required for the configured SQL generator"
-        )
+    metadata_url = settings.metadata_database_url or settings.default_database_url
+    if not metadata_url:
+        raise ConfigurationError("METADATA_DATABASE_URL is required for /api/query")
 
-    database = PostgreSQLDatabaseProvider(
-        database_url=settings.default_database_url,
-        pool_size=settings.database_pool_size,
-        default_timeout_seconds=settings.database_query_timeout_seconds,
-    )
+    setup_metadata = getattr(request.app.state, 'setup_metadata', None)
+    owns_metadata = setup_metadata is None
+    if owns_metadata:
+        setup_metadata = PostgreSQLMetadataProvider(database_url=metadata_url, pool_size=settings.metadata_database_pool_size)
+    try:
+        active_source_id = await setup_metadata.get_active_data_source_id()
+        if active_source_id is not None:
+            source_secrets = getattr(request.app.state, 'data_source_secret_store', None) or LocalDataSourceSecretStore()
+            try:
+                database = await open_saved_data_source(setup_metadata, source_secrets, active_source_id)
+            except Exception as exc:
+                raise ConfigurationError("Active saved datasource is unavailable. Reconnect it in setup.") from exc
+        elif settings.default_database_url:
+            database = PostgreSQLDatabaseProvider(database_url=settings.default_database_url, pool_size=settings.database_pool_size, default_timeout_seconds=settings.database_query_timeout_seconds)
+        else:
+            raise ConfigurationError("Connect a datasource in setup before querying")
+        saved_ai = await setup_metadata.get_ai_provider_configuration()
+    finally:
+        if owns_metadata:
+            await setup_metadata.close()
 
+    provider = (saved_ai.provider.value if hasattr(saved_ai.provider, 'value') else str(saved_ai.provider)) if saved_ai else settings.default_llm_provider
+    model = saved_ai.model if saved_ai else settings.gemini_model
+    ai_secrets = getattr(request.app.state, 'ai_secret_store', None) or LocalEnvAIProviderSecretStore()
+    api_key = ai_secrets.resolve_for_runtime(saved_ai.provider) if saved_ai else (settings.gemini_api_key.get_secret_value() if settings.gemini_api_key else None)
+    if not api_key:
+        raise ConfigurationError("Configured AI provider credential is unavailable")
     semantic_database_url = settings.metadata_database_url or settings.default_database_url
     semantic_catalog = PostgreSQLSemanticCatalogProvider(
         database_url=semantic_database_url,
@@ -74,15 +95,15 @@ async def get_query_orchestrator(
 
     # Provider-specific composition is deliberately isolated here. The
     # QueryOrchestrator only receives the generic SQLGenerator port.
-    if settings.default_llm_provider != "gemini":
+    if provider != "gemini":
         raise ConfigurationError(
             "No adapter is registered for the configured LLM provider yet. "
             "The core query engine remains provider-independent."
         )
 
     llm = GeminiLLMProvider(
-        api_key=settings.gemini_api_key.get_secret_value(),
-        model=settings.gemini_model,
+        api_key=api_key,
+        model=model,
     )
     sql_generator = LLMBackedSQLGenerator(llm)
     semantic_retriever = QdrantSemanticIndex(
