@@ -7,7 +7,7 @@ import json
 _logger = logging.getLogger("datapilot.setup")
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from datapilot.application.setup_state import SetupStatus, derive_setup_status
 from datapilot.application.semantic_bootstrap import DatasetProposal, propose_datasets
@@ -352,6 +352,62 @@ async def preview_semantic_proposals(source_id: int, request: Request):
             return propose_datasets(catalog, selected)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail="Selected datasets require schema rediscovery.") from exc
+    finally:
+        if owns:
+            await metadata.close()
+
+
+class SemanticDraftApproval(BaseModel):
+    schema_name: str
+    table_name: str
+    description: str = Field(min_length=1, max_length=4000)
+    business_meaning: str = Field(min_length=1, max_length=4000)
+    grain: str = Field(min_length=1, max_length=1000)
+    aliases: list[str] = Field(default_factory=list)
+
+
+@router.get("/data-source/{source_id}/semantic-approved")
+async def list_approved_setup_semantics(source_id: int, request: Request):
+    metadata, owns = await _setup_metadata(request)
+    try:
+        if await metadata.get_active_data_source_id() != source_id:
+            raise HTTPException(status_code=409, detail="Datasource is not active.")
+        selected = await metadata.get_selected_datasets(source_id)
+        allowed = {(s["schema_name"], s["table_name"]) for s in selected}
+        records = await metadata.list_semantic_datasets(source_id)
+        return [record for record in records if (record["schema_name"], record["table_name"]) in allowed]
+    finally:
+        if owns:
+            await metadata.close()
+
+
+@router.put("/data-source/{source_id}/semantic-approved")
+async def approve_setup_semantic_draft(source_id: int, payload: SemanticDraftApproval, request: Request):
+    """Explicit human approval of dataset meaning; does not imply indexing readiness."""
+    metadata, owns = await _setup_metadata(request)
+    try:
+        if await metadata.get_active_data_source_id() != source_id:
+            raise HTTPException(status_code=409, detail="Datasource is not active.")
+        selected = await metadata.get_selected_datasets(source_id)
+        if (payload.schema_name, payload.table_name) not in {
+            (item["schema_name"], item["table_name"]) for item in selected
+        }:
+            raise HTTPException(status_code=422, detail="Only selected discovered datasets can be approved.")
+        dataset_id = await metadata.save_semantic_dataset(
+            data_source_id=source_id,
+            schema_name=payload.schema_name,
+            table_name=payload.table_name,
+            description=payload.description.strip(),
+            business_meaning=payload.business_meaning.strip(),
+            grain=payload.grain.strip(),
+            identity_semantics=None,
+            aliases=payload.aliases,
+            use_cases=[],
+            query_constraints=[],
+        )
+        # Semantic readiness remains false until all selected datasets are approved
+        # and the semantic indexing workflow has completed.
+        return {"dataset_id": dataset_id, "status": "approved", "indexed": False}
     finally:
         if owns:
             await metadata.close()
