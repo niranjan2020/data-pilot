@@ -7,7 +7,18 @@
 **Last updated:** 2026-10-08  
 **Current focus:** Core OSS — Stage C3: AI provider and datasource onboarding refinement (C2 acceptance passed)  
 **Current semantic evaluation baseline:** 39/39 passed (100.0%) through the live production pipeline after B4 dialect isolation (p50 2.986 s, p95 4.249 s).  
-**Current unit regression baseline:** **995 passed** (user-verified 2026-10-08, `git pull && python -m pytest tests/unit -q`, before subsequent metadata/UI fixes). Full integration/evaluation suite and clean-machine onboarding are not verified by this count.
+**Current unit regression baseline:** **998 passed** (user-verified 2026-10-08). Full integration/evaluation suite and live semantic benchmark are not verified by this count.
+
+---
+
+## 2026-10-08 C3 credential-management acceptance
+
+- User verified **998 unit tests passed** after adding three saved-datasource login regression tests (invalid login, successful replacement, secret-write rollback).
+- User tested a deliberately invalid username/password against saved `astra-dev`; validation was rejected. Immediately afterward, **Test saved connection** returned **Saved datasource connection successful**, confirming the old login still works.
+- Saved datasource details and the username/password update UI are visible; credentials are not displayed in read APIs.
+- Password-only rotation and combined username/password update are implemented. **C3 credential negative-path acceptance passed**; successful real-world username migration has not been exercised, and username/secret persistence across two stores is not crash-atomic. Do not claim full production-grade atomicity.
+- **Next primary work:** C4 discovery review (PK/FK/UNIQUE metadata and bounded categorical value proposals), followed by C5 human-approved semantic publication. Prioritize generic features; preserve approved Astra configuration and keep historical snapshot views independent of current-state filters.
+- **C5 release blockers remain:** mandatory `source_active = TRUE` dataset policy enforcement, current-versus-history routing, relationship authorization hardening, and approved value mapping enforcement. These are backlog, not completed capabilities.
 
 ---
 
