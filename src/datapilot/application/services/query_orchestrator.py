@@ -790,6 +790,7 @@ class QueryOrchestrator:
         # Enforce authoritative publication at the final execution boundary,
         # including dry-runs and regenerated SQL proposals. Legacy callers
         # without a publication provider retain their existing behavior.
+        trusted_published_relationships = None
         if getattr(self, "_relationship_publication_metadata", None) is not None and required_relationships:
             from datapilot.application.published_join_authorization import authorize_published_joins
             source_id = (await self._relationship_publication_metadata.get_data_source_id(data_source_name)
@@ -809,6 +810,11 @@ class QueryOrchestrator:
                     }]},
                 )
 
+        if getattr(self, "_relationship_publication_metadata", None) is not None and required_relationships:
+            # The preceding authorization validated actual SQL against the grants.
+            # Pass only grants retrieved through the trusted metadata adapter.
+            trusted_published_relationships = await self._relationship_publication_metadata.list_current_relationship_publications(source_id)
+
         correctness_checks = assess_query_correctness(
             affected_tables=validation.affected_tables,
             governed_tables=governed_tables or [],
@@ -818,6 +824,7 @@ class QueryOrchestrator:
             required_filters=required_filters or [],
             required_relationships=required_relationships or [],
             required_time_plan=required_time_plan,
+            trusted_published_relationships=trusted_published_relationships,
             dialect=self._database.dialect,
         )
         if trace is not None:
