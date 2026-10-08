@@ -1,0 +1,11 @@
+# Isolated C2 clean-install validation overlay.
+# Usage (Windows CMD):
+# docker compose -p datapilot-c2-clean -f infra/compose.yaml -f infra/compose.clean-install.yaml up --build -d --wait
+# Never use -v/down -v against the primary infra project.
+services:
+  web:
+    ports: !override
+      - "127.0.0.1:3001:80"
+  api:
+    environment:
+      CORS_ORIGINS: '["http://localhost:3001"]'
