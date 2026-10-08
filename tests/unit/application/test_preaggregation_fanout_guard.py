@@ -495,3 +495,44 @@ def test_governed_relationship_keys_reject_wrong_schema():
         governed_tables=["demo.parents", "demo.children"],
         governed_metrics=[METRIC], required_relationships=[relationship])
     assert any(item["code"] == "fanout_relationship_keys_unverified" for item in result)
+
+
+def _relationship_key_checks(sql):
+    relationship = {**RELATIONSHIP, "from_schema": "demo", "from_table": "parents",
+                    "from_column": "id", "to_schema": "demo",
+                    "to_table": "children", "to_column": "parent_id"}
+    return assess_query_correctness(
+        sql=sql, affected_tables=["demo.parents", "demo.children"],
+        governed_tables=["demo.parents", "demo.children"],
+        governed_metrics=[METRIC], required_relationships=[relationship])
+
+
+def test_relationship_key_match_rejects_repeated_source_table():
+    sql = (
+        "SELECT SUM(p.amount) FROM demo.parents p "
+        "JOIN demo.children c ON p.id = c.parent_id "
+        "JOIN demo.parents p2 ON p2.id = c.parent_id"
+    )
+    result = _relationship_key_checks(sql)
+    assert any(item["code"] == "fanout_relationship_keys_unverified" for item in result)
+    assert any(item["code"] == "join_fanout_violation" for item in result)
+
+
+def test_relationship_key_match_rejects_repeated_target_table():
+    sql = (
+        "SELECT SUM(p.amount) FROM demo.parents p "
+        "JOIN demo.children c ON p.id = c.parent_id "
+        "JOIN demo.children c2 ON p.id = c2.parent_id"
+    )
+    assert any(item["code"] == "fanout_relationship_keys_unverified" for item in _relationship_key_checks(sql))
+
+
+def test_relationship_key_match_allows_unrelated_distinct_table():
+    sql = (
+        "SELECT SUM(p.amount) FROM demo.parents p "
+        "JOIN demo.children c ON p.id = c.parent_id "
+        "JOIN demo.categories cat ON cat.id = p.category_id"
+    )
+    result = _relationship_key_checks(sql)
+    assert any(item["code"] == "fanout_relationship_keys_matched" for item in result)
+    assert any(item["code"] == "join_fanout_violation" for item in result)
