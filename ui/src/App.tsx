@@ -2,7 +2,7 @@ import {useEffect,useState} from "react";
 import {Database, Network, BookOpen, Gauge, ShieldCheck, MessageSquareText, Settings2, CalendarDays} from "lucide-react";
 
 const sections=[
- ["Data Sources",Database,"Connect and test databases"],["Schema Explorer",Network,"Inspect tables, columns and relationships"],
+ ["Data Sources",Database,"Connect and test databases"],["AI Provider",Settings2,"Manage saved model and credential"],["Schema Explorer",Network,"Inspect tables, columns and relationships"],
  ["Semantic Model",BookOpen,"Define entities, attributes and synonyms"],["Metrics",Gauge,"Define reusable business metrics"],
  ["Business Rules",ShieldCheck,"Manage governed business definitions"],["Time Semantics",CalendarDays,"Govern date roles and relative calendar interpretation"],["Query Playground",MessageSquareText,"Inspect NL-to-SQL execution"],
 ] as const;
@@ -51,6 +51,29 @@ function ResultVisualization({response}:{response:any}){
 
 export function App(){
  const [active,setActive]=useState("Data Sources");
+ const [aiConfig,setAiConfig]=useState({provider:"gemini",model:"gemini-2.5-flash",endpoint:"",configured:false,credential_configured:false});
+ const [aiKey,setAiKey]=useState("");
+ const [aiMessage,setAiMessage]=useState("");
+ const [aiBusy,setAiBusy]=useState(false);
+ async function loadAiConfig(){
+  try{
+   const response=await fetch("/api/setup/ai-provider");
+   if(!response.ok)throw new Error("Unable to load AI provider settings");
+   const data=await response.json();
+   setAiConfig({...data,endpoint:data.endpoint||""});
+  }catch(error){setAiMessage(error instanceof Error?error.message:"Unable to load AI settings")}
+ }
+ async function saveAiConfig(){
+  setAiBusy(true);setAiMessage("");
+  try{
+   const response=await fetch("/api/setup/ai-provider",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({provider:aiConfig.provider,model:aiConfig.model,endpoint:aiConfig.endpoint||null,api_key:aiKey||null})});
+   const data=await response.json();
+   if(!response.ok)throw new Error(typeof data.detail==="string"?data.detail:"Unable to save AI provider");
+   setAiKey("");await loadAiConfig();setAiMessage("AI provider settings saved.");
+  }catch(error){setAiMessage(error instanceof Error?error.message:"Unable to save AI provider")}
+  finally{setAiBusy(false)}
+ }
+
  const [form,setForm]=useState<Form>({name:"AdventureWorks",host:"localhost",port:5432,database:"postgres",username:"postgres",password:"",sslmode:"disable"});
  const [message,setMessage]=useState(""); const [busy,setBusy]=useState(false); const [schemas,setSchemas]=useState<Schema[]>([]);
  const [semanticTables,setSemanticTables]=useState<any[]>([]); const [entities,setEntities]=useState<any[]>([]); const [relationships,setRelationships]=useState<any[]>([]);
@@ -141,11 +164,12 @@ export function App(){
  async function saveRelationship(){setBusy(true);try{const r=await fetch(API+"/api/admin/semantic/relationships",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...relationship,source_name:form.name,from_entity_id:Number(relationship.from_entity_id),to_entity_id:Number(relationship.to_entity_id),description:relationship.description||null})});const d=await r.json();if(!r.ok)throw new Error(d.detail||"Unable to save relationship");setMessage(d.message);setRelationship({name:"",from_entity_id:"",from_column:"",to_entity_id:"",to_column:"",cardinality:"many-to-one",description:""});await loadSemantic()}catch(e){setMessage(e instanceof Error?e.message:"Unable to save relationship")}finally{setBusy(false)}}
  async function saveEntity(){const table=semanticTables.find(t=>`${t.schema_name}.${t.table_name}`===entity.table);if(!table)return;setBusy(true);try{const r=await fetch(API+"/api/admin/semantic/entities",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({source_name:form.name,name:entity.name,description:entity.description||null,schema_name:table.schema_name,table_name:table.table_name,key_column:entity.key_column,display_column:entity.display_column||null,synonyms:entity.synonyms.split(",").map(x=>x.trim()).filter(Boolean),attributes:entity.attributes.map(a=>({name:a.name,description:a.description||null,column_name:a.column_name,synonyms:a.synonyms.split(",").map(x=>x.trim()).filter(Boolean),operators:a.operators.length?a.operators:["="]}))})});const d=await r.json();if(!r.ok)throw new Error(d.detail||"Unable to save entity");setMessage(d.message);setEntity(emptyEntity());await loadSemantic()}catch(e){setMessage(e instanceof Error?e.message:"Unable to save entity")}finally{setBusy(false)}}
  return <div className="shell"><aside><div className="brand"><div className="mark">DP</div><div><strong>Data Pilot</strong><span>Admin Studio</span></div></div>
- <nav>{sections.map(([name,Icon])=><button className={active===name?"active":""} onClick={()=>{setActive(name);if(name==="Semantic Model"){loadSemantic();loadDatasets()}if(name==="Metrics")loadMetrics();if(name==="Business Rules")loadRules();if(name==="Time Semantics")loadTimeDimensions();if(name==="Query Playground")loadQueryHistory()}} key={name}><Icon size={18}/>{name}</button>)}</nav><div className="asideFoot"><Settings2 size={17}/>Local development</div></aside>
+ <nav>{sections.map(([name,Icon])=><button className={active===name?"active":""} onClick={()=>{setActive(name);if(name==="AI Provider")loadAiConfig();if(name==="Semantic Model"){loadSemantic();loadDatasets()}if(name==="Metrics")loadMetrics();if(name==="Business Rules")loadRules();if(name==="Time Semantics")loadTimeDimensions();if(name==="Query Playground")loadQueryHistory()}} key={name}><Icon size={18}/>{name}</button>)}</nav><div className="asideFoot"><Settings2 size={17}/>Local development</div></aside>
  <main><header><div><p className="eyebrow">OPEN-SOURCE CORE</p><h1>{active}</h1></div><div className="status"><i/>{schemas.length?"Schema discovered":"Local configuration"}</div></header>
  <section className="intro"><h2>{sections.find(x=>x[0]===active)?.[2]}</h2><p>Configure and inspect Data Pilot without editing source code. Connection credentials are used for this browser session and are not persisted by these endpoints.</p></section>
  {savedSourceId!==null&&<p className="notice">Active saved datasource: <strong>{form.name}</strong> · Discovered schema restored from onboarding. Credentials remain securely stored by the setup service.</p>}
  {sourceRestoreError&&<p className="notice">{sourceRestoreError}</p>}
+ {active==="AI Provider"&&<section className="grid"><article className="wide"><h3>Saved AI provider</h3><p>Update your Gemini key without resetting Astra onboarding. The key is sent only to the setup API and is never displayed again.</p><p>Credential: <strong>{aiConfig.credential_configured?"Available":"Missing — update required"}</strong></p><div className="semanticForm"><label>Provider<input value={aiConfig.provider} disabled readOnly/></label><label>Model<input value={aiConfig.model} onChange={e=>setAiConfig({...aiConfig,model:e.target.value})}/></label><label>Gemini API key<input type="password" autoComplete="new-password" value={aiKey} onChange={e=>setAiKey(e.target.value)} placeholder="Enter a new API key to replace missing credential"/></label></div><div className="actions"><button className="primary" disabled={aiBusy||!aiConfig.model.trim()||(!aiConfig.credential_configured&&!aiKey.trim())} onClick={saveAiConfig}>{aiBusy?"Saving…":"Save AI provider"}</button><button className="secondary" disabled={aiBusy} onClick={loadAiConfig}>Refresh status</button></div>{aiMessage&&<p className="notice">{aiMessage}</p>}</article></section>}
  {active==="Data Sources"&&<section className="grid"><article className="wide"><div className="cardTitle"><Database size={20}/><h3>PostgreSQL connection</h3><span>Development</span></div>
  <div className="formGrid"><label>Name<input value={form.name} onChange={e=>update("name",e.target.value)}/></label><label>Host<input value={form.host} onChange={e=>update("host",e.target.value)}/></label>
  <label>Port<input type="number" value={form.port} onChange={e=>update("port",Number(e.target.value))}/></label><label>Database<input value={form.database} onChange={e=>update("database",e.target.value)}/></label>
