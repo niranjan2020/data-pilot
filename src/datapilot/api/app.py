@@ -81,7 +81,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
     # Local OSS composition. Managed deployments can replace these state-bound
     # adapters with vault-backed secret storage/provider validators.
-    app.state.ai_secret_store = LocalEnvAIProviderSecretStore()
+    app.state.ai_secret_store = LocalEnvAIProviderSecretStore("/app/data/secrets/ai-provider.env")
     app.state.ai_provider_validator = ConfiguredAIProviderValidator(app.state.ai_secret_store)
     # Metadata is an explicit platform dependency. Never fall back to the
     # customer/default query database: onboarding owns that connection separately.
