@@ -35,6 +35,8 @@ def validate_governed_join_policy(sql: str, relationship: dict) -> JoinPolicyDec
         tree = statements[0]
     except Exception:
         return JoinPolicyDecision(False, ("SQL parsing failed.",))
+    if any(isinstance(node, (exp.Subquery, exp.CTE, exp.Union)) for node in tree.walk()):
+        return JoinPolicyDecision(False, ("Nested queries require separate join-policy verification.",))
     source = (relationship["from_schema"].lower(), relationship["from_table"].lower())
     target = (relationship["to_schema"].lower(), relationship["to_table"].lower())
     tables = tree.find_all(exp.Table)
@@ -60,8 +62,8 @@ def validate_governed_join_policy(sql: str, relationship: dict) -> JoinPolicyDec
         return JoinPolicyDecision(False, ("Join target differs from the approved relationship.",))
     side = str(join.args.get("side") or "").upper()
     kind = str(join.args.get("kind") or "").upper()
-    expected_side = "LEFT" if policy == "preserve_source" else ""
-    if side != expected_side or kind not in {"", "INNER"} if policy == "matched_only" else side != "LEFT" or kind not in {""}:
+    invalid_type = (side != "LEFT" or kind != "") if policy == "preserve_source" else (side != "" or kind not in {"", "INNER"})
+    if invalid_type:
         return JoinPolicyDecision(False, ("Join type violates the approved policy.",))
     on = join.args.get("on")
     if not isinstance(on, exp.EQ):
