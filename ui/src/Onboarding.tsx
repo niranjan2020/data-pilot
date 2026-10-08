@@ -186,20 +186,18 @@ export function Onboarding({onReady}:{onReady:()=>void}){
  <p>These are physical schema facts, not verified business definitions. No metric, business rule or relationship is published by this preview.</p>
  {savedSourceId===null?<p>Restoring saved datasource…</p>:<button type="button" disabled={busy} onClick={()=>loadProposals(savedSourceId).catch(e=>setProposalError(String(e.message||e)))}>Refresh proposals</button>}
  {proposalError&&<p role="alert">{proposalError}</p>}
- {proposals.map(p=><section key={datasetKey(p.schema_name,p.table_name)} style={{marginTop:16,padding:14,border:"1px solid #e4e7ec",borderRadius:8}}>
- <h3>{p.schema_name}.{p.table_name}</h3>
- <p>{p.description}</p>
- <p><strong>Suggested label:</strong> {p.suggested_name}</p>
- <p><strong>Primary keys:</strong> {p.key_columns.length?p.key_columns.join(", "):"Not discovered"}</p>
- <p><strong>Columns ({p.attributes.length}):</strong> {p.attributes.join(", ")}</p>
- <p><strong>Provenance:</strong> {p.provenance} · <strong>Status:</strong> {approvedKeys.includes(datasetKey(p.schema_name,p.table_name))?"human approved":"draft"}</p>
- <label>Description<textarea rows={2} value={semanticEdits[datasetKey(p.schema_name,p.table_name)]?.description||""} onChange={e=>setSemanticEdits(v=>({...v,[datasetKey(p.schema_name,p.table_name)]:{...v[datasetKey(p.schema_name,p.table_name)],description:e.target.value}}))}/></label>
- <label>Business meaning (human verified)<textarea rows={3} value={semanticEdits[datasetKey(p.schema_name,p.table_name)]?.business_meaning||""} onChange={e=>setSemanticEdits(v=>({...v,[datasetKey(p.schema_name,p.table_name)]:{...v[datasetKey(p.schema_name,p.table_name)],business_meaning:e.target.value}}))}/></label>
- <label>Row grain (what one row represents)<input value={semanticEdits[datasetKey(p.schema_name,p.table_name)]?.grain||""} onChange={e=>setSemanticEdits(v=>({...v,[datasetKey(p.schema_name,p.table_name)]:{...v[datasetKey(p.schema_name,p.table_name)],grain:e.target.value}}))}/></label>
- <label>Aliases (comma separated)<input value={semanticEdits[datasetKey(p.schema_name,p.table_name)]?.aliases||""} onChange={e=>setSemanticEdits(v=>({...v,[datasetKey(p.schema_name,p.table_name)]:{...v[datasetKey(p.schema_name,p.table_name)],aliases:e.target.value}}))}/></label>
- <button type="button" disabled={busy} onClick={()=>approveSemantic(p)}>Approve / update this dataset</button>
- {p.warnings.map(w=><p key={w} role="note">{w}</p>)}
- </section>)}
+ {proposals.map(p=>{const key=datasetKey(p.schema_name,p.table_name);const edit=semanticEdits[key];const update=(field:"description"|"business_meaning"|"grain"|"aliases",value:string)=>setSemanticEdits(v=>({...v,[key]:{...v[key],[field]:value}}));return <section key={key} className="semanticDraftCard">
+ <div className="semanticDraftHeader"><div><h3>{p.schema_name}.{p.table_name}</h3><p>{p.attributes.length} columns · Primary key: {p.key_columns.length?p.key_columns.join(", "):"not discovered"}</p></div><span className={approvedKeys.includes(key)?"semanticDraftStatus approved":"semanticDraftStatus"}>{approvedKeys.includes(key)?"Approved":"Needs review"}</span></div>
+ <details className="semanticDraftDetails"><summary>View discovered columns ({p.attributes.length})</summary><div className="semanticColumnList">{p.attributes.join(", ")}</div><p>Source: {p.provenance}. Column names alone do not establish business meaning.</p></details>
+ <div className="semanticDraftFields">
+ <label>Table description <small>What information does this dataset contain?</small><textarea rows={3} placeholder="Describe the dataset in plain language" value={edit?.description||""} onChange={e=>update("description",e.target.value)}/></label>
+ <label>Business meaning <small>How does your business interpret and use these records?</small><textarea rows={3} placeholder="Explain the meaning and important caveats" value={edit?.business_meaning||""} onChange={e=>update("business_meaning",e.target.value)}/></label>
+ <label>Row grain <small>What does one row represent? Confirm before approval.</small><input placeholder="e.g. One record per unique business event" value={edit?.grain||""} onChange={e=>update("grain",e.target.value)}/></label>
+ <label>Alternative names <small>Optional, separated by commas</small><input placeholder="Common business names" value={edit?.aliases||""} onChange={e=>update("aliases",e.target.value)}/></label>
+ </div>
+ <div className="semanticDraftFooter"><button type="button" disabled={busy||!edit?.description.trim()||!edit?.business_meaning.trim()||!edit?.grain.trim()} onClick={()=>approveSemantic(p)}>{approvedKeys.includes(key)?"Save updated definition":"Approve definition"}</button><span>Human approval · Indexing pending</span></div>
+ {p.warnings.length>0&&<details className="semanticDraftDetails"><summary>Review notes ({p.warnings.length})</summary>{p.warnings.map(w=><p key={w}>{w}</p>)}</details>}
+ </section>})}
  <p>Approval persists reviewed dataset definitions only. Query readiness requires subsequent semantic indexing and validation.</p>{approvalMessage&&<p role="status">{approvalMessage}</p>}
  </div>}
  {status&&status.current_step!=="ai_provider"&&status.current_step!=="data_source"&&status.current_step!=="data_selection"&&status.current_step!=="semantic_review"&&!status.ready&&<div className="onboardingForm"><h2>{labels[status.current_step]||"Continue setup"}</h2><p>This onboarding action is scheduled for the next Stage C implementation. Your progress is persisted across restarts.</p><button onClick={()=>refresh().catch(e=>setError(String(e.message||e)))}>Refresh setup status</button></div>}
