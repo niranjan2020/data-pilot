@@ -464,6 +464,35 @@ async def get_relationship_reviews(source_id: int, request: Request):
             await metadata.close()
 
 
+@router.get("/data-source/{source_id}/relationship-verifications")
+async def list_relationship_verifications(source_id: int, request: Request):
+    """Show persisted evidence for current reviews; stale evidence stays hidden."""
+    metadata, owns = await _setup_metadata(request)
+    try:
+        if await metadata.get_active_data_source_id() != source_id:
+            raise HTTPException(status_code=409, detail="Datasource is not active.")
+        reviews = await metadata.list_reviewed_relationships(source_id)
+        results = []
+        for review in reviews:
+            record = await metadata.get_relationship_verification(source_id, review)
+            results.append({
+                "from_schema": review["from_schema"],
+                "from_table": review["from_table"],
+                "from_column": review["from_column"],
+                "to_schema": review["to_schema"],
+                "to_table": review["to_table"],
+                "to_column": review["to_column"],
+                "review_status": review["review_status"],
+                "verified": record is not None,
+                "verification": record,
+                "governed_join_active": False,
+            })
+        return results
+    finally:
+        if owns:
+            await metadata.close()
+
+
 @router.put("/data-source/{source_id}/relationship-reviews")
 async def save_relationship_review(source_id: int, payload: RelationshipReviewInput, request: Request):
     """Store a human decision, without automatically activating SQL joins."""
