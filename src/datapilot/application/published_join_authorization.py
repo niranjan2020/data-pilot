@@ -18,6 +18,7 @@ IDENTITY = ("from_schema", "from_table", "from_column",
 class PublishedJoinAuthorization:
     allowed: bool
     reasons: tuple[str, ...]
+    verified_grants: tuple[dict, ...] = ()
 
 
 async def authorize_published_joins(
@@ -50,4 +51,5 @@ async def authorize_published_joins(
             return PublishedJoinAuthorization(False, ("Required relationship is not currently published.",))
         authorized.append(matches[0])
     decision = validate_governed_join_graph(sql, authorized)
-    return PublishedJoinAuthorization(bool(decision.allowed), tuple(decision.reasons))
+    return PublishedJoinAuthorization(bool(decision.allowed), tuple(decision.reasons),
+                                      tuple(authorized) if decision.allowed else ())
