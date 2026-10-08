@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from datapilot.application.setup_state import SetupStatus, derive_setup_status
 from datapilot.application.semantic_bootstrap import DatasetProposal, propose_datasets
+from datapilot.application.relationship_bootstrap import RelationshipCandidate, propose_relationships
 from datapilot.application.data_source_onboarding import PostgreSQLConnectionInput, test_postgresql_connection
 from datapilot.domain.interfaces.ai_configuration import (
     AIProviderConfiguration,
@@ -408,6 +409,26 @@ async def approve_setup_semantic_draft(source_id: int, payload: SemanticDraftApp
         # Semantic readiness remains false until all selected datasets are approved
         # and the semantic indexing workflow has completed.
         return {"dataset_id": dataset_id, "status": "approved", "indexed": False}
+    finally:
+        if owns:
+            await metadata.close()
+
+
+@router.get("/data-source/{source_id}/relationship-proposals", response_model=list[RelationshipCandidate])
+async def preview_relationship_proposals(source_id: int, request: Request):
+    """Suggest joins without promoting naming heuristics to verified constraints."""
+    metadata, owns = await _setup_metadata(request)
+    try:
+        if await metadata.get_active_data_source_id() != source_id:
+            raise HTTPException(status_code=409, detail="Datasource is not active.")
+        selected = await metadata.get_selected_datasets(source_id)
+        if not selected:
+            raise HTTPException(status_code=409, detail="Approve datasets before relationship discovery.")
+        return propose_relationships(
+            await metadata.list_catalog_tables(source_id),
+            selected,
+            await metadata.list_catalog_foreign_keys(source_id),
+        )
     finally:
         if owns:
             await metadata.close()
