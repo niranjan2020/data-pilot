@@ -1,5 +1,7 @@
 """Tests for deterministic pre-execution query correctness checks."""
 
+import pytest
+
 from datapilot.application.services.query_correctness import assess_query_correctness
 
 
