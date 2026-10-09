@@ -852,3 +852,71 @@ def compile_analytical_filtered_having_limit(
     return CompiledAnalyticalQuery(
         sql=composed.sql, dialect=where_compiled.dialect, parameters=composed.parameters,
     )
+
+
+def compile_governed_analytical_plan(
+    physical_plan: UnifiedPhysicalAnalyticalPlan,
+    *,
+    metric_source: GovernedMetricSource,
+    published_dimensions: tuple = (),
+    max_rows: int = 1000,
+    max_filters: int = 10,
+) -> CompiledAnalyticalQuery:
+    """Single fail-closed dispatch entry point for supported analytical shapes.
+
+    The dispatch table is intentionally explicit. Unimplemented operations
+    (joins, time windows, comparisons, ranking, etc.) are never approximated
+    by a different query. All delegated compilers enforce physical governance.
+    """
+    if not isinstance(physical_plan, UnifiedPhysicalAnalyticalPlan):
+        raise ValueError("Unified governed physical plan is required")
+    plan = physical_plan.bound_plan.plan
+    if len(plan.sources) != 1:
+        raise ValueError("Only one governed source is currently supported")
+    ops = plan.operations
+    base = (
+        AnalyticalOperation.GROUP,
+        AnalyticalOperation.AGGREGATE,
+        AnalyticalOperation.SORT,
+        AnalyticalOperation.LIMIT,
+    )
+    having = (
+        AnalyticalOperation.GROUP,
+        AnalyticalOperation.AGGREGATE,
+        AnalyticalOperation.THRESHOLD,
+        AnalyticalOperation.SORT,
+        AnalyticalOperation.LIMIT,
+    )
+    if ops == base:
+        return compile_analytical_grouped_limit(
+            physical_plan, metric_source=metric_source, max_rows=max_rows,
+        )
+    if ops == having:
+        return compile_analytical_grouped_having(
+            physical_plan, metric_source=metric_source, max_rows=max_rows,
+        )
+    count = 0
+    for operation in ops:
+        if operation is AnalyticalOperation.FILTER:
+            count += 1
+        else:
+            break
+    if not 1 <= count <= max_filters:
+        raise ValueError("Unsupported analytical plan shape or filter count")
+    if ops[count:] == base:
+        return compile_analytical_multi_filtered_grouped_limit(
+            physical_plan,
+            metric_source=metric_source,
+            published_dimensions=published_dimensions,
+            max_rows=max_rows,
+            max_filters=max_filters,
+        )
+    if ops[count:] == having:
+        return compile_analytical_filtered_having_limit(
+            physical_plan,
+            metric_source=metric_source,
+            published_dimensions=published_dimensions,
+            max_rows=max_rows,
+            max_filters=max_filters,
+        )
+    raise ValueError("Unsupported analytical plan shape")
