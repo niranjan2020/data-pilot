@@ -170,6 +170,68 @@ async def save_dataset(payload:DatasetSemanticRequest):
         return {"id":dataset_id,"message":"Dataset semantics saved","index_status":index_status,"index_error":index_error}
     finally: await p.close()
 
+class BootstrapPreviewRequest(BaseModel):
+    source_name: str = Field(min_length=1)
+    schema_name: str = Field(min_length=1)
+    table_name: str = Field(min_length=1)
+
+
+@router.post("/bootstrap/preview")
+async def preview_semantic_bootstrap(payload: BootstrapPreviewRequest):
+    """C5 initial deterministic proposal; never writes metadata or publishes suggestions."""
+    p = provider()
+    try:
+        source_id = await p.get_data_source_id(payload.source_name)
+        if source_id is None:
+            raise HTTPException(404, "Data source not found.")
+        tables = await p.list_catalog_tables(source_id)
+        table = next((t for t in tables
+                      if t.get("schema_name") == payload.schema_name
+                      and t.get("table_name", t.get("name")) == payload.table_name), None)
+        if table is None:
+            raise HTTPException(404, "Table not present in discovered catalog.")
+        columns = table.get("columns", [])
+        primary_keys = table.get("primary_keys", [])
+        existing = await p.list_semantic_entities(source_id)
+        matching = next((e for e in existing
+                         if e.get("schema_name") == payload.schema_name
+                         and e.get("table_name") == payload.table_name), None)
+        def friendly(name: str) -> str:
+            return name.replace("_", " ").strip().title()
+        suggestions = [{
+            "name": friendly(c.get("name", "")),
+            "column_name": c.get("name", ""),
+            "description": None,
+            "synonyms": [],
+            "operators": ["="],
+            "value_mappings": [],
+            "status": "suggested",
+            "evidence": {"physical_column": c.get("name"),
+                         "data_type": c.get("data_type")},
+        } for c in columns if c.get("name")]
+        return {
+            "source_name": payload.source_name,
+            "schema_name": payload.schema_name,
+            "table_name": payload.table_name,
+            "status": "suggested",
+            "method": "deterministic_schema_preview",
+            "ai_enriched": False,
+            "published": False,
+            "existing_entity_id": matching.get("id") if matching else None,
+            "entity": {
+                "name": friendly(payload.table_name),
+                "description": None,
+                "key_column": primary_keys[0] if primary_keys else None,
+                "display_column": None,
+                "synonyms": [],
+                "attributes": suggestions,
+            },
+            "requires_admin_approval": True,
+        }
+    finally:
+        await p.close()
+
+
 @router.post("/entities")
 async def save_entity(payload:EntityRequest):
     p=provider()
