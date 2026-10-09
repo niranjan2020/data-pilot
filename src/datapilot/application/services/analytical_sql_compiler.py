@@ -125,3 +125,79 @@ def compile_analytical_aggregation(
     return CompiledAnalyticalQuery(
         sql=f'SELECT {metric.aggregation}({column}) AS "value" FROM {schema}.{table}'
     )
+
+
+def compile_analytical_grouped_aggregation(
+    physical_plan: UnifiedPhysicalAnalyticalPlan,
+    *,
+    metric_source: GovernedMetricSource,
+) -> CompiledAnalyticalQuery:
+    """Compile a governed group->aggregate graph on one physical entity.
+
+    Rejects cross-entity grouping, expressions, and unverified graph shapes.
+    No joins or row-level policies are inferred by this compiler.
+    """
+    if not isinstance(physical_plan, UnifiedPhysicalAnalyticalPlan):
+        raise ValueError("Unified governed physical plan is required")
+    if not isinstance(metric_source, GovernedMetricSource):
+        raise ValueError("Governed metric source is required")
+    bound = physical_plan.bound_plan
+    plan = bound.plan
+    if len(plan.sources) != 1 or len(plan.steps) != 2:
+        raise ValueError("Unsupported grouped aggregation graph")
+    group, aggregate = plan.steps
+    if (
+        group.operation is not AnalyticalOperation.GROUP
+        or aggregate.operation is not AnalyticalOperation.AGGREGATE
+        or group.inputs != plan.sources
+        or aggregate.inputs != (group.id,)
+        or plan.output != aggregate.id
+    ):
+        raise ValueError("Unsupported grouped aggregation operation order")
+    if set(group.parameters) != {"dimension"} or set(aggregate.parameters) != {"metric"}:
+        raise ValueError("Grouped aggregation requires one dimension and one metric")
+    if len(physical_plan.dimensions) != 1 or len(physical_plan.metrics) != 1 or physical_plan.time_dimensions:
+        raise ValueError("Grouped aggregation requires exactly one dimension and metric")
+    dimension = physical_plan.dimensions[0]
+    metric = physical_plan.metrics[0]
+    if (
+        dimension.step_id != group.id or dimension.parameter != "dimension"
+        or metric.step_id != aggregate.id or metric.parameter != "metric"
+    ):
+        raise ValueError("Physical mappings do not match grouped plan steps")
+    references = {(r.step_id, r.parameter, r.kind): r.name for r in bound.references}
+    if len(bound.references) != 2 or (
+        references.get((group.id, "dimension", "dimension")) != group.parameters["dimension"]
+        and references.get((group.id, "dimension", "dimension")) != dimension.semantic_name
+    ) or references.get((aggregate.id, "metric", "metric")) != metric.semantic_name:
+        raise ValueError("Grouped aggregation governed references mismatch")
+    if (
+        type(metric.entity_id) is not int or metric.entity_id <= 0
+        or type(dimension.entity_id) is not int
+        or type(metric_source.entity_id) is not int
+        or metric.entity_id != dimension.entity_id
+        or metric.entity_id != metric_source.entity_id
+    ):
+        raise ValueError("Cross-entity grouping requires governed join validation")
+    if (
+        dimension.schema_name != metric_source.schema_name
+        or dimension.table_name != metric_source.table_name
+    ):
+        raise ValueError("Grouped metric and dimension physical sources mismatch")
+    if metric.calculation_expression is not None:
+        raise ValueError("Calculated metric expressions are not supported")
+    if not isinstance(metric.attribute_name, str) or metric.attribute_name != metric_source.column_name:
+        raise ValueError("Metric source column mismatch")
+    if metric.aggregation not in ("SUM", "COUNT", "AVG", "MIN", "MAX"):
+        raise ValueError("Unsupported governed aggregation function")
+    schema = _quote_identifier(metric_source.schema_name)
+    table = _quote_identifier(metric_source.table_name)
+    group_column = _quote_identifier(dimension.column_name)
+    metric_column = _quote_identifier(metric_source.column_name)
+    return CompiledAnalyticalQuery(
+        sql=(
+            f'SELECT {group_column} AS "dimension", '
+            f'{metric.aggregation}({metric_column}) AS "value" '
+            f'FROM {schema}.{table} GROUP BY {group_column}'
+        )
+    )
