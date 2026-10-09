@@ -201,3 +201,82 @@ def compile_analytical_grouped_aggregation(
             f'FROM {schema}.{table} GROUP BY {group_column}'
         )
     )
+
+
+def compile_analytical_grouped_sort(
+    physical_plan: UnifiedPhysicalAnalyticalPlan,
+    *,
+    metric_source: GovernedMetricSource,
+) -> CompiledAnalyticalQuery:
+    """Compile GROUP -> AGGREGATE -> SORT without guessing order expressions.
+
+    Sorting targets the existing governed dimension or metric, not arbitrary
+    SQL text. A bounded explicit direction is mandatory. No LIMIT is implied.
+    """
+    from dataclasses import replace
+
+    from datapilot.application.services.analytical_plan import AnalyticalPlan
+    from datapilot.application.services.analytical_plan_binding import BoundAnalyticalPlan
+
+    if not isinstance(physical_plan, UnifiedPhysicalAnalyticalPlan):
+        raise ValueError("Unified governed physical plan is required")
+    bound = physical_plan.bound_plan
+    plan = bound.plan
+    if len(plan.sources) != 1 or len(plan.steps) != 3:
+        raise ValueError("Unsupported sorted aggregation graph")
+    group, aggregate, sort = plan.steps
+    if (
+        group.operation is not AnalyticalOperation.GROUP
+        or aggregate.operation is not AnalyticalOperation.AGGREGATE
+        or sort.operation is not AnalyticalOperation.SORT
+        or group.inputs != plan.sources
+        or aggregate.inputs != (group.id,)
+        or sort.inputs != (aggregate.id,)
+        or plan.output != sort.id
+    ):
+        raise ValueError("Unsupported sorted aggregation operation order")
+    if set(sort.parameters) not in ({"metric", "direction"}, {"dimension", "direction"}):
+        raise ValueError("Sort requires one governed target and explicit direction")
+    direction = sort.parameters["direction"]
+    if type(direction) is not str or direction not in ("ASC", "DESC"):
+        raise ValueError("Unsupported sort direction")
+    kind = "metric" if "metric" in sort.parameters else "dimension"
+    name = sort.parameters[kind]
+    if type(name) is not str or not name.strip():
+        raise ValueError("Invalid governed sort reference")
+    if len(bound.references) != 3:
+        raise ValueError("Sorted aggregation requires exactly three governed references")
+    matches = [
+        ref for ref in bound.references
+        if ref.step_id == sort.id and ref.parameter == kind and ref.kind == kind
+    ]
+    if len(matches) != 1 or matches[0].name.casefold() != name.casefold():
+        raise ValueError("Governed sort reference mismatch")
+    owner_step = aggregate if kind == "metric" else group
+    owners = [
+        ref for ref in bound.references
+        if ref.step_id == owner_step.id and ref.parameter == kind and ref.kind == kind
+    ]
+    if len(owners) != 1 or owners[0].name.casefold() != name.casefold():
+        raise ValueError("Sort target must match existing grouped output")
+    # Reuse the validated grouped compiler instead of duplicating its
+    # entity, physical-source and aggregation safety checks.
+    base_plan = AnalyticalPlan(
+        sources=plan.sources, steps=(group, aggregate), output=aggregate.id,
+    )
+    base_bound = BoundAnalyticalPlan(
+        plan=base_plan,
+        references=tuple(ref for ref in bound.references if ref.step_id != sort.id),
+    )
+    base_physical = replace(
+        physical_plan,
+        bound_plan=base_bound,
+        dimensions=tuple(d for d in physical_plan.dimensions if d.step_id != sort.id),
+        metrics=tuple(m for m in physical_plan.metrics if m.step_id != sort.id),
+    )
+    compiled = compile_analytical_grouped_aggregation(
+        base_physical, metric_source=metric_source,
+    )
+    return CompiledAnalyticalQuery(
+        sql=compiled.sql + f' ORDER BY "{ "value" if kind == "metric" else "dimension" }" {direction}'
+    )
