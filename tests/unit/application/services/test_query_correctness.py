@@ -742,3 +742,33 @@ def test_explicit_combined_cohorts_are_not_separate_comparisons(combined_wording
         ),
     )
     assert not any(check["code"].startswith("comparison_dimension_") for check in checks)
+
+
+@pytest.mark.parametrize("attribute,values,question", [
+    ("operator", ("maersk", "msc"), "Show segment wise counts for Maersk and MSC"),
+    ("customer", ("alpha", "beta"), "Show region wise sales for Alpha and Beta"),
+    ("supplier", ("north", "south"), "Show product wise totals for North and South"),
+])
+def test_casefolded_named_cohorts_cannot_be_merged(attribute, values, question):
+    predicate = f"LOWER({attribute}) IN ('{values[0]}', '{values[1]}')"
+    sql = f"SELECT segment, COUNT(DISTINCT id) FROM items WHERE {predicate} GROUP BY segment"
+    checks = assess_query_correctness(
+        affected_tables=["items"], governed_tables=["items"],
+        sql=sql, question=question,
+    )
+    assert any(c["code"] == "comparison_dimension_violation" and c["status"] == "failed" for c in checks)
+    aligned = sql.replace("GROUP BY segment", f"GROUP BY segment, {attribute}")
+    checks = assess_query_correctness(
+        affected_tables=["items"], governed_tables=["items"],
+        sql=aligned, question=question,
+    )
+    assert any(c["code"] == "comparison_dimension_alignment" and c["status"] == "passed" for c in checks)
+
+
+def test_explicit_combined_casefolded_cohorts_may_be_aggregated():
+    checks = assess_query_correctness(
+        affected_tables=["items"], governed_tables=["items"],
+        sql="SELECT segment, COUNT(*) FROM items WHERE LOWER(operator) IN ('msc', 'maersk') GROUP BY segment",
+        question="Show MSC and Maersk combined by segment",
+    )
+    assert not any(c["code"] == "comparison_dimension_violation" for c in checks)
