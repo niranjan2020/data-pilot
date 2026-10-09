@@ -128,6 +128,10 @@ def plan_result_presentation(question: str, result: QueryResult, time_interpreta
             )
             return plan
 
+    if len(dimension_columns) == 2 and len(numeric_columns) == 1:
+        plan["reason"] = "The two-dimensional result is not suitable for a grouped chart; preserve the table."
+        return plan
+
     if dimension_columns and numeric_columns and result.row_count <= 30:
         plan.update(kind="categorical", recommended_visual="bar", x_column=dimension_columns[0],
                     y_columns=numeric_columns,
