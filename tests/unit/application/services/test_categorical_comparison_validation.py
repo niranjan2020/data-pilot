@@ -548,3 +548,28 @@ def test_explicit_attribute_suppresses_shared_value_clarification():
     assert QueryOrchestrator._ambiguous_attribute_matches(
         "Count assets with active operating status", entities
     ) == []
+
+
+def test_clarified_attribute_enforces_only_selected_categorical_column():
+    entities = [{
+        "name": "Assets", "schema_name": "public", "table_name": "assets",
+        "attributes": [
+            {"name": "Ownership Status", "column_name": "ownership_status",
+             "value_mappings": [{"canonical_value": "O", "synonyms": ["active"]}]},
+            {"name": "Operating Status", "column_name": "operating_status",
+             "value_mappings": [{"canonical_value": "A", "synonyms": ["active"]}]},
+        ],
+    }]
+    selection = {"entity": "Assets", "attribute": "Operating Status",
+                 "column_name": "operating_status"}
+    QueryOrchestrator._validate_explicit_categorical_comparison(
+        "Count active assets",
+        "SELECT COUNT(*) FROM public.assets WHERE operating_status = 'A'",
+        entities, selected_attribute=selection,
+    )
+    with pytest.raises(SQLValidationError):
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            "Count active assets",
+            "SELECT COUNT(*) FROM public.assets WHERE ownership_status = 'O'",
+            entities, selected_attribute=selection,
+        )
