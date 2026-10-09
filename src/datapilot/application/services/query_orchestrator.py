@@ -1397,7 +1397,7 @@ class QueryOrchestrator:
             for attribute in entity.get("attributes") or []:
                 column_name = str(attribute.get("column_name") or "")
                 mappings = attribute.get("value_mappings") or []
-                if not column_name or len(mappings) < 2:
+                if not column_name or not mappings:
                     continue
                 # Resolve longest matching published phrases first, so a
                 # composite label is not mistaken for its component synonyms.
