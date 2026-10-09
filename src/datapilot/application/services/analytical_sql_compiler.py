@@ -6,7 +6,7 @@ accepted, and compilation does not execute queries.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from datapilot.application.services.analytical_plan import AnalyticalOperation
 from datapilot.application.services.unified_analytical_binding import (
@@ -18,6 +18,7 @@ from datapilot.application.services.unified_analytical_binding import (
 class CompiledAnalyticalQuery:
     sql: str
     dialect: str = "postgres"
+    parameters: tuple = ()
 
 
 def _quote_identifier(value: str) -> str:
@@ -345,4 +346,108 @@ def compile_analytical_grouped_limit(
     return CompiledAnalyticalQuery(
         sql=compiled.sql + f" LIMIT {count}",
         dialect=compiled.dialect,
+    )
+
+
+def compile_analytical_filtered_grouped_limit(
+    physical_plan: UnifiedPhysicalAnalyticalPlan,
+    *,
+    metric_source: GovernedMetricSource,
+    published_dimensions: tuple,
+    max_rows: int = 1000,
+) -> CompiledAnalyticalQuery:
+    """Compile FILTER -> GROUP -> AGGREGATE -> SORT -> LIMIT, fail closed.
+
+    Filter values must already be resolved against governed category mappings.
+    SQL placeholders and parameter values remain separate until execution.
+    """
+    from dataclasses import replace
+
+    from datapilot.application.services.analytical_plan import AnalyticalPlan
+    from datapilot.application.services.analytical_plan_binding import BoundAnalyticalPlan
+    from datapilot.application.services.analytical_filter_compiler import (
+        compile_governed_dimension_filter,
+    )
+
+    if not isinstance(physical_plan, UnifiedPhysicalAnalyticalPlan):
+        raise ValueError("Unified governed physical plan is required")
+    bound = physical_plan.bound_plan
+    plan = bound.plan
+    if len(plan.sources) != 1 or len(plan.steps) != 5:
+        raise ValueError("Unsupported filtered aggregation graph")
+    filter_step, group, aggregate, sort, limit = plan.steps
+    if (
+        filter_step.operation is not AnalyticalOperation.FILTER
+        or filter_step.inputs != plan.sources
+        or group.inputs != (filter_step.id,)
+        or aggregate.inputs != (group.id,)
+        or sort.inputs != (aggregate.id,)
+        or limit.inputs != (sort.id,)
+        or plan.output != limit.id
+    ):
+        raise ValueError("Unsupported filter operation order")
+    if set(filter_step.parameters) != {"dimension", "operator", "values"}:
+        raise ValueError("Filter requires dimension, operator and values")
+    refs = [
+        ref for ref in bound.references if ref.step_id == filter_step.id
+    ]
+    if len(refs) != 1 or (
+        refs[0].parameter, refs[0].kind
+    ) != ("dimension", "dimension"):
+        raise ValueError("Missing governed filter reference")
+    filter_bindings = [
+        d for d in physical_plan.dimensions if d.step_id == filter_step.id
+    ]
+    if len(filter_bindings) != 1 or filter_bindings[0].parameter != "dimension":
+        raise ValueError("Missing governed physical filter dimension")
+    if any(m.step_id == filter_step.id for m in physical_plan.metrics) or any(
+        t.step_id == filter_step.id for t in physical_plan.time_dimensions
+    ):
+        raise ValueError("Unexpected physical filter mappings")
+    mapping = filter_bindings[0]
+    if refs[0].name != mapping.semantic_name:
+        raise ValueError("Filter semantic reference mismatch")
+    predicate = compile_governed_dimension_filter(
+        dimension_name=refs[0].name,
+        operator=filter_step.parameters["operator"],
+        values=filter_step.parameters["values"],
+        published_dimensions=published_dimensions,
+    )
+    if (
+        predicate.entity_id != mapping.entity_id
+        or predicate.schema_name != mapping.schema_name
+        or predicate.table_name != mapping.table_name
+        or predicate.entity_id != metric_source.entity_id
+        or predicate.schema_name != metric_source.schema_name
+        or predicate.table_name != metric_source.table_name
+    ):
+        raise ValueError("Filter physical source mismatch")
+    # Restore the original input edge for the already-validated grouped
+    # compiler; all downstream edges and their semantic bindings are retained.
+    restored_group = replace(group, inputs=plan.sources)
+    prefix_plan = AnalyticalPlan(
+        sources=plan.sources,
+        steps=(restored_group, aggregate, sort, limit),
+        output=limit.id,
+    )
+    prefix_bound = BoundAnalyticalPlan(
+        plan=prefix_plan,
+        references=tuple(ref for ref in bound.references if ref.step_id != filter_step.id),
+    )
+    prefix_physical = replace(
+        physical_plan,
+        bound_plan=prefix_bound,
+        dimensions=tuple(d for d in physical_plan.dimensions if d.step_id != filter_step.id),
+    )
+    compiled = compile_analytical_grouped_limit(
+        prefix_physical, metric_source=metric_source, max_rows=max_rows,
+    )
+    marker = " GROUP BY "
+    if compiled.sql.count(marker) != 1:
+        raise ValueError("Expected grouped SQL structure")
+    before, after = compiled.sql.split(marker)
+    return CompiledAnalyticalQuery(
+        sql=before + " WHERE " + predicate.sql + marker + after,
+        dialect=compiled.dialect,
+        parameters=predicate.parameters,
     )
