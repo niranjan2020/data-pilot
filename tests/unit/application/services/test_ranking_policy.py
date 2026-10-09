@@ -66,3 +66,58 @@ def test_policy_rejects_invalid_definition(kwargs):
     params.update(kwargs)
     with pytest.raises(ValueError):
         RankingPolicy(**params)
+
+
+from datapilot.application.services.ranking_policy import resolve_ranking_plan
+
+
+def test_ranking_cohort_metric_is_distinct_from_output_metric():
+    policy = RankingPolicy(
+        name="Capacity cohort", entity="Vessel", dimension="operator",
+        metric="Approved Capacity", published=True,
+    )
+    plan = resolve_ranking_plan(
+        policy, output_metric="On Order Vessel Count", requested_n=5,
+    )
+    assert plan.policy.metric == "Approved Capacity"
+    assert plan.output_metric == "On Order Vessel Count"
+    assert plan.n == 5
+    assert plan.partition_dimension is None
+
+
+def test_per_group_ranking_requires_explicit_partition_dimension():
+    policy = RankingPolicy(
+        name="Revenue cohort", entity="Customer", dimension="customer",
+        metric="Revenue", scope=RankingScope.PER_GROUP, published=True,
+    )
+    with pytest.raises(ValueError, match="partition dimension"):
+        resolve_ranking_plan(policy, output_metric="Order Count")
+    plan = resolve_ranking_plan(
+        policy, output_metric="Order Count", partition_dimension="region",
+    )
+    assert plan.partition_dimension == "region"
+
+
+def test_global_ranking_cannot_silently_become_per_group():
+    policy = RankingPolicy(
+        name="Units cohort", entity="Product", dimension="product",
+        metric="Units Sold", published=True,
+    )
+    with pytest.raises(ValueError, match="Global ranking"):
+        resolve_ranking_plan(
+            policy, output_metric="Revenue", partition_dimension="category",
+        )
+
+
+def test_ranking_plan_rejects_unpublished_policy_and_missing_output_metric():
+    unpublished = RankingPolicy(
+        name="Draft", entity="Product", dimension="product", metric="Revenue",
+    )
+    with pytest.raises(ValueError, match="Unpublished"):
+        resolve_ranking_plan(unpublished, output_metric="Units")
+    published = RankingPolicy(
+        name="Published", entity="Product", dimension="product",
+        metric="Revenue", published=True,
+    )
+    with pytest.raises(ValueError, match="output metric"):
+        resolve_ranking_plan(published, output_metric="")
