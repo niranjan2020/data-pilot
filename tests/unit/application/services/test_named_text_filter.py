@@ -111,3 +111,50 @@ def test_physical_schema_does_not_override_published_codes():
         {"attributes": [{"name": "ownership_status", "value_mappings": {"O": "Owned"}}]}
     ], physical_schema=schema)
     assert result == sql
+
+
+@pytest.mark.parametrize("field,value", [
+    ("operator", "msc"),
+    ("customer", "Acme"),
+    ("supplier", "North"),
+])
+def test_exact_equality_uses_governed_physical_text_type(field, value):
+    schema = SchemaMetadata(schema_name="public", dialect="postgresql", tables=[
+        TableMetadata(name="records", schema_name="public", columns=[
+            ColumnMetadata(name=field, data_type="text")
+        ])
+    ])
+    sql = f"SELECT COUNT(*) FROM public.records WHERE {field} = '{value}'"
+    result = normalize_governed_text_filters(
+        sql, governed_entities=[], physical_schema=schema
+    )
+    assert f"LOWER({field}) = '{value.lower()}'" in result
+
+
+def test_exact_equality_preserves_published_codes_and_numeric_predicates():
+    schema = SchemaMetadata(schema_name="public", dialect="postgresql", tables=[
+        TableMetadata(name="records", schema_name="public", columns=[
+            ColumnMetadata(name="status", data_type="text"),
+            ColumnMetadata(name="year", data_type="integer"),
+        ])
+    ])
+    sql = "SELECT COUNT(*) FROM public.records WHERE status = 'O' AND year = 2020"
+    result = normalize_governed_text_filters(
+        sql, governed_entities=[{"attributes": [
+            {"name": "status", "value_mappings": {"O": "Owned"}}
+        ]}], physical_schema=schema
+    )
+    assert result == sql
+
+
+def test_exact_equality_supports_literal_on_left():
+    schema = SchemaMetadata(schema_name="public", dialect="postgresql", tables=[
+        TableMetadata(name="records", schema_name="public", columns=[
+            ColumnMetadata(name="customer", data_type="varchar")
+        ])
+    ])
+    result = normalize_governed_text_filters(
+        "SELECT id FROM public.records WHERE 'ACME' = customer",
+        governed_entities=[], physical_schema=schema
+    )
+    assert "LOWER(customer) = 'acme'" in result
