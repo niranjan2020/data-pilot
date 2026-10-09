@@ -131,4 +131,19 @@ def normalize_governed_text_filters(
             exp.Literal.string(str(v.this).lower()) for v in predicate.expressions
         ])
         changed = True
+    # Exact equality on a verified text column is the single-value
+    # counterpart of IN. Do not rewrite joins, expressions or code mappings.
+    for predicate in where.find_all(exp.EQ):
+        left, right = predicate.this, predicate.expression
+        if isinstance(left, exp.Column) and isinstance(right, exp.Literal) and right.is_string:
+            column, literal = left, right
+        elif isinstance(right, exp.Column) and isinstance(left, exp.Literal) and left.is_string:
+            column, literal = right, left
+        else:
+            continue
+        if column.name.casefold() not in eligible:
+            continue
+        predicate.set("this", exp.Lower(this=column.copy()))
+        predicate.set("expression", exp.Literal.string(str(literal.this).lower()))
+        changed = True
     return tree.sql(dialect=dialect) if changed else sql
