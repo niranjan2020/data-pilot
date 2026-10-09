@@ -43,3 +43,20 @@ def test_other_failures_are_not_silenced():
 def test_missing_unbound_column_fails_closed():
     sql="SELECT segment, COUNT(*) FROM a WHERE operator IN ('x','y') GROUP BY segment"
     assert repair_missing_comparison_groups(sql, checks("customer")) is None
+
+
+def test_count_distinct_is_preserved_when_adding_missing_cohort():
+    sql = ("SELECT segment, COUNT(DISTINCT id) AS vessel_count FROM astra.vessels "
+           "WHERE LOWER(operator) IN ('maersk', 'msc') GROUP BY segment")
+    repaired = repair_missing_comparison_groups(sql, checks("operator"))
+    assert repaired is not None
+    ast = parse_one(repaired)
+    count = next(ast.find_all(exp.Count))
+    assert isinstance(count.this, exp.Distinct)
+    assert {c.name for c in ast.args["group"].find_all(exp.Column)} == {"segment", "operator"}
+
+
+def test_select_distinct_still_rejected_with_count_distinct():
+    sql = ("SELECT DISTINCT segment, COUNT(DISTINCT id) FROM astra.vessels "
+           "WHERE operator IN ('maersk', 'msc') GROUP BY segment")
+    assert repair_missing_comparison_groups(sql, checks("operator")) is None
