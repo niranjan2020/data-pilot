@@ -150,3 +150,44 @@ def test_governance_bounds_fail_closed(build,max_rows,max_filters):
         max_rows=max_rows,max_filters=max_filters,
     )
     assert not result.verified
+
+
+# Cross-domain analytical correctness batch: 32 new parameterized scenarios.
+# These assert compilation/verification parity and fail-closed governance;
+# they do not substitute for live SQL result or natural-language evaluation.
+@pytest.mark.parametrize("domain", ["sales", "vessel"])
+@pytest.mark.parametrize("aggregation", ["COUNT", "SUM", "AVG", "MIN", "MAX"])
+@pytest.mark.parametrize("direction", ["ASC", "DESC"])
+def test_cross_domain_aggregate_direction_matrix(build, domain, aggregation, direction):
+    physical, source, dimensions, compiled = checked(
+        build, domain=domain, aggregation=aggregation, direction=direction,
+        filters=(("Category", "IN", ("O", "TO")),),
+        threshold=7,
+    )
+    assert compiled.parameters == ("O", "TO", 7)
+    assert f'{aggregation}("id")' in compiled.sql
+    assert f'ORDER BY "value" {direction}' in compiled.sql
+    assert compiled.sql.index("WHERE") < compiled.sql.index("HAVING")
+
+
+@pytest.mark.parametrize("domain", ["sales", "vessel"])
+@pytest.mark.parametrize("filters", [
+    (("Category", "EQ", ("O",)),),
+    (("Category", "IN", ("O", "TO")), ("Status", "EQ", ("ACTIVE",))),
+    (("Status", "EQ", ("ACTIVE",)), ("Category", "IN", ("O", "TO"))),
+])
+def test_cross_domain_filter_binding_order(build, domain, filters):
+    _, _, _, compiled = checked(build, domain=domain, filters=filters, threshold=3)
+    expected = tuple(value for _, _, values in filters for value in values) + (3,)
+    assert compiled.parameters == expected
+    assert compiled.sql.count("%s") == len(expected)
+
+
+@pytest.mark.parametrize("domain", ["sales", "vessel"])
+@pytest.mark.parametrize("invalid_limit", [0, 1001, True])
+def test_cross_domain_invalid_limit_rejected(build, domain, invalid_limit):
+    physical, source, dimensions = build(domain=domain, limit=invalid_limit)
+    with pytest.raises(ValueError):
+        compile_governed_analytical_plan(
+            physical, metric_source=source, published_dimensions=dimensions,
+        )
