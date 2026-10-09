@@ -680,7 +680,7 @@ class QueryOrchestrator:
         from datapilot.application.services.named_text_filter import normalize_named_text_filter
         for entity in governed_context.get("entities", []):
             for attribute in entity.get("attributes") or []:
-                column = str(attribute.get("column_name") or "")
+                column = str(attribute.get("column_name") or attribute.get("physical_column") or attribute.get("name") or "")
                 names = [attribute.get("name"), *(attribute.get("synonyms") or [])]
                 explicit = any(
                     name and re.search(r"(?<![a-z0-9])" + re.escape(str(name).casefold()) + r"(?![a-z0-9])",
