@@ -28,6 +28,7 @@ class BoundAnalyticalPlan:
 # A role's semantic kind is determined by the operation and parameter,
 # never by a user-controlled field claiming to be an approved metric.
 REFERENCE_ROLES: dict[AnalyticalOperation, dict[str, str]] = {
+    AnalyticalOperation.FILTER: {"dimension": "dimension"},
     AnalyticalOperation.AGGREGATE: {"metric": "metric"},
     AnalyticalOperation.GROUP: {"dimension": "dimension"},
     AnalyticalOperation.RANK: {"metric": "metric", "dimension": "dimension", "partition_dimension": "dimension"},
