@@ -54,7 +54,7 @@ _CODE_KEYS = ("value_mappings", "categorical_mappings", "enum_values", "allowed_
 
 
 def normalize_governed_text_filters(
-    sql: str, *, governed_entities: list[dict], dialect: str = "postgres"
+    sql: str, *, governed_entities: list[dict], physical_schema=None, dialect: str = "postgres"
 ) -> str:
     """Normalize exact multi-value text comparisons using trusted semantic columns.
 
@@ -81,6 +81,27 @@ def normalize_governed_text_filters(
                 excluded.add(key)
             elif typ in _TEXT_TYPES or typ.startswith(("varchar(", "character varying(", "nvarchar(")):
                 eligible.add(key)
+    if physical_schema is not None:
+        try:
+            parsed = parse_one(sql, read=dialect)
+            tables = list(parsed.find_all(exp.Table))
+            if len(tables) == 1:
+                source = tables[0]
+                matches = [
+                    item for item in physical_schema.tables
+                    if item.name.casefold() == source.name.casefold()
+                    and (not source.db or (item.schema_name or "").casefold() == source.db.casefold())
+                ]
+                if len(matches) == 1:
+                    for item in matches[0].columns:
+                        typ = str(item.data_type).strip().casefold()
+                        key = item.name.casefold()
+                        if typ in _TEXT_TYPES or typ.startswith(("varchar(", "character varying(", "nvarchar(")):
+                            eligible.add(key)
+                        elif typ in _NON_TEXT_TYPES:
+                            excluded.add(key)
+        except (AttributeError, TypeError, ValueError):
+            pass
     eligible.difference_update(excluded)
     if not eligible:
         return sql
