@@ -1399,42 +1399,47 @@ class QueryOrchestrator:
                 mappings = attribute.get("value_mappings") or []
                 if not column_name or len(mappings) < 2:
                     continue
-                matched = []
+                # Resolve longest matching published phrases first, so a
+                # composite label is not mistaken for its component synonyms.
+                # Equal-length matches for different codes are ambiguous and
+                # must never be silently selected.
+                candidates = []
                 for mapping in mappings:
                     canonical = str(mapping.get("canonical_value") or "")
-                    terms = [canonical, *(mapping.get("synonyms") or [])]
-                    if any(
-                        (term_words := tokens(str(term)))
-                        and any(all(equivalent(a, b) for a, b in zip(words[i:i + len(term_words)], term_words))
-                                for i in range(len(words) - len(term_words) + 1))
-                        for term in terms
-                    ):
-                        matched.append(canonical)
-                # Single-value requests also require governed SQL filtering.
-                # Avoid guessing when one synonym overlaps a longer mapping
-                # (e.g. "owned" versus "owned but chartered").
+                    for term in [canonical, *(mapping.get("synonyms") or [])]:
+                        phrase = tokens(str(term))
+                        if not canonical or not phrase:
+                            continue
+                        for i in range(len(words) - len(phrase) + 1):
+                            if all(equivalent(a, b) for a, b in zip(words[i:i + len(phrase)], phrase)):
+                                candidates.append((i, i + len(phrase), canonical))
+                candidates.sort(key=lambda item: (-(item[1] - item[0]), item[0]))
+                selected = []
+                occupied = set()
+                ambiguous = False
+                for begin, end, canonical in candidates:
+                    span = set(range(begin, end))
+                    if span.intersection(occupied):
+                        if any(
+                            begin == s and end == e and canonical != code
+                            for s, e, code in selected
+                        ):
+                            ambiguous = True
+                        continue
+                    selected.append((begin, end, canonical))
+                    occupied.update(span)
+                if ambiguous:
+                    raise SQLValidationError(
+                        "Published categorical mappings are ambiguous",
+                        details={"checks": [{
+                            "code": "categorical_mapping_ambiguity",
+                            "status": "failed", "severity": "error",
+                            "message": f"Multiple published values match the same phrase for {column_name}",
+                        }]},
+                    )
+                matched = list(dict.fromkeys(code for _, _, code in selected))
                 if not matched or (explicit_comparison and len(matched) < 2):
                     continue
-                # Multi-value non-comparison requests may refer to one
-                # composite label; defer until intent is disambiguated.
-                if not explicit_comparison and len(matched) > 1:
-                    continue
-                if len(matched) == 1 and not explicit_comparison:
-                    overlapping = [
-                        other for other in mappings
-                        if str(other.get("canonical_value") or "") != matched[0]
-                        and any(
-                            (term_words := tokens(str(term)))
-                            and any(
-                                all(equivalent(a, b) for a, b in zip(words[i:i + len(term_words)], term_words))
-                                for i in range(len(words) - len(term_words) + 1)
-                            )
-                            for term in [other.get("canonical_value"), *(other.get("synonyms") or [])]
-                            if term
-                        )
-                    ]
-                    if overlapping:
-                        continue
                 # Only a positive WHERE conjunction on the outer query can
                 # guarantee a categorical restriction. Values in SELECT, JOIN,
                 # HAVING, OR, NOT, or a nested SELECT are not sufficient.
