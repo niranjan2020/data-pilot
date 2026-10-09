@@ -1,5 +1,16 @@
 # Data Pilot Roadmap
 
+## Analytical verification batch — 2026-10-09
+
+- User verified **20 focused SQL verification tests** after fixing parameter test fixture tuples. Full unit suite result not independently reported.
+- Batch implementation (awaiting user verification): independent AST parameter-position markers for WHERE EQ/IN and HAVING; a **36-case** cross-domain verification matrix covering Sales and vessel sources, supported filter/threshold combinations, five aggregate/sort/limit variants, bound injection/unicode inputs, SQL tampering, and governance bounds.
+- Batch development cadence: prefer coherent feature + 20–50 case regression batches; reserve substantial time for actual Astra/AdventureWorks evaluation and debugging.
+- **Stage 4 remains OPEN**: deterministic recompilation plus AST-role checks do not prove arbitrary SQL semantic equivalence, relationship fanout, dataset eligibility, or authorization.
+- Next acceptance: run focused tests and full unit suite, fix any regressions, then test cross-domain governed semantics and trusted publication/admin integration. Do not force-route live NL-to-SQL or reset datasource metadata.
+
+---
+
+
 ## Analytical SQL AST verification checkpoint — 2026-10-09
 
 - User confirmed 15/15 deterministic SQL verification tests and 9/9 unified compiler dispatch tests; full unit-suite result was not separately reported.
