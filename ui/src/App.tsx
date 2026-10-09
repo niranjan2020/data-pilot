@@ -129,6 +129,7 @@ export function App(){
    const response=await fetch("/api/setup/data-source/"+savedSourceId+"/categorical-mappings/publish",{
     method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({schema_name:parts[0],table_name:parts[1],column_name:parts[2],
+     create_missing_attribute:window.confirm("If this column has no semantic attribute, create one on its existing semantic entity? Cancel publishes only if the attribute already exists."),
      mappings:categoryProposal.values.filter(v=>categoryReviewed.includes(v)).map(v=>({
       canonical_value:v,synonyms:(categoryAliases[v]||"").split(",").map(a=>a.trim()).filter(Boolean)
      }))})
