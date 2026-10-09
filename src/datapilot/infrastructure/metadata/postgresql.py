@@ -80,6 +80,14 @@ CREATE TABLE IF NOT EXISTS datapilot_catalog.tables (
     UNIQUE (snapshot_id, table_name)
 );
 
+CREATE TABLE IF NOT EXISTS datapilot_catalog.discovered_unique_constraints (
+    table_id BIGINT NOT NULL REFERENCES datapilot_catalog.tables(id) ON DELETE CASCADE,
+    constraint_name TEXT NOT NULL,
+    columns JSONB NOT NULL,
+    is_primary_key BOOLEAN NOT NULL DEFAULT FALSE,
+    PRIMARY KEY (table_id, constraint_name)
+);
+
 CREATE TABLE IF NOT EXISTS datapilot_catalog.columns (
     id BIGSERIAL PRIMARY KEY,
     table_id BIGINT NOT NULL REFERENCES datapilot_catalog.tables(id) ON DELETE CASCADE,
@@ -558,7 +566,7 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                     (data_source_id,),
                 )
                 return [
-                    {"schema_name": row[0], "table_name": row[1], "columns": row[2] or []}
+                    {"schema_name": row[0], "table_name": row[1], "unique_constraints": row[2] or [], "columns": row[3] or []}
                     for row in await cursor.fetchall()
                 ]
 
@@ -1677,6 +1685,9 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                             table_id = (await cursor.fetchone())[0]
 
                             await cursor.execute(
+                                "DELETE FROM datapilot_catalog.discovered_unique_constraints WHERE table_id = %s", (table_id,)
+                            )
+                            await cursor.execute(
                                 "DELETE FROM datapilot_catalog.columns WHERE table_id = %s", (table_id,)
                             )
                             await cursor.execute(
@@ -1700,6 +1711,16 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                                         column.description,
                                         json.dumps(column.sample_values),
                                     ),
+                                )
+
+                            for unique in table.unique_constraints:
+                                await cursor.execute(
+                                    """
+                                    INSERT INTO datapilot_catalog.discovered_unique_constraints
+                                        (table_id, constraint_name, columns, is_primary_key)
+                                    VALUES (%s, %s, %s::jsonb, %s)
+                                    """,
+                                    (table_id, unique.name, json.dumps(unique.columns), unique.is_primary_key),
                                 )
 
                             for foreign_key in table.foreign_keys:
