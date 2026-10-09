@@ -695,3 +695,29 @@ def test_non_comparison_can_aggregate_filtered_cohorts_together():
         ),
     )
     assert not any(check["code"].startswith("comparison_dimension_") for check in checks)
+
+
+@pytest.mark.parametrize("sql,expected", [
+    ("SELECT segment, COUNT(*) FROM assets WHERE operator IN ('MSC', 'Maersk') GROUP BY segment", "comparison_dimension_violation"),
+    ("SELECT segment, operator, COUNT(*) FROM assets WHERE operator IN ('MSC', 'Maersk') GROUP BY segment, operator", "comparison_dimension_alignment"),
+    ("SELECT segment, COUNT(*) FROM assets WHERE customer IN ('Alpha', 'Beta') GROUP BY segment", "comparison_dimension_violation"),
+    ("SELECT segment, customer, SUM(amount) FROM assets WHERE customer IN ('Alpha', 'Beta') GROUP BY segment, customer", "comparison_dimension_alignment"),
+])
+def test_and_joined_named_cohorts_require_grouping(sql, expected):
+    from datapilot.application.services.query_correctness import assess_query_correctness
+    question = "Show values for MSC and Maersk" if "MSC" in sql else "Show values for Alpha and Beta"
+    checks = assess_query_correctness(
+        affected_tables=["assets"], governed_tables=["assets"],
+        sql=sql, question=question,
+    )
+    assert expected in {check["code"] for check in checks}
+
+
+def test_combined_total_without_group_by_not_falsely_rejected():
+    from datapilot.application.services.query_correctness import assess_query_correctness
+    checks = assess_query_correctness(
+        affected_tables=["assets"], governed_tables=["assets"],
+        sql="SELECT COUNT(*) FROM assets WHERE operator IN ('MSC', 'Maersk')",
+        question="Show combined total for MSC and Maersk",
+    )
+    assert not any(check["code"] == "comparison_dimension_violation" for check in checks)
