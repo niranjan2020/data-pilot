@@ -25,6 +25,7 @@ class GroupedQueryClauses:
     having: tuple[BoundPredicate, ...] = ()
     order_by: tuple[str, ...] = ()
     limit: int | None = None
+    parenthesize_predicates: bool = True
 
     def __post_init__(self) -> None:
         if not isinstance(self.select, tuple) or not self.select:
@@ -48,6 +49,8 @@ class GroupedQueryClauses:
                 for predicate in predicates
             ):
                 raise ValueError("Invalid bound SQL predicate")
+        if type(self.parenthesize_predicates) is not bool:
+            raise ValueError("Invalid predicate formatting option")
         if self.limit is not None and (
             type(self.limit) is not int or self.limit < 1
         ):
@@ -68,14 +71,16 @@ def compose_grouped_query(clauses: GroupedQueryClauses) -> ComposedGroupedQuery:
     parameters: list[Any] = []
     if clauses.where:
         sql += " WHERE " + " AND ".join(
-            "(" + predicate.sql + ")" for predicate in clauses.where
+            "(" + predicate.sql + ")" if clauses.parenthesize_predicates else predicate.sql
+            for predicate in clauses.where
         )
         for predicate in clauses.where:
             parameters.extend(predicate.parameters)
     sql += " GROUP BY " + ", ".join(clauses.group_by)
     if clauses.having:
         sql += " HAVING " + " AND ".join(
-            "(" + predicate.sql + ")" for predicate in clauses.having
+            "(" + predicate.sql + ")" if clauses.parenthesize_predicates else predicate.sql
+            for predicate in clauses.having
         )
         for predicate in clauses.having:
             parameters.extend(predicate.parameters)
