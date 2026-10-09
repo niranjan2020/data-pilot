@@ -410,3 +410,39 @@ def test_relevant_entity_still_requires_categorical_filter():
             "SELECT COUNT(*) FROM public.assets",
             entities,
         )
+
+
+def test_same_synonym_on_two_attributes_requires_disambiguation():
+    entities = [{
+        "name": "Assets", "schema_name": "public", "table_name": "assets",
+        "attributes": [
+            {"column_name": "ownership_status", "value_mappings": [
+                {"canonical_value": "O", "synonyms": ["active"]}]},
+            {"column_name": "operating_status", "value_mappings": [
+                {"canonical_value": "A", "synonyms": ["active"]}]},
+        ],
+    }]
+    with pytest.raises(SQLValidationError) as captured:
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            "Count active assets",
+            "SELECT COUNT(*) FROM public.assets WHERE ownership_status = 'O'",
+            entities,
+        )
+    assert captured.value.details["checks"][0]["code"] == "categorical_attribute_ambiguity"
+
+
+def test_distinct_attribute_synonyms_do_not_trigger_attribute_ambiguity():
+    entities = [{
+        "name": "Assets", "schema_name": "public", "table_name": "assets",
+        "attributes": [
+            {"column_name": "ownership_status", "value_mappings": [
+                {"canonical_value": "O", "synonyms": ["owned"]}]},
+            {"column_name": "operating_status", "value_mappings": [
+                {"canonical_value": "A", "synonyms": ["active"]}]},
+        ],
+    }]
+    QueryOrchestrator._validate_explicit_categorical_comparison(
+        "Count owned assets",
+        "SELECT COUNT(*) FROM public.assets WHERE ownership_status = 'O'",
+        entities,
+    )
