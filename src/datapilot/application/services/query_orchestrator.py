@@ -1364,6 +1364,14 @@ class QueryOrchestrator:
         def tokens(value: str) -> list[str]:
             return re.findall(r"[a-z0-9]+", value.casefold())
 
+        def equivalent(left: str, right: str) -> bool:
+            if left == right:
+                return True
+            # Generic inflection matching: "own" and "owned", "charter" and
+            # "chartered". Never infer a canonical value without its mapping.
+            return any(left + suffix == right or right + suffix == left
+                       for suffix in ("ed", "s"))
+
         words = tokens(question)
         if not re.search(r"\\b(?:versus|vs\\.?|between)\\b", question, re.I):
             return
@@ -1380,7 +1388,7 @@ class QueryOrchestrator:
                     terms = [canonical, *(mapping.get("synonyms") or [])]
                     if any(
                         (term_words := tokens(str(term)))
-                        and any(words[i:i + len(term_words)] == term_words
+                        and any(all(equivalent(a, b) for a, b in zip(words[i:i + len(term_words)], term_words))
                                 for i in range(len(words) - len(term_words) + 1))
                         for term in terms
                     ):
