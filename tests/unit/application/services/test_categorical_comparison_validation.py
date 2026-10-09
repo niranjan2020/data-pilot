@@ -130,3 +130,21 @@ def test_comparison_rejects_separate_in_predicates_with_disjoint_values():
         QueryOrchestrator._validate_explicit_categorical_comparison(
             "Compare owned versus chartered assets", sql, ENTITIES
         )
+
+
+@pytest.mark.parametrize("extra", [
+    "ownership_status = 'O'",
+    "ownership_status NOT IN ('T')",
+    "ownership_status <> 'T'",
+    "(ownership_status = 'O' OR active = TRUE)",
+])
+def test_comparison_rejects_additional_restrictive_category_predicate(extra):
+    sql = (
+        "SELECT ownership_status, COUNT(*) FROM assets "
+        "WHERE ownership_status IN ('O', 'T') AND " + extra +
+        " GROUP BY ownership_status"
+    )
+    with pytest.raises(SQLValidationError):
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            "Compare owned versus chartered assets", sql, ENTITIES
+        )
