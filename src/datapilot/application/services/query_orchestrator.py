@@ -1453,6 +1453,8 @@ class QueryOrchestrator:
                 )
             for attribute in entity.get("attributes") or []:
                 column_name = str(attribute.get("column_name") or "")
+                if len(explicit_columns) == 1 and column_name.casefold() not in explicit_columns:
+                    continue
                 mappings = attribute.get("value_mappings") or []
                 if not column_name or not mappings:
                     continue
