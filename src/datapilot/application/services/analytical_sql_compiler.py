@@ -439,17 +439,13 @@ def compile_analytical_filtered_grouped_limit(
         bound_plan=prefix_bound,
         dimensions=tuple(d for d in physical_plan.dimensions if d.step_id != filter_step.id),
     )
-    compiled = compile_analytical_grouped_limit(
-        prefix_physical, metric_source=metric_source, max_rows=max_rows,
-    )
-    marker = " GROUP BY "
-    if compiled.sql.count(marker) != 1:
-        raise ValueError("Expected grouped SQL structure")
-    before, after = compiled.sql.split(marker)
-    return CompiledAnalyticalQuery(
-        sql=before + " WHERE " + predicate.sql + marker + after,
-        dialect=compiled.dialect,
-        parameters=predicate.parameters,
+    from datapilot.application.services.analytical_sql_composition import BoundPredicate
+
+    return _compose_validated_grouped_limit(
+        prefix_physical,
+        metric_source,
+        where=(BoundPredicate(predicate.sql, predicate.parameters),),
+        max_rows=max_rows,
     )
 
 
@@ -550,18 +546,63 @@ def compile_analytical_grouped_having(
         bound_plan=base_bound,
         metrics=tuple(m for m in physical_plan.metrics if m.step_id != threshold.id),
     )
-    compiled = compile_analytical_grouped_limit(
-        base_physical, metric_source=metric_source, max_rows=max_rows,
-    )
-    marker = " ORDER BY "
-    if compiled.sql.count(marker) != 1:
-        raise ValueError("Expected governed ORDER BY structure")
-    before, after = compiled.sql.split(marker)
+    from datapilot.application.services.analytical_sql_composition import BoundPredicate
+
     aggregate_metric = aggregate_metrics[0]
     column = _quote_identifier(metric_source.column_name)
     expression = f"{aggregate_metric.aggregation}({column})"
+    return _compose_validated_grouped_limit(
+        base_physical,
+        metric_source,
+        having=(BoundPredicate(f"{expression} {operators[op]} %s", (value,)),),
+        max_rows=max_rows,
+    )
+
+
+def _compose_validated_grouped_limit(
+    physical_plan: UnifiedPhysicalAnalyticalPlan,
+    metric_source: GovernedMetricSource,
+    *,
+    where: tuple = (),
+    having: tuple = (),
+    max_rows: int = 1000,
+) -> CompiledAnalyticalQuery:
+    """Compose clauses only after full governed GROUP/AGGREGATE/SORT/LIMIT validation."""
+    from datapilot.application.services.analytical_sql_composition import (
+        GroupedQueryClauses, compose_grouped_query,
+    )
+
+    validated = compile_analytical_grouped_limit(
+        physical_plan, metric_source=metric_source, max_rows=max_rows,
+    )
+    plan = physical_plan.bound_plan.plan
+    group, aggregate, sort, limit = plan.steps
+    dimension = next(d for d in physical_plan.dimensions if d.step_id == group.id)
+    metric = next(m for m in physical_plan.metrics if m.step_id == aggregate.id)
+    sort_kind = "metric" if "metric" in sort.parameters else "dimension"
+    alias = "value" if sort_kind == "metric" else "dimension"
+    dimension_sql = _quote_identifier(dimension.column_name)
+    metric_sql = _quote_identifier(metric_source.column_name)
+    clauses = GroupedQueryClauses(
+        select=(
+            f'{dimension_sql} AS "dimension"',
+            f'{metric.aggregation}({metric_sql}) AS "value"',
+        ),
+        source=(
+            _quote_identifier(metric_source.schema_name)
+            + "."
+            + _quote_identifier(metric_source.table_name)
+        ),
+        group_by=(dimension_sql,),
+        where=where,
+        having=having,
+        order_by=(f'{_quote_identifier(alias)} {sort.parameters["direction"]}',),
+        limit=limit.parameters["count"],
+        parenthesize_predicates=False,
+    )
+    composed = compose_grouped_query(clauses)
+    if not where and not having and composed.sql != validated.sql:
+        raise ValueError("Composed SQL differs from validated grouped SQL")
     return CompiledAnalyticalQuery(
-        sql=before + f" HAVING {expression} {operators[op]} %s" + marker + after,
-        dialect=compiled.dialect,
-        parameters=compiled.parameters + (value,),
+        sql=composed.sql, dialect=validated.dialect, parameters=composed.parameters,
     )
