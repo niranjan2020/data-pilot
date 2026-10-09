@@ -60,3 +60,38 @@ def test_select_distinct_still_rejected_with_count_distinct():
     sql = ("SELECT DISTINCT segment, COUNT(DISTINCT id) FROM astra.vessels "
            "WHERE operator IN ('maersk', 'msc') GROUP BY segment")
     assert repair_missing_comparison_groups(sql, checks("operator")) is None
+
+
+@pytest.mark.parametrize("dialect", ["postgres", "postgresql"])
+@pytest.mark.parametrize("cohort", ["operator", "customer", "supplier"])
+def test_provider_dialect_repair_preserves_separate_comparison_cohorts(dialect, cohort):
+    sql = (
+        f'SELECT segment, COUNT(DISTINCT id) AS total FROM public.records '
+        f"WHERE LOWER({cohort}) IN ('alpha', 'beta') GROUP BY segment LIMIT 1000"
+    )
+    repaired = repair_missing_comparison_groups(sql, checks(cohort), dialect=dialect)
+    assert repaired is not None
+    ast = parse_one(repaired, read="postgres")
+    assert cohort in {c.name for c in ast.args["group"].find_all(exp.Column)}
+    assert cohort in {c.name for item in ast.expressions for c in item.find_all(exp.Column)}
+    assert len(list(ast.find_all(exp.Count))) == 1
+
+
+@pytest.mark.parametrize("dialect", ["postgres", "postgresql"])
+def test_live_query_shape_is_repaired_for_provider_dialect(dialect):
+    sql = (
+        'SELECT vessels."vessel_segment", COUNT(DISTINCT vessels."id") AS vessel_count '
+        'FROM "astra"."vessels" WHERE vessels."built_year" > 2020 '
+        'AND vessels."operator" IN (\'CMA CGM\', \'Maersk\') '
+        'AND vessels."source_active" = TRUE GROUP BY vessels."vessel_segment"'
+    )
+    repaired = repair_missing_comparison_groups(sql, checks("operator"), dialect=dialect)
+    assert repaired is not None
+    ast = parse_one(repaired, read="postgres")
+    assert "operator" in {c.name for c in ast.args["group"].find_all(exp.Column)}
+    assert "operator" in {c.name for item in ast.expressions for c in item.find_all(exp.Column)}
+
+
+def test_repair_rejects_unrecognized_provider_dialect():
+    sql = "SELECT segment, COUNT(*) FROM a WHERE operator IN ('x','y') GROUP BY segment"
+    assert repair_missing_comparison_groups(sql, checks("operator"), dialect="not_a_sql_dialect") is None
