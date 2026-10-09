@@ -7,9 +7,15 @@
 **Last updated:** 2026-10-08  
 **Current focus:** Core OSS — Stage C3: AI provider and datasource onboarding refinement (C2 acceptance passed)  
 **Current semantic evaluation baseline:** 39/39 passed (100.0%) through the live production pipeline after B4 dialect isolation (p50 2.986 s, p95 4.249 s).  
-**Current unit regression baseline:** **998 passed** (user-verified 2026-10-08). Full integration/evaluation suite and live semantic benchmark are not verified by this count.
+**Current unit regression baseline:** **1002 passed** (user-verified 2026-10-09, before two additional catalog-query regressions). Full integration/evaluation suite and live semantic benchmark are not verified by this count.
 
 ---
+
+## C4 catalog restoration checkpoint (2026-10-09)
+
+- User verified `astra-dev` saved connection and existing Vessel semantic entity restored after C4 catalog query regression fix (`56a4cc6`). No metadata reset or volume deletion.
+- Fixed catalog query to return discovered unique constraints and columns as distinct fields; added two regression tests for the four-field response and empty uniqueness evidence (`11bdebe`).
+- Latest user unit result: 1002 passed **before** the two new regressions. Awaiting rerun. C4 remains open: next bounded, opt-in categorical proposals and admin review.
 
 ## C4 schema discovery — first increment (2026-10-08)
 
