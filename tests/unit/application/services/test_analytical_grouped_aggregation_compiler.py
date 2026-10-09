@@ -84,4 +84,4 @@ def test_unapproved_function_rejected():
 
 def test_quoted_group_identifier_escaped():
     sql=compile_analytical_grouped_aggregation(fixture(dimension_table='Odd"Table'),metric_source=source(table_name='Odd"Table'))
-    assert '"Odd""Table"' in sql
+    assert '"Odd""Table"' in sql.sql
