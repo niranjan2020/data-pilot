@@ -1060,7 +1060,7 @@ class QueryOrchestrator:
                 executable_sql, correctness_checks, dialect=self._database.dialect,
             )
             if candidate is not None:
-                repaired_validation = self._validator.validate(
+                repaired_validation = await self._validator.validate(
                     candidate, dialect=self._database.dialect, enforce_read_only=True,
                 )
                 if repaired_validation.is_valid:
