@@ -1423,6 +1423,24 @@ class QueryOrchestrator:
             conflicting = [
                 columns for columns in phrase_columns.values() if len(columns) > 1
             ]
+            # An explicit, unique governed attribute name resolves which
+            # column owns a shared value synonym (e.g. "active operating
+            # status"). Do not mistake it for value-level ambiguity.
+            explicit_columns = set()
+            for attribute in entity.get("attributes") or []:
+                column = str(attribute.get("column_name") or "").casefold()
+                for term in [attribute.get("name"), *(attribute.get("synonyms") or [])]:
+                    phrase = tokens(str(term)) if term else []
+                    if phrase and any(
+                        all(equivalent(a, b) for a, b in zip(words[i:i + len(phrase)], phrase))
+                        for i in range(len(words) - len(phrase) + 1)
+                    ):
+                        explicit_columns.add(column)
+            if len(explicit_columns) == 1:
+                conflicting = [
+                    columns for columns in conflicting
+                    if next(iter(explicit_columns)) not in columns
+                ]
             if conflicting:
                 raise SQLValidationError(
                     "Published categorical attribute is ambiguous",
