@@ -3,6 +3,7 @@
 This is not yet complete semantic equivalence verification.
 """
 from dataclasses import dataclass
+import re
 
 from datapilot.application.services.analytical_plan import AnalyticalOperation
 
@@ -63,7 +64,19 @@ def verify_governed_analytical_sql(
     try:
         # PostgreSQL DB-API placeholders are transport syntax, not SQL literals.
         # Replace only after exact deterministic SQL and parameter checks.
-        parsed = sqlglot.parse_one(compiled.sql.replace("%s", "0"), read="postgres")
+        # Distinct sentinels preserve DB-API parameter positions in the AST.
+        # This is safe because exact governed SQL equality was checked above.
+        marker_base = 900000000
+        marker_index = iter(range(len(compiled.parameters)))
+        ast_sql = re.sub(
+            r"%s",
+            lambda _: str(marker_base + next(marker_index)),
+            compiled.sql,
+        )
+        statements = sqlglot.parse(ast_sql, read="postgres")
+        if len(statements) != 1:
+            return AnalyticalSQLVerification(False, "Expected exactly one SQL statement")
+        parsed = statements[0]
         if not isinstance(parsed, exp.Select):
             return AnalyticalSQLVerification(False, "Expected one SELECT statement")
         if any(
@@ -141,6 +154,7 @@ def verify_governed_analytical_sql(
             predicates = split_and(where.this)
             if len(predicates) != len(filters):
                 return AnalyticalSQLVerification(False, "Filter count differs from governed plan")
+            parameter_index = 0
             for step, predicate in zip(filters, predicates):
                 mapping = next(d for d in physical_plan.dimensions if d.step_id == step.id)
                 op = step.parameters["operator"]
@@ -152,6 +166,15 @@ def verify_governed_analytical_sql(
                     valid = False
                 if not valid:
                     return AnalyticalSQLVerification(False, "Filter operator or dimension differs from governed plan")
+                count = len(step.parameters["values"])
+                actual_nodes = [predicate.right] if op == "EQ" else predicate.expressions
+                if len(actual_nodes) != count or any(
+                    not isinstance(node, exp.Literal)
+                    or node.this != str(marker_base + parameter_index + offset)
+                    for offset, node in enumerate(actual_nodes)
+                ):
+                    return AnalyticalSQLVerification(False, "Filter placeholders differ from governed parameter positions")
+                parameter_index += count
         thresholds = [s for s in plan.steps if s.operation is AnalyticalOperation.THRESHOLD]
         having = parsed.args.get("having")
         if bool(thresholds) != bool(having):
@@ -166,6 +189,11 @@ def verify_governed_analytical_sql(
                 or predicate.left.sql(dialect="postgres") != aggregate_expr.sql(dialect="postgres")
             ):
                 return AnalyticalSQLVerification(False, "Threshold differs from governed metric")
+            if (
+                not isinstance(predicate.right, exp.Literal)
+                or predicate.right.this != str(marker_base + sum(len(s.parameters["values"]) for s in filters))
+            ):
+                return AnalyticalSQLVerification(False, "Threshold placeholder differs from governed parameter position")
         # Independently reconstruct parameter order from the governed plan.
         # Only the supported EQ/IN row filters and single numeric threshold
         # contribute parameters; LIMIT is an already-validated integer literal.
