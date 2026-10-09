@@ -100,7 +100,9 @@ def test_supported_query_matrix(build,domain,filters,threshold):
 def test_untrusted_filter_value_remains_bound(build,payload):
     _,_,_,compiled=checked(build,filters=(("Category","EQ",(payload,)),),threshold=5)
     assert compiled.parameters==(payload,5)
-    assert payload not in compiled.sql
+    assert "%s" in compiled.sql
+    if payload:
+        assert payload not in compiled.sql
 
 
 @pytest.mark.parametrize("direction,limit,aggregation",[
