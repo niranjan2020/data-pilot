@@ -1,0 +1,61 @@
+import pytest
+
+from datapilot.application.services.query_correctness import assess_query_correctness
+from datapilot.application.services.ranking_grain_repair import repair_ranking_grain
+
+
+@pytest.mark.parametrize("entity,filter_column,filter_values", [
+    ("operator", "ownership_status", "('O', 'T')"),
+    ("customer", "status", "('paid', 'pending')"),
+    ("product", "color", "('red', 'blue')"),
+    ("supplier", "category", "('A', 'B')"),
+])
+def test_top_n_filter_dimension_not_ranking_grain(entity, filter_column, filter_values):
+    sql = (
+        f"SELECT {entity}, {filter_column}, COUNT(DISTINCT id) AS n "
+        f"FROM records WHERE {filter_column} IN {filter_values} "
+        f"GROUP BY {entity}, {filter_column} ORDER BY n DESC LIMIT 10"
+    )
+    question = f"Show top 10 {entity}s by distinct count filtered to selected {filter_column}"
+    checks = assess_query_correctness(
+        affected_tables=["records"], governed_tables=["records"], sql=sql,
+        question=question, required_grouping_columns=[entity],
+    )
+    assert any(c["code"] == "ranking_grain_violation" and c["status"] == "failed" for c in checks)
+    repaired = repair_ranking_grain(sql, checks)
+    assert repaired is not None
+    assert f"GROUP BY {entity}" in repaired
+    assert f"{filter_column} IN" in repaired
+    assert f"GROUP BY {entity}, {filter_column}" not in repaired
+    after = assess_query_correctness(
+        affected_tables=["records"], governed_tables=["records"], sql=repaired,
+        question=question, required_grouping_columns=[entity],
+    )
+    assert not any(c["status"] == "failed" for c in after)
+
+
+def test_no_repair_without_authoritative_grouping():
+    sql = "SELECT customer, status, COUNT(*) AS n FROM records GROUP BY customer, status ORDER BY n DESC LIMIT 10"
+    checks = assess_query_correctness(
+        affected_tables=["records"], governed_tables=["records"], sql=sql,
+        question="top 10 customers", required_grouping_columns=[],
+    )
+    assert repair_ranking_grain(sql, checks) is None
+
+
+def test_no_repair_when_extra_column_used_in_ordering():
+    sql = "SELECT customer, status, COUNT(*) AS n FROM records GROUP BY customer, status ORDER BY status LIMIT 10"
+    checks = assess_query_correctness(
+        affected_tables=["records"], governed_tables=["records"], sql=sql,
+        question="top 10 customers", required_grouping_columns=["customer"],
+    )
+    assert repair_ranking_grain(sql, checks) is None
+
+
+def test_explicit_breakdown_not_rejected():
+    sql = "SELECT customer, status, COUNT(*) AS n FROM records GROUP BY customer, status ORDER BY n DESC LIMIT 10"
+    checks = assess_query_correctness(
+        affected_tables=["records"], governed_tables=["records"], sql=sql,
+        question="top 10 customers grouped by status", required_grouping_columns=["customer"],
+    )
+    assert not any(c["code"] == "ranking_grain_violation" for c in checks)
