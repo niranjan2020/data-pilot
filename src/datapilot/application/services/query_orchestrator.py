@@ -977,9 +977,9 @@ class QueryOrchestrator:
                 # Reuse the exact grants checked against the SQL AST.
                 trusted_published_relationships = list(authorization.verified_grants)
 
-        # Explicit categorical comparisons must constrain the compared values.
-        # Grouping by the column alone is not sufficient: it includes unrelated
-        # categories and misrepresents the question. Only approved mappings count.
+        # Enforce resolved published categorical values for both single-value
+        # requests and explicit comparisons. Grouping by a categorical column
+        # alone does not constrain the requested categories.
         try:
             self._validate_explicit_categorical_comparison(
                 question, executable_sql, governed_entities or [],
