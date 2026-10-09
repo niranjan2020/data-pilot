@@ -1341,6 +1341,33 @@ class QueryOrchestrator:
             })
 
         for entity in entities:
+            # A phrase mapped to different columns on the same entity cannot
+            # be assigned to either attribute without additional intent.
+            # Restrict this check to published synonyms, not one-letter codes.
+            phrase_columns = {}
+            for attribute in entity.get("attributes") or []:
+                column = str(attribute.get("column_name") or "").casefold()
+                for mapping in attribute.get("value_mappings") or []:
+                    for synonym in mapping.get("synonyms") or []:
+                        phrase = tokens(str(synonym))
+                        if not column or not phrase:
+                            continue
+                        for i in range(len(words) - len(phrase) + 1):
+                            if all(equivalent(a, b) for a, b in zip(words[i:i + len(phrase)], phrase)):
+                                phrase_columns.setdefault((i, i + len(phrase)), set()).add(column)
+            conflicting = [
+                columns for columns in phrase_columns.values() if len(columns) > 1
+            ]
+            if conflicting:
+                raise SQLValidationError(
+                    "Published categorical attribute is ambiguous",
+                    details={"checks": [{
+                        "code": "categorical_attribute_ambiguity",
+                        "status": "failed", "severity": "error",
+                        "message": "A categorical phrase matches multiple published attributes.",
+                        "columns": sorted(set().union(*conflicting)),
+                    }]},
+                )
             for attribute in entity.get("attributes") or []:
                 terms = [attribute.get("name"), *(attribute.get("synonyms") or [])]
                 if any(
