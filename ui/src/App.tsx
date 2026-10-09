@@ -85,6 +85,36 @@ export function App(){
  const [dataset,setDataset]=useState({description:"",business_meaning:"",grain:"",identity_semantics:"",aliases:"",use_cases:"",query_constraints:""});
  const [relationship,setRelationship]=useState({name:"",from_entity_id:"",from_column:"",to_entity_id:"",to_column:"",cardinality:"many-to-one",description:""});
  const [entity,setEntity]=useState<SemanticEntityForm>(emptyEntity());
+ const [bootstrapTable,setBootstrapTable]=useState("");
+ const [bootstrapPreview,setBootstrapPreview]=useState<any>(null);
+ const [bootstrapSelected,setBootstrapSelected]=useState<string[]>([]);
+ const [bootstrapBusy,setBootstrapBusy]=useState(false);
+ const [bootstrapMessage,setBootstrapMessage]=useState("");
+ async function previewBootstrap(){
+  if(!bootstrapTable)return;
+  const [schema_name,table_name]=bootstrapTable.split(".");
+  setBootstrapBusy(true);setBootstrapMessage("");setBootstrapPreview(null);setBootstrapSelected([]);
+  try{
+   const r=await fetch(API+"/api/admin/semantic/bootstrap/preview",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({source_name:form.name,schema_name,table_name})});
+   const d=await r.json();if(!r.ok)throw new Error(typeof d.detail==="string"?d.detail:"Unable to preview semantic bootstrap");
+   setBootstrapPreview(d);
+   const existing=entities.find((e:any)=>e.schema_name===schema_name&&e.table_name===table_name);
+   const known=new Set((existing?.attributes||[]).map((a:any)=>a.column_name));
+   setBootstrapSelected((d.entity?.attributes||[]).filter((a:any)=>!known.has(a.column_name)).map((a:any)=>a.column_name));
+  }catch(e){setBootstrapMessage(e instanceof Error?e.message:"Preview failed")}finally{setBootstrapBusy(false)}
+ }
+ function stageBootstrap(){
+  if(!bootstrapPreview)return;
+  const d=bootstrapPreview;const table=d.schema_name+"."+d.table_name;
+  const existing=entities.find((e:any)=>e.schema_name===d.schema_name&&e.table_name===d.table_name);
+  const mapped=existing?(existing.attributes||[]).map((a:any)=>({name:a.name,description:a.description||"",column_name:a.column_name,synonyms:(a.synonyms||[]).join(", "),operators:a.operators||["="],value_mappings:(a.value_mappings||[]).map((v:any)=>v.canonical_value+" | "+(v.synonyms||[]).join(", ")).join("\n")})):[];
+  const known=new Set(mapped.map((a:SemanticAttribute)=>a.column_name));
+  const additions=(d.entity?.attributes||[]).filter((a:any)=>bootstrapSelected.includes(a.column_name)&&!known.has(a.column_name)).map((a:any)=>({name:a.name,description:a.description||"",column_name:a.column_name,synonyms:"",operators:a.operators||["="],value_mappings:""}));
+  if(existing){editEntity(existing);setEntity(current=>({...current,attributes:[...mapped,...additions]}));}
+  else{setEntity({name:d.entity?.name||"",description:d.entity?.description||"",table,key_column:d.entity?.key_column||"",display_column:d.entity?.display_column||"",synonyms:"",attributes:additions});setEditingAttributeIndex(null);}
+  setBootstrapMessage("Suggestions staged in the entity editor; nothing has been saved. Review and click Save changes when ready.");
+ }
+
  const [attribute,setAttribute]=useState<SemanticAttribute>({name:"",description:"",column_name:"",synonyms:"",operators:["="],value_mappings:""}); const [editingAttributeIndex,setEditingAttributeIndex]=useState<number|null>(null);
  const [metrics,setMetrics]=useState<any[]>([]); const [metricEntities,setMetricEntities]=useState<any[]>([]);
  const [metric,setMetric]=useState({id:null as number|null,name:"",description:"",entity_id:"",metric_type:"simple",attribute_name:"",calculation_expression:"",aggregation:"sum",format:"number",synonyms:""});
@@ -290,7 +320,14 @@ export function App(){
  <label>Recommended use cases<textarea value={dataset.use_cases} onChange={e=>setDataset({...dataset,use_cases:e.target.value})} placeholder={"One use case per line\nRevenue by product\nUnits sold"}/></label>
  <label>Query constraints<textarea value={dataset.query_constraints} onChange={e=>setDataset({...dataset,query_constraints:e.target.value})} placeholder={"One constraint per line\nUse latest snapshot unless trend is requested"}/></label></div>
  <button className="primary" disabled={busy} onClick={saveDataset}>Save dataset semantics</button></>:<div className="empty">Select a discovered physical table or view to configure its dataset-level meaning.</div>}
- {message&&<p className="notice">{message}</p>}</article></section><section className="grid semanticGrid"><article><div className="sectionHeading"><h3>{entity.id?"Edit semantic entity":"Add semantic entity"}</h3>{entity.id&&<button className="secondary" onClick={()=>setEntity(emptyEntity())}>New entity</button>}</div><div className="semanticForm">
+ {message&&<p className="notice">{message}</p>}</article></section><section className="datasetSemantic"><article className="wide"><div className="sectionHeading"><div><h3>C5 · Semantic Bootstrap Preview</h3><p>Review schema-grounded suggestions. Existing entities, attributes and canonical value mappings are preserved; nothing is saved until you explicitly save the entity.</p></div></div>
+ <div className="semanticForm"><label>Discovered table<select value={bootstrapTable} onChange={e=>{setBootstrapTable(e.target.value);setBootstrapPreview(null);setBootstrapSelected([]);setBootstrapMessage("");}}><option value="">Select table…</option>{semanticTables.map((t:any)=><option key={t.schema_name+"."+t.table_name} value={t.schema_name+"."+t.table_name}>{t.schema_name}.{t.table_name}</option>)}</select></label></div>
+ <button type="button" className="secondary" disabled={bootstrapBusy||!bootstrapTable} onClick={previewBootstrap}>{bootstrapBusy?"Loading…":"Preview suggestions"}</button>
+ {bootstrapPreview&&<div className="attributeEditor"><p>{bootstrapPreview.entity?.attributes?.length||0} columns suggested · {bootstrapPreview.existing_entity_id?"Existing semantic entity found":"New entity"} · Not published</p>
+ <div className="attributeList">{(bootstrapPreview.entity?.attributes||[]).map((a:any)=>{const existing=entities.find((e:any)=>e.schema_name===bootstrapPreview.schema_name&&e.table_name===bootstrapPreview.table_name);const already=(existing?.attributes||[]).some((v:any)=>v.column_name===a.column_name);return <label key={a.column_name} className="attributeRow" style={{display:"flex",alignItems:"center",gap:"12px"}}><input type="checkbox" style={{width:"auto"}} disabled={already} checked={already||bootstrapSelected.includes(a.column_name)} onChange={e=>setBootstrapSelected(current=>e.target.checked?[...current,a.column_name]:current.filter(x=>x!==a.column_name))}/><span><strong>{a.name}</strong> · {a.column_name} ({a.evidence?.data_type||"unknown"}) {already?"— already configured; preserved":""}</span></label>})}</div>
+ <button type="button" className="secondary" disabled={!bootstrapSelected.length} onClick={stageBootstrap}>Stage {bootstrapSelected.length} selected attributes in editor</button></div>}
+ {bootstrapMessage&&<p className="notice">{bootstrapMessage}</p>}</article></section>
+ <section className="grid semanticGrid"><article><div className="sectionHeading"><h3>{entity.id?"Edit semantic entity":"Add semantic entity"}</h3>{entity.id&&<button className="secondary" onClick={()=>setEntity(emptyEntity())}>New entity</button>}</div><div className="semanticForm">
  <label>Business name<input value={entity.name} onChange={e=>setEntity({...entity,name:e.target.value})} placeholder="Product"/></label>
  <label>Description<textarea value={entity.description} onChange={e=>setEntity({...entity,description:e.target.value})}/></label>
  <label>Physical table<select value={entity.table} onChange={e=>setEntity({...entity,table:e.target.value,key_column:"",display_column:"",attributes:[]})}><option value="">Select table…</option>{semanticTables.map(t=><option key={t.schema_name+"."+t.table_name} value={t.schema_name+"."+t.table_name}>{t.schema_name}.{t.table_name}</option>)}</select></label>
