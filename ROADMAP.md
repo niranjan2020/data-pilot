@@ -1,5 +1,15 @@
 # Data Pilot Roadmap
 
+## Golden analytical question catalog — 2026-10-09
+
+- User confirmed **120 focused analytical evaluation and SQL tests passed**; full unit suite not separately confirmed.
+- Added generic capability-aware golden catalog contracts and coverage reporting; 16 illustrative questions split evenly across Astra and AdventureWorks, with 10 **supported plan shapes only** and 6 explicitly pending advanced capabilities.
+- Added 71 parametrized catalog validation scenarios, awaiting local test execution. Questions are illustrative specifications; **not** validated against the actual published schema, metrics, category mappings, LLM predictions, or query results. Do not interpret supported shape as production-ready business-question support.
+- Next: connect evaluation to real published semantic catalog and NL-to-plan predictions; independently review and correct golden expectations (e.g. multi-table product attributes, ownership labels, snapshots) before datasource-level acceptance; then run read-only result comparisons under policy. Keep live routing unchanged.
+
+---
+
+
 ## Analytical evaluation harness checkpoint — 2026-10-09
 
 - User confirmed **88 focused analytical SQL tests passed** (full unit suite not separately confirmed).
