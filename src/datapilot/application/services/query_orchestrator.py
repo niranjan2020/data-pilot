@@ -684,6 +684,7 @@ class QueryOrchestrator:
             bound_sql = normalize_governed_text_filters(
                 bound_sql,
                 governed_entities=governed_context.get("entities", []),
+                physical_schema=schema,
                 dialect="postgres",
             )
         trace.bound_sql = bound_sql
