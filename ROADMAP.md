@@ -9,6 +9,14 @@
 **Current semantic evaluation baseline:** 39/39 passed (100.0%) through the live production pipeline after B4 dialect isolation (p50 2.986 s, p95 4.249 s).  
 **Current unit regression baseline:** **1004 passed** (user-verified 2026-10-09, before C4 categorical proposal regressions). Full integration/evaluation suite and live semantic benchmark are not verified by this count.
 
+## Governed Top-N operator ranking — design checkpoint (2026-10-09)
+
+- Astra-specific approved default: an unqualified **top N operators** means operators ranked by descending **SUM of TEU capacity**, not vessel count. This is datasource semantic configuration, not a global Data Pilot assumption.
+- Query example: "on order vessel count for top 10 operators in each segment". First select 10 operators using the approved TEU ranking metric and its defined fleet eligibility/scope, then count distinct vessels with status ON ORDER grouped by operator **and** vessel_segment. Never collapse operator cohorts or rank by the requested output count unless the user explicitly requests it.
+- Clarify semantics for "top N in each segment" versus "top N globally, broken down by segment"; require a defined scope or ask a clarification if ambiguous. Preserve operator identity in result and grouped comparison chart.
+- Implementation pending: semantic metadata for governed ranking defaults (entity, dimension, metric, aggregation, eligibility, scope, tie policy), planner support for two-stage ranking with CTE/window functions, AST checks for ranking metric and partitioning, and evaluation cases. Avoid hardcoding TEU or maritime logic in generic services.
+- Verify the actual TEU capacity physical column and any per-vessel duplication/grain before defining SUM; ranking must not double-count duplicated vessel records.
+
 ---
 
 ## C4 bounded categorical proposals — provider increment (2026-10-09)
