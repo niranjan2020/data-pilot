@@ -26,6 +26,27 @@ function ResultVisualization({response}:{response:any}){
  const columns:string[]=result.columns||[]; const rows:any[][]=result.rows||[];
  const comparisonCategoryIndices=columns.map((_:string,i:number)=>i).filter((i:number)=>rows.some((r:any[])=>r[i]!==null&&r[i]!==undefined&&typeof r[i]!=="number"&&isNaN(Number(r[i]))));
  const comparisonMeasureIndices=columns.map((_:string,i:number)=>i).filter((i:number)=>rows.length>0&&rows.every((r:any[])=>r[i]===null||r[i]===undefined||typeof r[i]==="number"||typeof r[i]==="string"&&r[i].trim()!==""&&Number.isFinite(Number(r[i]))));
+ if(plan.kind==="trend"&&plan.recommended_visual==="line"&&plan.series_column&&plan.x_column&&plan.y_columns?.length===1){
+  const xi=columns.indexOf(plan.x_column),si=columns.indexOf(plan.series_column),mi=columns.indexOf(plan.y_columns[0]);
+  if(xi>=0&&si>=0&&mi>=0){
+   const periods=Array.from(new Set(rows.map((r:any[])=>String(r[xi]??"")))).sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+   const series=Array.from(new Set(rows.map((r:any[])=>String(r[si]??"")))).sort();
+   if(periods.length>=2&&periods.length<=60&&series.length>=2&&series.length<=8){
+    const width=900,height=340,left=70,right=25,top=30,bottom=75,pw=width-left-right,ph=height-top-bottom;
+    const vals=rows.map((r:any[])=>Number(r[mi])).filter(Number.isFinite),max=Math.max(1,...vals),min=Math.min(0,...vals);
+    const xp=(period:string)=>left+(periods.length===1?pw/2:periods.indexOf(period)*pw/(periods.length-1));
+    const yp=(value:number)=>top+ph-(value-min)/(max-min||1)*ph;
+    const colors=["#2563eb","#f97316","#16a34a","#a855f7","#dc2626","#0891b2","#ca8a04","#64748b"];
+    return <div className="presentationPanel"><div className="presentationHeading"><div><strong>Trend by {plan.x_column}</strong><span>{plan.y_columns[0]} by {plan.series_column}</span></div><em>Multi-series · Line</em></div>
+     <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Trend of ${plan.y_columns[0]} by ${plan.series_column} and ${plan.x_column}`} style={{width:"100%",maxHeight:380}}>
+      {[0,.25,.5,.75,1].map(t=><g key={t}><line x1={left} y1={yp(min+(max-min)*t)} x2={width-right} y2={yp(min+(max-min)*t)} stroke="#e2e8f0"/><text x={left-8} y={yp(min+(max-min)*t)+4} textAnchor="end" className="chartLabel">{(min+(max-min)*t).toFixed(0)}</text></g>)}
+      {periods.map(period=><text key={period} x={xp(period)} y={top+ph+22} textAnchor="middle" className="chartLabel">{period}</text>)}
+      {series.map((name,index)=>{const points=rows.filter((r:any[])=>String(r[si]??"")===name&&Number.isFinite(Number(r[mi]))).sort((a:any[],b:any[])=>periods.indexOf(String(a[xi]))-periods.indexOf(String(b[xi])));return <g key={name}><polyline fill="none" stroke={colors[index]} strokeWidth="3" points={points.map((row:any[])=>`${xp(String(row[xi]))},${yp(Number(row[mi]))}`).join(" ")}/>{points.map((row:any[],j:number)=><circle key={j} cx={xp(String(row[xi]))} cy={yp(Number(row[mi]))} r="4" fill={colors[index]}><title>{name} · {row[xi]}: {displayValue(row[mi])}</title></circle>)}</g>})}
+      {series.map((name,index)=><g key={name} transform={`translate(${left+index*145},${height-17})`}><circle r="5" fill={colors[index]}/><text x="10" y="4" className="chartLabel">{name}</text></g>)}
+     </svg></div>;
+   }
+  }
+ }
  const groupedComparison=plan.kind==="comparison"&&plan.recommended_visual==="bar"&&comparisonCategoryIndices.length===2&&comparisonMeasureIndices.length===1&&rows.length>0;
  if(groupedComparison){
   const [categoryIndex,seriesIndex]=comparisonCategoryIndices,measureIndex=comparisonMeasureIndices[0];
