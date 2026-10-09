@@ -1,5 +1,15 @@
 # Data Pilot Roadmap
 
+## Consolidated offline-to-live evaluation gate — 2026-10-09
+
+- User confirmed **59 focused tests passed** and requested one consolidated offline testing batch before live query testing.
+- Added dedicated structural SQL comparison tests and conservative independent SQL semantic expression diagnostics, with cross-domain tests for missing/wrong dimension and metric mappings. These checks deliberately never claim result-level correctness from SQL alone.
+- **Remaining unimplemented validation (must not be skipped):** approved categorical values and predicates, full SQL value/parameter matching, joins and fanout/grain, time and snapshot semantics, approved metric physical source, full trusted metadata integration with actual databases, and read-only result comparison. Current AST inspector intentionally rejects some of these SQL shapes. Do not mark them passed or production ready.
+- Next: run the combined unit suite once, then use live **dry-run** query testing in the local environment to collect concrete gaps and implement missing capabilities in one coherent follow-up batch before any production routing change.
+
+---
+
+
 ## Legacy query pipeline inspection and offline observation — 2026-10-09
 
 - User confirmed **204 focused tests passed**; full unit suite result not separately reported.
