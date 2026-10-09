@@ -163,7 +163,6 @@ class QueryOrchestrator:
             # First-run schema discovery is not semantic approval. In particular,
             # counts/sums/averages need a reviewed metric rather than an LLM
             # guess based on primary keys or column names.
-            import re
             aggregate_intent = bool(re.search(
                 r"\b(how many|count|number of|total|average|avg|sum|revenue|percentage|percent|rate)\b",
                 contextual_question, flags=re.IGNORECASE,
