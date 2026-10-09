@@ -102,3 +102,33 @@ def test_repeated_temporal_buckets_do_not_form_trend():
 def test_aggregated_numeric_year_remains_a_trend():
     result = _result(["year", "revenue"], [[2024, 10], [2025, 20]])
     assert plan_result_presentation("revenue by year", result)["kind"] == "trend"
+
+
+def test_two_dimension_aggregate_over_thirty_rows_gets_grouped_bars():
+    rows = [[f"segment_{i}", status, i + 1] for i in range(16) for status in ("O", "T")]
+    plan = plan_result_presentation(
+        "How many vessels by ownership in each segment",
+        _result(["vessel_segment", "ownership_status", "vessel_count"], rows),
+    )
+    assert plan["kind"] == "comparison"
+    assert plan["recommended_visual"] == "bar"
+    assert plan["x_column"] == "vessel_segment"
+    assert plan["y_columns"] == ["vessel_count"]
+
+
+def test_two_dimension_duplicate_group_pairs_fall_back_to_table():
+    rows = [["A", "O", 1], ["A", "O", 2]]
+    plan = plan_result_presentation("Show counts", _result(["segment", "status", "count"], rows))
+    assert plan["recommended_visual"] == "table"
+
+
+def test_two_dimension_more_than_eight_series_falls_back_to_table():
+    rows = [["A", f"status_{i}", i + 1] for i in range(9)]
+    plan = plan_result_presentation("Show counts", _result(["segment", "status", "count"], rows))
+    assert plan["recommended_visual"] == "table"
+
+
+def test_two_dimension_negative_measure_falls_back_to_table():
+    rows = [["A", "O", -1], ["A", "T", 2]]
+    plan = plan_result_presentation("Show changes", _result(["segment", "status", "delta"], rows))
+    assert plan["recommended_visual"] == "table"
