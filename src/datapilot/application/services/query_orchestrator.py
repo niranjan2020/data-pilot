@@ -1393,7 +1393,19 @@ class QueryOrchestrator:
         words = tokens(question)
         explicit_comparison = bool(re.search(r"\b(?:versus|vs\.?|between)\b", question, re.I))
         ast = sqlglot.parse_one(sql, read="postgres")
+        outer_tables = [
+            table for table in ast.find_all(exp.Table)
+            if table.find_ancestor(exp.Select) is ast
+        ] if isinstance(ast, exp.Select) else []
         for entity in entities:
+            entity_table_name = str(entity.get("table_name") or "").casefold()
+            # Only assess ambiguity for entities that could participate in
+            # this query. Keep same-name/different-schema entities in scope
+            # so the existing schema-binding rejection remains effective.
+            if entity_table_name and not any(
+                table.name.casefold() == entity_table_name for table in outer_tables
+            ):
+                continue
             # A phrase mapped to different columns on the same entity cannot
             # be assigned to either attribute without additional intent.
             # Restrict this check to published synonyms, not one-letter codes.
