@@ -225,7 +225,10 @@ def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> lis
     if where is None:
         return []
     for predicate in where.find_all(exp.In):
-        if not isinstance(predicate.this, exp.Column):
+        cohort_column = predicate.this
+        if isinstance(cohort_column, exp.Lower):
+            cohort_column = cohort_column.this
+        if not isinstance(cohort_column, exp.Column):
             continue
         literals = predicate.expressions
         if len(literals) < 2 or not all(isinstance(value, exp.Literal) for value in literals):
@@ -235,7 +238,7 @@ def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> lis
             re.search(r"(?<![a-z0-9])" + re.escape(value) + r"(?![a-z0-9])", question.casefold())
             for value in values
         )):
-            cohort_columns.add(_normalise(predicate.this.name))
+            cohort_columns.add(_normalise(cohort_column.name))
     missing = sorted(cohort_columns - grouped)
     if not cohort_columns:
         return []
