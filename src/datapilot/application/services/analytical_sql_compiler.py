@@ -606,3 +606,116 @@ def _compose_validated_grouped_limit(
     return CompiledAnalyticalQuery(
         sql=composed.sql, dialect=validated.dialect, parameters=composed.parameters,
     )
+
+
+def compile_analytical_multi_filtered_grouped_limit(
+    physical_plan: UnifiedPhysicalAnalyticalPlan,
+    *,
+    metric_source: GovernedMetricSource,
+    published_dimensions: tuple,
+    max_rows: int = 1000,
+    max_filters: int = 10,
+) -> CompiledAnalyticalQuery:
+    """Compile chained governed FILTER steps with AND before grouped aggregation.
+
+    Supported: FILTER+ -> GROUP -> AGGREGATE -> SORT -> LIMIT.
+    The caller must resolve semantic category labels to governed DB values.
+    """
+    from dataclasses import replace
+
+    from datapilot.application.services.analytical_plan import AnalyticalPlan
+    from datapilot.application.services.analytical_plan_binding import BoundAnalyticalPlan
+    from datapilot.application.services.analytical_filter_compiler import (
+        compile_governed_dimension_filter,
+    )
+    from datapilot.application.services.analytical_sql_composition import BoundPredicate
+
+    if not isinstance(physical_plan, UnifiedPhysicalAnalyticalPlan):
+        raise ValueError("Unified governed physical plan is required")
+    if type(max_filters) is not int or max_filters < 1:
+        raise ValueError("Invalid maximum governed filter count")
+    bound = physical_plan.bound_plan
+    plan = bound.plan
+    if len(plan.sources) != 1 or len(plan.steps) < 5:
+        raise ValueError("Unsupported multi-filter analytical graph")
+    filters = plan.steps[:-4]
+    if not 1 <= len(filters) <= max_filters:
+        raise ValueError("Filter count exceeds governed bounds")
+    group, aggregate, sort, limit = plan.steps[-4:]
+    if (
+        group.operation is not AnalyticalOperation.GROUP
+        or aggregate.operation is not AnalyticalOperation.AGGREGATE
+        or sort.operation is not AnalyticalOperation.SORT
+        or limit.operation is not AnalyticalOperation.LIMIT
+        or aggregate.inputs != (group.id,)
+        or sort.inputs != (aggregate.id,)
+        or limit.inputs != (sort.id,)
+        or plan.output != limit.id
+    ):
+        raise ValueError("Unsupported multi-filter operation order")
+    previous = plan.sources[0]
+    predicates = []
+    for step in filters:
+        if (
+            step.operation is not AnalyticalOperation.FILTER
+            or step.inputs != (previous,)
+            or set(step.parameters) != {"dimension", "operator", "values"}
+        ):
+            raise ValueError("Unsupported chained filter operation")
+        refs = [ref for ref in bound.references if ref.step_id == step.id]
+        mappings = [d for d in physical_plan.dimensions if d.step_id == step.id]
+        if (
+            len(refs) != 1
+            or len(mappings) != 1
+            or (refs[0].parameter, refs[0].kind) != ("dimension", "dimension")
+            or mappings[0].parameter != "dimension"
+            or mappings[0].semantic_name != refs[0].name
+        ):
+            raise ValueError("Missing governed filter binding")
+        if any(
+            item.step_id == step.id
+            for item in (*physical_plan.metrics, *physical_plan.time_dimensions)
+        ):
+            raise ValueError("Unexpected filter physical mappings")
+        predicate = compile_governed_dimension_filter(
+            dimension_name=refs[0].name,
+            operator=step.parameters["operator"],
+            values=step.parameters["values"],
+            published_dimensions=published_dimensions,
+        )
+        mapping = mappings[0]
+        if (
+            (predicate.entity_id, predicate.schema_name, predicate.table_name)
+            != (mapping.entity_id, mapping.schema_name, mapping.table_name)
+            or (predicate.entity_id, predicate.schema_name, predicate.table_name)
+            != (metric_source.entity_id, metric_source.schema_name, metric_source.table_name)
+            or predicate.sql != (
+                _quote_identifier(mapping.column_name)
+                + (" = %s" if step.parameters["operator"] == "EQ" else
+                   " IN (" + ", ".join(["%s"] * len(predicate.parameters)) + ")")
+            )
+        ):
+            raise ValueError("Governed filter physical source mismatch")
+        predicates.append(BoundPredicate(predicate.sql, predicate.parameters))
+        previous = step.id
+    if group.inputs != (previous,):
+        raise ValueError("GROUP must consume final filter")
+    restored_group = replace(group, inputs=plan.sources)
+    base_plan = AnalyticalPlan(
+        sources=plan.sources,
+        steps=(restored_group, aggregate, sort, limit),
+        output=limit.id,
+    )
+    filter_ids = {step.id for step in filters}
+    base_bound = BoundAnalyticalPlan(
+        plan=base_plan,
+        references=tuple(ref for ref in bound.references if ref.step_id not in filter_ids),
+    )
+    base_physical = replace(
+        physical_plan,
+        bound_plan=base_bound,
+        dimensions=tuple(d for d in physical_plan.dimensions if d.step_id not in filter_ids),
+    )
+    return _compose_validated_grouped_limit(
+        base_physical, metric_source, where=tuple(predicates), max_rows=max_rows,
+    )
