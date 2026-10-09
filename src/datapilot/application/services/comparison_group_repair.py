@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from sqlglot import exp, parse_one
 from datapilot.core.logging import get_logger
+from datapilot.application.services.query_correctness import sqlglot_dialect
 
 logger = get_logger('datapilot.comparison_repair')
 
@@ -26,6 +27,7 @@ def repair_missing_comparison_groups(
         not isinstance(name, str) or not name.isidentifier() for name in missing
     ):
         return reject('invalid_missing_columns')
+    dialect = sqlglot_dialect(dialect)
     try:
         tree = parse_one(sql, read=dialect)
     except Exception:
