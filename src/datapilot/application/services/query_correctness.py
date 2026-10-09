@@ -185,6 +185,40 @@ def _grouping_checks(
 
 
 
+def _ranking_grain_checks(sql: str, *, question: str, required_grouping_columns: Iterable[str], dialect: str) -> list[dict[str, Any]]:
+    """Reject extra grouping in unambiguous top-N aggregate ranking queries.
+
+    Filter-only dimensions must not split the ranked entity into separate rows.
+    Without a resolved expected grain, do not guess.
+    """
+    import re
+    expected = {_normalise(str(c)).rsplit(".", 1)[-1] for c in required_grouping_columns if str(c).strip()}
+    if not expected or not re.search(r"\\btop\\s+\\d+\\b", question, re.I):
+        return []
+    if re.search(r"\\b(?:grouped|broken down|split)\\s+by\\b", question, re.I):
+        return []
+    try:
+        tree = parse_one(sql, read=sqlglot_dialect(dialect))
+    except Exception:
+        return []
+    if not isinstance(tree, exp.Select) or tree.args.get("group") is None:
+        return []
+    group = tree.args["group"]
+    actual = {_normalise(col.name) for expr in group.expressions for col in expr.find_all(exp.Column)}
+    extra = sorted(actual - expected)
+    if not extra:
+        return []
+    return [{
+        "code": "ranking_grain_violation",
+        "status": "failed",
+        "severity": "error",
+        "required_columns": sorted(expected),
+        "actual_grouping_columns": sorted(actual),
+        "extra_columns": extra,
+        "message": "Top-N ranking groups by additional dimensions not requested as ranking grain: " + ", ".join(extra),
+    }]
+
+
 def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> list[dict[str, Any]]:
     """Fail closed when a requested comparison collapses SQL-filtered cohorts.
 
@@ -1470,6 +1504,9 @@ def assess_query_correctness(
         sql,
         required_grouping_columns=required_grouping_columns,
         dialect=dialect,
+    ) if sql else []
+    ranking_grain_checks = _ranking_grain_checks(
+        sql, question=question, required_grouping_columns=required_grouping_columns, dialect=dialect,
     ) if sql else []
     filter_checks = _filter_checks(sql, required_filters=required_filters, dialect=dialect) if sql else []
     comparison_checks = _comparison_grouping_checks(sql, question=question, dialect=dialect) if sql else []
