@@ -7,9 +7,16 @@
 **Last updated:** 2026-10-08  
 **Current focus:** Core OSS — Stage C3: AI provider and datasource onboarding refinement (C2 acceptance passed)  
 **Current semantic evaluation baseline:** 39/39 passed (100.0%) through the live production pipeline after B4 dialect isolation (p50 2.986 s, p95 4.249 s).  
-**Current unit regression baseline:** **1002 passed** (user-verified 2026-10-09, before two additional catalog-query regressions). Full integration/evaluation suite and live semantic benchmark are not verified by this count.
+**Current unit regression baseline:** **1004 passed** (user-verified 2026-10-09, before C4 categorical proposal regressions). Full integration/evaluation suite and live semantic benchmark are not verified by this count.
 
 ---
+
+## C4 bounded categorical proposals — provider increment (2026-10-09)
+
+- Added an explicitly invoked PostgreSQL categorical proposal method: quoted identifiers, read-only transaction, statement timeout <=5s, capped distinct values <=100, fail closed for high cardinality (no partial enum published).
+- Three unit regressions added; **awaiting user verification**. No automatic scanning, API exposure, semantic publication, or runtime synonym resolution yet.
+- Follow-up: add a governed admin-only proposal endpoint with dataset/column allowlist, bounded per-request cost, and review/edit/publish UX. Do not run against all discovered tables.
+- User confirmed 1004 unit tests before this increment; Astra configuration and Docker volumes must remain intact.
 
 ## C4 catalog restoration checkpoint (2026-10-09)
 
