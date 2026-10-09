@@ -106,6 +106,28 @@ def plan_result_presentation(question: str, result: QueryResult, time_interpreta
                     reason="A ranked categorical result is best presented as bars.")
         return plan
 
+    # A two-dimensional aggregate is a categorical comparison even without
+    # explicit "compare" wording. Bound chart cardinality by unique groups,
+    # not by the number of rows (two series double the row count).
+    if len(dimension_columns) == 2 and len(numeric_columns) == 1:
+        first, second = (columns.index(name) for name in dimension_columns)
+        measure = columns.index(numeric_columns[0])
+        categories = {str(row[first]) for row in result.rows}
+        series = {str(row[second]) for row in result.rows}
+        pairs = {(str(row[first]), str(row[second])) for row in result.rows}
+        valid_measures = all(
+            row[measure] is not None and row[measure] >= 0
+            for row in result.rows
+        )
+        if (len(categories) <= 40 and 2 <= len(series) <= 8
+                and len(pairs) == result.row_count and valid_measures):
+            plan.update(
+                kind="comparison", recommended_visual="bar",
+                x_column=dimension_columns[0], y_columns=numeric_columns,
+                reason="Two categorical dimensions and one measure support grouped bars.",
+            )
+            return plan
+
     if dimension_columns and numeric_columns and result.row_count <= 30:
         plan.update(kind="categorical", recommended_visual="bar", x_column=dimension_columns[0],
                     y_columns=numeric_columns,
