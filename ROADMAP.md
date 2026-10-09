@@ -1,5 +1,15 @@
 # Data Pilot Roadmap
 
+## Evidence-aware golden batch reporting — 2026-10-09
+
+- User confirmed **150 focused tests passed**; full unit suite result not separately reported.
+- Added pure batch scorer with distinct **passed / failed / blocked / not evaluated** dispositions. It requires complete readiness evidence, unique case IDs and consistent prediction results; missing or blocked questions cannot inflate evaluated accuracy. Added **35 tests**, awaiting local execution.
+- The scorer consumes independent evaluation results and persisted-publication readiness; it does **not** generate plans, call an LLM, execute SQL, inspect the user's local databases, or establish result-level correctness.
+- Next: connect predictions to real question-to-plan pipeline in an opt-in offline evaluator, validate the illustrative golden references against the actual published catalogs, then add safe read-only query-result comparisons. No live query routing changes.
+
+---
+
+
 ## Trusted golden evaluation metadata integration — 2026-10-09
 
 - User confirmed **127 focused readiness tests passed** (full unit suite result not separately reported).
