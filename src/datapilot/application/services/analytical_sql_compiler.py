@@ -63,3 +63,65 @@ def compile_analytical_projection(
     return CompiledAnalyticalQuery(
         sql=f"SELECT {column} FROM {schema}.{table}"
     )
+
+
+@dataclass(frozen=True)
+class GovernedMetricSource:
+    """Trusted physical source mapping for one published metric."""
+    entity_id: int
+    schema_name: str
+    table_name: str
+    column_name: str
+
+
+def compile_analytical_aggregation(
+    physical_plan: UnifiedPhysicalAnalyticalPlan,
+    *,
+    metric_source: GovernedMetricSource,
+) -> CompiledAnalyticalQuery:
+    """Compile only a single-table, single-metric approved aggregation.
+
+    The metric source must be resolved from trusted catalog metadata, not
+    request input. Calculated expressions and unverified joins are rejected.
+    This compiler does not authorize execution or enforce dataset policies.
+    """
+    if not isinstance(physical_plan, UnifiedPhysicalAnalyticalPlan):
+        raise ValueError("Unified governed physical plan is required")
+    if not isinstance(metric_source, GovernedMetricSource):
+        raise ValueError("Governed metric source is required")
+    plan = physical_plan.bound_plan.plan
+    if len(plan.sources) != 1 or len(plan.steps) != 1:
+        raise ValueError("Unsupported analytical aggregation graph")
+    step = plan.steps[0]
+    if step.operation is not AnalyticalOperation.AGGREGATE or step.inputs != plan.sources:
+        raise ValueError("Unsupported analytical aggregation operation")
+    if set(step.parameters) != {"metric"}:
+        raise ValueError("Aggregation requires only one governed metric")
+    if len(physical_plan.metrics) != 1 or physical_plan.dimensions or physical_plan.time_dimensions:
+        raise ValueError("Aggregation requires exactly one approved metric")
+    if len(physical_plan.bound_plan.references) != 1:
+        raise ValueError("Aggregation requires one governed reference")
+    reference = physical_plan.bound_plan.references[0]
+    metric = physical_plan.metrics[0]
+    if (reference.kind, reference.step_id, reference.parameter) != ("metric", step.id, "metric"):
+        raise ValueError("Metric reference does not match aggregation")
+    if (metric.step_id, metric.parameter, metric.semantic_name) != (
+        step.id, "metric", reference.name
+    ):
+        raise ValueError("Metric binding does not match aggregation")
+    if type(metric.entity_id) is not int or metric.entity_id <= 0 or (
+        type(metric_source.entity_id) is not int or metric.entity_id != metric_source.entity_id
+    ):
+        raise ValueError("Metric source entity mismatch")
+    if metric.calculation_expression is not None:
+        raise ValueError("Calculated metric expressions are not supported")
+    if not isinstance(metric.attribute_name, str) or metric.attribute_name != metric_source.column_name:
+        raise ValueError("Metric source column mismatch")
+    if metric.aggregation not in ("SUM", "COUNT", "AVG", "MIN", "MAX"):
+        raise ValueError("Unsupported governed aggregation function")
+    schema = _quote_identifier(metric_source.schema_name)
+    table = _quote_identifier(metric_source.table_name)
+    column = _quote_identifier(metric_source.column_name)
+    return CompiledAnalyticalQuery(
+        sql=f'SELECT {metric.aggregation}({column}) AS "value" FROM {schema}.{table}'
+    )
