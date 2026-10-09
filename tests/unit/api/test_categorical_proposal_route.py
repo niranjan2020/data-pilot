@@ -51,7 +51,7 @@ async def test_categorical_proposal_returns_unpublished_values():
     provider.propose_categorical_values.return_value = {
         "status": "proposed", "values": ["ON ORDER", "DELIVERED"], "complete": True,
     }
-    with patch("datapilot.api.routes.setup._setup_metadata", new=AsyncMock(return_value=(m, False))), \\
+    with patch("datapilot.api.routes.setup._setup_metadata", new=AsyncMock(return_value=(m, False))), \
          patch("datapilot.api.routes.setup.open_saved_data_source", new=AsyncMock(return_value=provider)):
         result = await propose_saved_source_categorical_values(9, CategoricalProposalRequest(
             schema_name="astra", table_name="vessels", column_name="vessel_status"), request())
