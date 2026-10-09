@@ -549,6 +549,15 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                         ORDER BY schema_name, discovered_at DESC, id DESC
                     )
                     SELECT t.schema_name, t.table_name,
+                           COALESCE((
+                               SELECT jsonb_agg(jsonb_build_object(
+                                   'name', uq.constraint_name,
+                                   'columns', uq.columns,
+                                   'is_primary_key', uq.is_primary_key
+                               ) ORDER BY uq.constraint_name)
+                               FROM datapilot_catalog.discovered_unique_constraints uq
+                               WHERE uq.table_id = t.id
+                           ), '[]'::jsonb) AS unique_constraints,
                            jsonb_agg(
                                jsonb_build_object(
                                    'name', c.column_name,
@@ -560,7 +569,7 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                     FROM datapilot_catalog.tables t
                     JOIN latest l ON l.id = t.snapshot_id
                     JOIN datapilot_catalog.columns c ON c.table_id = t.id
-                    GROUP BY t.schema_name, t.table_name
+                    GROUP BY t.id, t.schema_name, t.table_name
                     ORDER BY t.schema_name, t.table_name
                     """,
                     (data_source_id,),
