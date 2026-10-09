@@ -134,6 +134,37 @@ class PostgreSQLDatabaseProvider(DatabaseProvider):
         self._pool_lock = asyncio.Lock()
         self._closed = False
 
+    async def propose_categorical_values(
+        self, schema_name: str, table_name: str, column_name: str,
+        *, max_values: int = 50, timeout_seconds: float = 2.0,
+    ) -> dict:
+        """Read-only, bounded distinct-value preview. Never persists proposals."""
+        if not 1 <= max_values <= 100 or not 0 < timeout_seconds <= 10:
+            raise ValueError("Invalid categorical discovery bounds")
+        pool = await self._get_pool()
+        query = pg_sql.SQL(
+            "SELECT DISTINCT {column} FROM {table} "
+            "WHERE {column} IS NOT NULL ORDER BY {column} LIMIT %s"
+        ).format(
+            column=pg_sql.Identifier(column_name),
+            table=pg_sql.Identifier(schema_name, table_name),
+        )
+        async with pool.connection() as connection:
+            async with connection.transaction():
+                async with connection.cursor() as cursor:
+                    await cursor.execute(
+                        "SET LOCAL statement_timeout = %s",
+                        (int(timeout_seconds * 1000),),
+                    )
+                    await cursor.execute(query, (max_values + 1,))
+                    rows = await cursor.fetchall()
+        return {
+            "status": "proposed",
+            "values": [row[0] for row in rows[:max_values]],
+            "complete": len(rows) <= max_values,
+            "truncated": len(rows) > max_values,
+        }
+
     @property
     def dialect(self) -> str:
         return "postgresql"
