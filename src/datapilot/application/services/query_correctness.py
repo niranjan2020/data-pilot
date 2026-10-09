@@ -184,6 +184,68 @@ def _grouping_checks(
 
 
 
+
+def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> list[dict[str, Any]]:
+    """Fail closed when a requested comparison collapses SQL-filtered cohorts.
+
+    Only an explicit comparison with multiple literal cohorts and an aggregate
+    is eligible. This deliberately avoids guessing which business attribute
+    a natural-language name refers to.
+    """
+    import re
+
+    if not re.search(r"\b(compare|comparison|versus|vs\.?|between)\b", question, re.I):
+        return []
+    try:
+        tree = parse_one(sql, read=sqlglot_dialect(dialect))
+    except Exception:
+        return [{
+            "code": "comparison_grouping_verification_unavailable",
+            "status": "skipped",
+            "severity": "info",
+            "message": "Comparison grouping verification could not parse SQL.",
+        }]
+    if not any(isinstance(node, (exp.Count, exp.Sum, exp.Avg, exp.Min, exp.Max))
+               for node in tree.find_all(exp.AggFunc)):
+        return []
+    group = tree.args.get("group")
+    if group is None:
+        return []
+    grouped = {
+        _normalise(column.name)
+        for expression in group.expressions
+        for column in expression.find_all(exp.Column)
+    }
+    cohort_columns: set[str] = set()
+    where = tree.args.get("where")
+    if where is None:
+        return []
+    for predicate in where.find_all(exp.In):
+        if not isinstance(predicate.this, exp.Column):
+            continue
+        literals = predicate.expressions
+        if len(literals) < 2 or not all(isinstance(value, exp.Literal) for value in literals):
+            continue
+        values = {str(value.this).casefold() for value in literals}
+        if len(values) > 1:
+            cohort_columns.add(_normalise(predicate.this.name))
+    missing = sorted(cohort_columns - grouped)
+    if not cohort_columns:
+        return []
+    return [{
+        "code": "comparison_dimension_violation" if missing else "comparison_dimension_alignment",
+        "status": "failed" if missing else "passed",
+        "severity": "error" if missing else "info",
+        "cohort_columns": sorted(cohort_columns),
+        "missing_columns": missing,
+        "message": (
+            "Comparison aggregates combine separately requested cohorts: " + ", ".join(missing)
+            if missing else "SQL preserves the filtered comparison cohorts in GROUP BY."
+        ),
+    }]
+
+
+
 def _filter_checks(
     sql: str,
     *,
@@ -1375,6 +1437,7 @@ def assess_query_correctness(
     affected_tables: Iterable[str],
     governed_tables: Iterable[str],
     sql: str | None = None,
+    question: str = "",
     governed_metrics: Iterable[dict[str, Any]] = (),
     required_grouping_columns: Iterable[str] = (),
     required_filters: Iterable[dict[str, Any]] = (),
@@ -1399,6 +1462,7 @@ def assess_query_correctness(
         dialect=dialect,
     ) if sql else []
     filter_checks = _filter_checks(sql, required_filters=required_filters, dialect=dialect) if sql else []
+    comparison_checks = _comparison_grouping_checks(sql, question=question, dialect=dialect) if sql else []
     required_relationships = list(required_relationships)
     # Only the orchestrator may supply this trusted, DB-backed grant set.
     # Never infer publication from flags on a relationship request.
