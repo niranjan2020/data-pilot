@@ -181,3 +181,46 @@ def test_comparison_rejects_ambiguous_unqualified_join_filter():
         QueryOrchestrator._validate_explicit_categorical_comparison(
             "Compare owned versus chartered assets", sql, ENTITIES
         )
+
+
+GOVERNED_ASSET_ENTITIES = [{
+    **ENTITIES[0],
+    "schema_name": "public",
+    "table_name": "assets",
+}]
+
+
+def test_comparison_accepts_filter_on_governed_join_table():
+    sql = (
+        "SELECT a.ownership_status, COUNT(*) FROM public.assets AS a "
+        "JOIN public.contracts AS c ON c.asset_id = a.id "
+        "WHERE a.ownership_status IN ('O', 'T') "
+        "GROUP BY a.ownership_status"
+    )
+    QueryOrchestrator._validate_explicit_categorical_comparison(
+        "Compare owned versus chartered assets", sql, GOVERNED_ASSET_ENTITIES
+    )
+
+
+def test_comparison_rejects_same_column_on_unrelated_join_table():
+    sql = (
+        "SELECT a.ownership_status, COUNT(*) FROM public.assets AS a "
+        "JOIN public.contracts AS c ON c.asset_id = a.id "
+        "WHERE c.ownership_status IN ('O', 'T') "
+        "GROUP BY a.ownership_status"
+    )
+    with pytest.raises(SQLValidationError):
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            "Compare owned versus chartered assets", sql, GOVERNED_ASSET_ENTITIES
+        )
+
+
+def test_comparison_rejects_wrong_schema_even_with_same_table_name():
+    sql = (
+        "SELECT a.ownership_status, COUNT(*) FROM archive.assets AS a "
+        "WHERE a.ownership_status IN ('O', 'T') GROUP BY a.ownership_status"
+    )
+    with pytest.raises(SQLValidationError):
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            "Compare owned versus chartered assets", sql, GOVERNED_ASSET_ENTITIES
+        )
