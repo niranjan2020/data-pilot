@@ -1051,9 +1051,14 @@ class QueryOrchestrator:
         blocking_correctness = [*failed_correctness, *unavailable_required]
         if blocking_correctness:
             from datapilot.application.services.comparison_group_repair import repair_missing_comparison_groups
-            candidate = repair_missing_comparison_groups(
+            from datapilot.application.services.ranking_grain_repair import repair_ranking_grain
+            candidate = repair_ranking_grain(
                 executable_sql, correctness_checks, dialect=self._database.dialect,
             )
+            if candidate is None:
+                candidate = repair_missing_comparison_groups(
+                    executable_sql, correctness_checks, dialect=self._database.dialect,
+                )
             if candidate is None:
                 logger.warning('comparison_group_repair no_candidate failed_codes=%s', [c.get('code') for c in blocking_correctness])
             if candidate is not None:
