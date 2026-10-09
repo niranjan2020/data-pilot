@@ -980,9 +980,27 @@ class QueryOrchestrator:
         # Explicit categorical comparisons must constrain the compared values.
         # Grouping by the column alone is not sufficient: it includes unrelated
         # categories and misrepresents the question. Only approved mappings count.
-        self._validate_explicit_categorical_comparison(
-            question, executable_sql, governed_entities or [],
-        )
+        try:
+            self._validate_explicit_categorical_comparison(
+                question, executable_sql, governed_entities or [],
+            )
+        except SQLValidationError as comparison_error:
+            repaired_sql = self._repair_explicit_categorical_comparison(
+                executable_sql, comparison_error,
+            )
+            if repaired_sql is None:
+                raise
+            repaired_validation = await self._validator.validate(
+                repaired_sql, dialect=self._database.dialect,
+                enforce_read_only=True,
+            )
+            if not repaired_validation.is_valid:
+                raise comparison_error
+            executable_sql = repaired_validation.sanitized_sql or repaired_sql
+            validation = repaired_validation
+            self._validate_explicit_categorical_comparison(
+                question, executable_sql, governed_entities or [],
+            )
 
         correctness_checks = assess_query_correctness(
             affected_tables=validation.affected_tables,
@@ -1415,8 +1433,50 @@ class QueryOrchestrator:
                             "status": "failed", "severity": "error",
                             "message": f"Comparison on {column_name} must filter approved values: "
                                        + ", ".join(matched),
+                            "column_name": column_name,
+                            "canonical_values": matched,
                         }]},
                     )
+
+    @staticmethod
+    def _repair_explicit_categorical_comparison(sql: str, error: SQLValidationError) -> Optional[str]:
+        """Narrowly repair an omitted governed categorical filter, never arbitrary SQL."""
+        import sqlglot
+        from sqlglot import exp
+
+        checks = (getattr(error, "details", None) or {}).get("checks") or []
+        if len(checks) != 1 or checks[0].get("code") != "categorical_comparison_filter_violation":
+            return None
+        column = checks[0].get("column_name")
+        values = checks[0].get("canonical_values") or []
+        if not column or len(values) < 2 or len({str(v).casefold() for v in values}) != len(values):
+            return None
+        try:
+            statements = sqlglot.parse(sql, read="postgres")
+            if len(statements) != 1 or not isinstance(statements[0], exp.Select):
+                return None
+            ast = statements[0]
+            if any(isinstance(n, (exp.Subquery, exp.CTE, exp.Join, exp.Union, exp.SetOperation)) for n in ast.walk()):
+                return None
+            tables = list(ast.find_all(exp.Table))
+            if len(tables) != 1:
+                return None
+            # Do not rewrite an existing constraint, even if incomplete: its
+            # semantics may be deliberate or more complex than a simple IN.
+            where = ast.args.get("where")
+            if where and any(c.name.casefold() == column.casefold() for c in where.find_all(exp.Column)):
+                return None
+            if not any(c.name.casefold() == column.casefold() for c in ast.find_all(exp.Column)):
+                return None
+            qualifier = tables[0].alias_or_name
+            predicate = exp.In(
+                this=exp.column(column, table=qualifier),
+                expressions=[exp.Literal.string(str(v)) for v in values],
+            )
+            ast.set("where", exp.Where(this=exp.and_(where.this.copy(), predicate) if where else predicate))
+            return ast.sql(dialect="postgres")
+        except (ValueError, TypeError, sqlglot.errors.ParseError):
+            return None
 
     @staticmethod
     def _required_relationships(governed_context: dict[str, Any]) -> list[dict[str, Any]]:
