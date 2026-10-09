@@ -57,7 +57,7 @@ def test_unsupported_operation_is_rejected():
 
 
 def test_identifier_quotes_are_escaped():
-    result=compile_analytical_aggregation(fixture(),metric_source=source(table='Odd"Table'))
+    result=compile_analytical_aggregation(fixture(),metric_source=source(table_name='Odd"Table'))
     assert '"Odd""Table"' in result.sql
 
 
