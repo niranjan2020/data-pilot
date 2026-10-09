@@ -216,6 +216,6 @@ def verify_governed_analytical_sql(
         # AST-level parameter count guards against malformed placeholder syntax.
         if len(list(parsed.find_all(exp.Literal))) < len(compiled.parameters):
             return AnalyticalSQLVerification(False, "Insufficient SQL parameter expressions")
-    except (sqlglot.errors.ParseError, ValueError, TypeError, AttributeError):
+    except (sqlglot.errors.ParseError, ValueError, TypeError, AttributeError, KeyError, IndexError, StopIteration, OverflowError):
         return AnalyticalSQLVerification(False, "SQL AST parsing failed")
     return AnalyticalSQLVerification(True, "SQL matches governed compilation and AST structure")
