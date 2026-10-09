@@ -651,3 +651,47 @@ def test_correctness_honors_non_postgresql_dialect_for_metric_expression():
         item["code"] == "metric_expression_verification_unavailable"
         for item in checks
     )
+
+
+def test_comparison_rejects_collapsed_filtered_cohorts():
+    checks = assess_query_correctness(
+        affected_tables=["astra.vessels"],
+        governed_tables=["astra.vessels"],
+        question="Compare new building vessel counts between MSC and Maersk in all segments",
+        sql=(
+            "SELECT vessel_segment, COUNT(DISTINCT id) FROM astra.vessels "
+            "WHERE operator IN ('MSC', 'Maersk') AND vessel_status = 'ON ORDER' "
+            "GROUP BY vessel_segment"
+        ),
+    )
+    violation = next(check for check in checks if check["code"] == "comparison_dimension_violation")
+    assert violation["status"] == "failed"
+    assert violation["missing_columns"] == ["operator"]
+
+
+def test_comparison_accepts_separate_filtered_cohorts():
+    checks = assess_query_correctness(
+        affected_tables=["astra.vessels"],
+        governed_tables=["astra.vessels"],
+        question="Compare new building vessel counts between MSC and Maersk in all segments",
+        sql=(
+            "SELECT vessel_segment, operator, COUNT(DISTINCT id) FROM astra.vessels "
+            "WHERE operator IN ('MSC', 'Maersk') AND vessel_status = 'ON ORDER' "
+            "GROUP BY vessel_segment, operator"
+        ),
+    )
+    assert any(check["code"] == "comparison_dimension_alignment" and check["status"] == "passed"
+               for check in checks)
+
+
+def test_non_comparison_can_aggregate_filtered_cohorts_together():
+    checks = assess_query_correctness(
+        affected_tables=["astra.vessels"],
+        governed_tables=["astra.vessels"],
+        question="How many vessels belong to MSC and Maersk combined by segment?",
+        sql=(
+            "SELECT vessel_segment, COUNT(*) FROM astra.vessels "
+            "WHERE operator IN ('MSC', 'Maersk') GROUP BY vessel_segment"
+        ),
+    )
+    assert not any(check["code"].startswith("comparison_dimension_") for check in checks)
