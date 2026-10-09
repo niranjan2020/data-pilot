@@ -236,6 +236,26 @@ ALTER TABLE IF EXISTS datapilot_catalog.semantic_metrics
 ALTER TABLE IF EXISTS datapilot_catalog.semantic_metrics
     ADD COLUMN IF NOT EXISTS calculation_expression TEXT;
 
+CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_ranking_rules (
+    id BIGSERIAL PRIMARY KEY,
+    data_source_id BIGINT NOT NULL REFERENCES datapilot_catalog.data_sources(id) ON DELETE CASCADE,
+    entity_id BIGINT NOT NULL REFERENCES datapilot_catalog.semantic_entities(id) ON DELETE CASCADE,
+    dimension_attribute_name TEXT NOT NULL,
+    metric_id BIGINT NOT NULL REFERENCES datapilot_catalog.semantic_metrics(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    default_top_n INTEGER NOT NULL DEFAULT 10 CHECK (default_top_n BETWEEN 1 AND 100),
+    direction TEXT NOT NULL DEFAULT 'desc' CHECK (direction IN ('asc', 'desc')),
+    scope TEXT NOT NULL DEFAULT 'global' CHECK (scope IN ('global', 'per_group')),
+    is_default BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (data_source_id, entity_id, name)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS semantic_ranking_one_default_per_entity
+    ON datapilot_catalog.semantic_ranking_rules(data_source_id, entity_id)
+    WHERE is_default;
+
 CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_metric_synonyms (
     metric_id BIGINT NOT NULL REFERENCES datapilot_catalog.semantic_metrics(id) ON DELETE CASCADE,
     synonym TEXT NOT NULL,
@@ -1601,6 +1621,84 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                             (metric_id, synonym),
                         )
                     return metric_id
+
+    async def save_semantic_ranking_rule(
+        self, *, data_source_id: int, entity_id: int, name: str,
+        dimension_attribute_name: str, metric_id: int, default_top_n: int = 10,
+        direction: str = "desc", scope: str = "global", is_default: bool = False,
+    ) -> int:
+        """Store an approved ranking rule; never infer a metric from physical columns."""
+        await self.initialize()
+        if not 1 <= default_top_n <= 100 or direction not in {"asc", "desc"} or scope not in {"global", "per_group"}:
+            raise MetadataError("Invalid ranking rule configuration")
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.transaction():
+                async with connection.cursor() as cursor:
+                    await cursor.execute(
+                        """
+                        SELECT 1 FROM datapilot_catalog.semantic_entities e
+                        JOIN datapilot_catalog.semantic_attributes a ON a.entity_id = e.id
+                        JOIN datapilot_catalog.semantic_metrics m ON m.entity_id = e.id
+                        WHERE e.data_source_id = %s AND e.id = %s
+                          AND a.name = %s AND m.id = %s AND m.data_source_id = %s
+                        """,
+                        (data_source_id, entity_id, dimension_attribute_name, metric_id, data_source_id),
+                    )
+                    if await cursor.fetchone() is None:
+                        raise MetadataError("Ranking dimension and metric must belong to the selected entity")
+                    if is_default:
+                        await cursor.execute(
+                            """UPDATE datapilot_catalog.semantic_ranking_rules
+                               SET is_default = FALSE, updated_at = NOW()
+                               WHERE data_source_id = %s AND entity_id = %s""",
+                            (data_source_id, entity_id),
+                        )
+                    await cursor.execute(
+                        """
+                        INSERT INTO datapilot_catalog.semantic_ranking_rules
+                            (data_source_id, entity_id, name, dimension_attribute_name,
+                             metric_id, default_top_n, direction, scope, is_default)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT (data_source_id, entity_id, name) DO UPDATE SET
+                            dimension_attribute_name = EXCLUDED.dimension_attribute_name,
+                            metric_id = EXCLUDED.metric_id,
+                            default_top_n = EXCLUDED.default_top_n,
+                            direction = EXCLUDED.direction,
+                            scope = EXCLUDED.scope,
+                            is_default = EXCLUDED.is_default,
+                            updated_at = NOW()
+                        RETURNING id
+                        """,
+                        (data_source_id, entity_id, name, dimension_attribute_name,
+                         metric_id, default_top_n, direction, scope, is_default),
+                    )
+                    return (await cursor.fetchone())[0]
+
+    async def list_semantic_ranking_rules(self, data_source_id: int) -> list[dict]:
+        await self.initialize()
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    SELECT r.id, r.name, r.entity_id, e.name, r.dimension_attribute_name,
+                           r.metric_id, m.name, r.default_top_n, r.direction, r.scope, r.is_default
+                    FROM datapilot_catalog.semantic_ranking_rules r
+                    JOIN datapilot_catalog.semantic_entities e ON e.id = r.entity_id
+                    JOIN datapilot_catalog.semantic_metrics m ON m.id = r.metric_id
+                    WHERE r.data_source_id = %s
+                    ORDER BY e.name, r.name
+                    """,
+                    (data_source_id,),
+                )
+                return [{
+                    "id": row[0], "name": row[1], "entity_id": row[2],
+                    "entity_name": row[3], "dimension_attribute_name": row[4],
+                    "metric_id": row[5], "metric_name": row[6],
+                    "default_top_n": row[7], "direction": row[8],
+                    "scope": row[9], "is_default": row[10],
+                } for row in await cursor.fetchall()]
 
     async def list_semantic_metrics(self, data_source_id: int) -> list[dict]:
         await self.initialize()
