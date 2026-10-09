@@ -224,3 +224,24 @@ def test_comparison_rejects_wrong_schema_even_with_same_table_name():
         QueryOrchestrator._validate_explicit_categorical_comparison(
             "Compare owned versus chartered assets", sql, GOVERNED_ASSET_ENTITIES
         )
+
+
+@pytest.mark.parametrize("sql", [
+    (
+        "SELECT a.ownership_status, COUNT(*) FROM public.assets AS a "
+        "WHERE EXISTS (SELECT 1 FROM public.contracts AS c "
+        "WHERE c.ownership_status IN ('O', 'T')) "
+        "GROUP BY a.ownership_status"
+    ),
+    (
+        "WITH filtered AS (SELECT ownership_status FROM public.assets "
+        "WHERE ownership_status IN ('O', 'T')) "
+        "SELECT ownership_status, COUNT(*) FROM public.assets "
+        "GROUP BY ownership_status"
+    ),
+])
+def test_comparison_rejects_category_filter_only_in_nested_scope(sql):
+    with pytest.raises(SQLValidationError):
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            "Compare owned versus chartered assets", sql, GOVERNED_ASSET_ENTITIES
+        )
