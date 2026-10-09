@@ -154,3 +154,34 @@ def test_duplicate_year_cohort_pair_does_not_claim_trend():
         _result(["operator", "ordered_year", "vessel_count"], rows),
     )
     assert not plan.get("series_column")
+
+
+def test_constant_auxiliary_years_do_not_hide_multi_operator_trend():
+    rows = [
+        [2021, 2026, 2022, "Maersk", 17],
+        [2021, 2026, 2022, "MSC", 78],
+        [2021, 2026, 2023, "Maersk", 18],
+        [2021, 2026, 2023, "MSC", 21],
+    ]
+    plan = plan_result_presentation(
+        "Vessels ordered year wise for two operators",
+        _result(["five_years_ago", "current_year", "ordered_year", "operator", "vessel_count"], rows),
+    )
+    assert plan["recommended_visual"] == "line"
+    assert plan["x_column"] == "ordered_year"
+    assert plan["series_column"] == "operator"
+    assert plan["y_columns"] == ["vessel_count"]
+
+
+def test_constant_numeric_context_is_not_a_second_chart_measure():
+    plan = plan_result_presentation(
+        "Sales by region",
+        _result(["reference_year", "region", "revenue"],
+                [[2026, "East", 100], [2026, "West", 120]]),
+    )
+    assert plan["y_columns"] == ["revenue"]
+
+
+def test_single_row_numeric_value_still_becomes_kpi():
+    plan = plan_result_presentation("Total orders", _result(["total_orders"], [[42]]))
+    assert plan["recommended_visual"] == "kpi"
