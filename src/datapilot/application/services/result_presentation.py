@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from numbers import Number
+import re
 from typing import Any
 
 from datapilot.domain.models import QueryResult
@@ -12,6 +13,18 @@ from datapilot.domain.models import QueryResult
 _TIME_HINTS = ("date", "time", "month", "quarter", "year", "week", "day", "period")
 _RANK_HINTS = ("top ", "bottom ", "highest", "lowest", "rank")
 _COMPARE_HINTS = ("compare", " vs ", " versus ")
+
+
+def _identifier_column(name: str) -> bool:
+    """Identifiers are dimensions even when stored as numbers."""
+    parts = re.sub(r"([a-z])([A-Z])", r"\1_\2", name).lower()
+    return bool(re.search(r"(^|_)(id|ids|imo|uuid|guid|key|code|number|no)($|_)", parts)) or parts.endswith("_id")
+
+
+def _temporal_column(name: str) -> bool:
+    """Match time roles on word boundaries, not arbitrary substrings."""
+    parts = re.sub(r"([a-z])([A-Z])", r"\1_\2", name).lower()
+    return any(part in _TIME_HINTS for part in re.split(r"[^a-z]+", parts) if part)
 
 
 def plan_result_presentation(question: str, result: QueryResult, time_interpretation: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -38,8 +51,16 @@ def plan_result_presentation(question: str, result: QueryResult, time_interpreta
         if values and all(isinstance(value, (Number, Decimal)) and not isinstance(value, bool) for value in values):
             numeric_indices.append(index)
 
+    # An ID, calendar year, or month number is not an analytical measure.
+    numeric_indices = [i for i in numeric_indices if not _identifier_column(columns[i]) and not _temporal_column(columns[i])]
     numeric_columns = [columns[i] for i in numeric_indices]
     dimension_columns = [c for i, c in enumerate(columns) if i not in numeric_indices]
+
+    # Detail listings can contain multiple numeric fields (IDs, quantities, dates).
+    # Without an actual measure, never invent trends, ranking, or KPI cards.
+    if not numeric_columns:
+        plan["reason"] = "Individual records are best presented in a table; no aggregated measure was returned."
+        return plan
 
     if result.row_count == 1 and len(numeric_columns) == 1:
         plan.update(kind="scalar", recommended_visual="kpi", y_columns=numeric_columns,
@@ -56,9 +77,12 @@ def plan_result_presentation(question: str, result: QueryResult, time_interpreta
                     reason="Named comparison periods with numeric measures are best compared with bars.")
         return plan
 
-    temporal_column = next((c for c in columns if any(h in c.lower() for h in _TIME_HINTS)), None)
+    temporal_column = next((c for c in columns if _temporal_column(c)), None)
     grouping_grain = time_interpretation.get("grouping_grain")
-    if temporal_column and numeric_columns and (grouping_grain or result.row_count > 1):
+    # A genuine series needs one point per time bucket. Repeated dates/years
+    # indicate detail records, not an ordered aggregate trend.
+    distinct_periods = bool(temporal_column) and len({str(row[columns.index(temporal_column)]) for row in result.rows}) == len(result.rows)
+    if temporal_column and numeric_columns and distinct_periods and (grouping_grain or result.row_count > 1):
         plan.update(kind="trend", recommended_visual="line", x_column=temporal_column,
                     y_columns=numeric_columns,
                     reason="An ordered time dimension with numeric measures is best presented as a trend.")
