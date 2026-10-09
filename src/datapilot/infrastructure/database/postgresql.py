@@ -8,6 +8,7 @@ import time
 from typing import Any, Dict, Optional
 
 from psycopg.rows import tuple_row
+from psycopg import sql as pg_sql
 from psycopg_pool import AsyncConnectionPool
 
 from datapilot.core.exceptions import DatabaseConnectionError, DatabaseExecutionError
@@ -383,6 +384,62 @@ class PostgreSQLDatabaseProvider(DatabaseProvider):
             tables=list(tables.values()),
             dialect=self.dialect,
         )
+
+    async def propose_categorical_values(
+        self,
+        schema_name: str,
+        table_name: str,
+        column_name: str,
+        *,
+        max_values: int = 50,
+        timeout_seconds: float = 2.0,
+    ) -> dict[str, Any]:
+        """Opt-in, read-only categorical suggestions; never publishes semantic metadata.
+
+        A capped DISTINCT result is not evidence of completeness. If the cap is
+        exceeded, withhold the sample rather than suggesting an incomplete enum.
+        """
+        if not all(isinstance(part, str) and part.strip() for part in (schema_name, table_name, column_name)):
+            raise ValueError("Schema, table and column names must be non-empty")
+        if not isinstance(max_values, int) or isinstance(max_values, bool) or not 1 <= max_values <= 100:
+            raise ValueError("max_values must be between 1 and 100")
+        if not 0 < timeout_seconds <= 5:
+            raise ValueError("timeout_seconds must be between 0 and 5 seconds")
+        query = pg_sql.SQL(
+            "SELECT DISTINCT {column} FROM {schema}.{table} "
+            "WHERE {column} IS NOT NULL ORDER BY {column} LIMIT %s"
+        ).format(
+            column=pg_sql.Identifier(column_name),
+            schema=pg_sql.Identifier(schema_name),
+            table=pg_sql.Identifier(table_name),
+        )
+        try:
+            pool = await self._get_pool()
+            async with pool.connection() as connection:
+                async with connection.transaction():
+                    async with connection.cursor() as cursor:
+                        await cursor.execute("SET TRANSACTION READ ONLY")
+                        await cursor.execute(
+                            "SELECT set_config('statement_timeout', %s, true)",
+                            (f"{int(timeout_seconds * 1000)}ms",),
+                        )
+                        await cursor.execute(query, (max_values + 1,))
+                        rows = await cursor.fetchall()
+            # Return only bounded textual candidates; never serialize arbitrary objects.
+            if len(rows) > max_values:
+                return {"status": "high_cardinality", "values": [], "complete": False}
+            return {
+                "status": "proposed",
+                "values": [row[0] for row in rows if isinstance(row[0], str)],
+                "complete": True,
+            }
+        except DatabaseConnectionError:
+            raise
+        except Exception as exc:
+            raise DatabaseExecutionError(
+                "Categorical value proposal failed",
+                details={"error_type": type(exc).__name__},
+            ) from exc
 
     async def execute_query(
         self,
