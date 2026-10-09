@@ -87,3 +87,13 @@
 .schemaColumnAction button:disabled{opacity:.55;cursor:not-allowed}
 .columns .schemaColumnProposal{display:block;margin:0 10px 10px;padding:10px 12px;border-radius:7px;background:#f2f4f7;color:#344054;overflow-wrap:anywhere;line-height:1.5}
 @media(max-width:650px){.columns .schemaColumnRow{grid-template-columns:minmax(100px,1fr) minmax(90px,1fr) 30px;gap:8px}.schemaColumnRow .schemaColumnAction{grid-column:1/-1;justify-content:flex-start}}
+
+
+/* C4 categorical review stays within its column's expanded detail. */
+.schemaColumnProposal .categoryReviewRow{display:grid;grid-template-columns:18px minmax(100px,1fr) minmax(180px,2fr);gap:12px;align-items:center;margin:8px 0;padding:4px 0}
+.categoryReviewRow input[type="text"],.categoryReviewRow input:not([type]){width:100%;min-width:0;padding:8px;border:1px solid #d0d5dd;border-radius:6px}
+.categoryReviewActions{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.categoryReviewActions button{padding:7px 12px;border:1px solid #d0d5dd;border-radius:6px;background:white;color:#344054;cursor:pointer}
+.categoryReviewActions button:disabled{opacity:.5;cursor:not-allowed}
+.schemaColumnProposal textarea{width:100%;box-sizing:border-box;resize:vertical;border:1px solid #d0d5dd;border-radius:6px;padding:8px}
+@media(max-width:650px){.schemaColumnProposal .categoryReviewRow{grid-template-columns:18px 1fr}.categoryReviewRow input:not([type]){grid-column:2}}
