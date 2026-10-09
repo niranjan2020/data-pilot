@@ -6,7 +6,52 @@ from datapilot.application.services.analytical_sql_compiler import (
 )
 from datapilot.application.services.analytical_sql_composition import BoundPredicate
 
-from test_analytical_grouped_limit_compiler import physical
+from datapilot.application.services.analytical_dimensions import AnalyticalDimension
+from datapilot.application.services.analytical_plan import AnalyticalOperation, AnalyticalPlan, PlanStep
+from datapilot.application.services.analytical_plan_binding import bind_analytical_plan
+from datapilot.application.services.unified_analytical_binding import unify_physical_analytical_plan
+
+
+def physical():
+    """Build a complete governed plan without importing another test module."""
+    plan = AnalyticalPlan(
+        sources=("sales",),
+        steps=(
+            PlanStep("group", AnalyticalOperation.GROUP, ("sales",),
+                     {"dimension": "OrderDetail.Region"}),
+            PlanStep("aggregate", AnalyticalOperation.AGGREGATE, ("group",),
+                     {"metric": "Revenue"}),
+            PlanStep("sort", AnalyticalOperation.SORT, ("aggregate",),
+                     {"metric": "Revenue", "direction": "DESC"}),
+            PlanStep("limit", AnalyticalOperation.LIMIT, ("sort",),
+                     {"count": 5}),
+        ),
+        output="limit",
+    )
+    bound = bind_analytical_plan(
+        plan,
+        approved_dimensions=[{"name": "OrderDetail.Region"}],
+        approved_metrics=[{"name": "Revenue"}],
+    )
+    return unify_physical_analytical_plan(
+        bound,
+        published_dimensions=(
+            AnalyticalDimension(
+                "Region", 1, "OrderDetail", "Sales", "OrderDetail", "RegionCode"
+            ),
+        ),
+        published_metrics=(
+            {
+                "name": "Revenue",
+                "entity_id": 1,
+                "attribute_name": "Amount",
+                "aggregation": "SUM",
+                "calculation_expression": None,
+            },
+        ),
+        published_time_dimensions=(),
+    )
+
 
 
 def test_shared_composer_matches_legacy_grouped_sql():
