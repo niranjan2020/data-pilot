@@ -1436,9 +1436,17 @@ class QueryOrchestrator:
                             continue
                         values = ([predicate.expression] if isinstance(predicate, exp.EQ)
                                   else list(predicate.expressions))
-                        constrained.update(
-                            str(v.this).casefold() for v in values if isinstance(v, exp.Literal) and v.is_string
-                        )
+                        # Do not union values across separate AND predicates:
+                        # status='O' AND status='T' is contradictory, not a
+                        # comparison covering both categories. A single IN
+                        # predicate must cover the full requested value set.
+                        predicate_values = {
+                            str(v.this).casefold() for v in values
+                            if isinstance(v, exp.Literal) and v.is_string
+                        }
+                        required_values = {v.casefold() for v in matched}
+                        if required_values.issubset(predicate_values):
+                            constrained.update(predicate_values)
                 missing = [v for v in matched if v.casefold() not in constrained]
                 if missing:
                     raise SQLValidationError(
