@@ -265,8 +265,35 @@ def test_single_published_category_accepts_sql_filter():
     )
 
 
-def test_unresolved_composite_label_is_not_misread_as_two_categories():
+def test_composite_label_requires_its_own_published_code():
     sql = "SELECT ownership_status, COUNT(*) FROM assets GROUP BY ownership_status"
+    with pytest.raises(SQLValidationError):
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            "Show owned but chartered assets", sql, ENTITIES
+        )
+
+
+def test_composite_label_accepts_exact_published_code():
+    sql = "SELECT ownership_status, COUNT(*) FROM assets WHERE ownership_status = 'TO' GROUP BY ownership_status"
     QueryOrchestrator._validate_explicit_categorical_comparison(
         "Show owned but chartered assets", sql, ENTITIES
     )
+
+
+def test_ambiguous_published_synonym_fails_closed():
+    entities = [{
+        "name": "Assets", "attributes": [{
+            "column_name": "ownership_status",
+            "value_mappings": [
+                {"canonical_value": "O", "synonyms": ["leased"]},
+                {"canonical_value": "T", "synonyms": ["leased"]},
+            ],
+        }],
+    }]
+    with pytest.raises(SQLValidationError) as captured:
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            "Show leased assets",
+            "SELECT ownership_status, COUNT(*) FROM assets WHERE ownership_status = 'O' GROUP BY ownership_status",
+            entities,
+        )
+    assert captured.value.details["checks"][0]["code"] == "categorical_mapping_ambiguity"
