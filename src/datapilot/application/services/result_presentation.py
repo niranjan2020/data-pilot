@@ -53,8 +53,22 @@ def plan_result_presentation(question: str, result: QueryResult, time_interpreta
 
     # An ID, calendar year, or month number is not an analytical measure.
     numeric_indices = [i for i in numeric_indices if not _identifier_column(columns[i]) and not _temporal_column(columns[i])]
+    # Constant-valued projection columns are auxiliary context, not plotted
+    # measures or grouping dimensions. Keep them in the raw result table.
+    # Require multiple rows so a scalar KPI is never discarded.
+    constant_indices = {
+        i for i in range(len(columns))
+        if result.row_count > 1 and all(
+            i < len(row) and row[i] is not None and row[i] == result.rows[0][i]
+            for row in result.rows
+        )
+    }
+    numeric_indices = [i for i in numeric_indices if i not in constant_indices]
     numeric_columns = [columns[i] for i in numeric_indices]
-    dimension_columns = [c for i, c in enumerate(columns) if i not in numeric_indices]
+    dimension_columns = [
+        c for i, c in enumerate(columns)
+        if i not in numeric_indices and i not in constant_indices
+    ]
 
     # Detail listings can contain multiple numeric fields (IDs, quantities, dates).
     # Without an actual measure, never invent trends, ranking, or KPI cards.
