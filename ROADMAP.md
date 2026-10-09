@@ -1,5 +1,16 @@
 # Data Pilot Roadmap
 
+## Analytical SQL AST verification checkpoint — 2026-10-09
+
+- User confirmed 15/15 deterministic SQL verification tests and 9/9 unified compiler dispatch tests; full unit-suite result was not separately reported.
+- Added SQLGlot AST structural gate to the deterministic plan-to-SQL verifier: single SELECT, exactly one approved physical table, grouping, ordering, limit, two projections, and rejection of JOIN/subquery/set operations/window/CTE. **Awaiting user test verification.**
+- This is **not yet independent semantic equivalence verification**: expected SQL still comes from the same deterministic compiler. AST shape checks are an additional defense, not proof of filter/metric/grain equivalence.
+- Roadmap next: expand AST verification against independently constructed plan expectations (predicate fields/operators, aggregate functions, grouping and sort identity, parameter positions), cross-domain negative tests, trusted Admin attribute publication and permissions integration, then Astra/AdventureWorks live evaluation.
+- Do not force-route live traffic, reset local datasource metadata, or treat green unit tests as end-to-end acceptance.
+
+---
+
+
 ## Analytical planning checkpoint — 2026-10-09 (user-verified 1,175 unit tests)
 
 **Roadmap alignment:** Generic composable plan and basic governed binding contracts exist; deterministic SQL compilation, plan/SQL verification and live Astra/AdventureWorks evaluation remain OPEN. Top-N remains one acceptance scenario, not a separate query engine.
