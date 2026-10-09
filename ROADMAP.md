@@ -1,5 +1,15 @@
 # Data Pilot Roadmap
 
+## Published semantic catalog readiness — 2026-10-09
+
+- User confirmed **103 focused golden-question and evaluation tests passed**; full unit suite result not separately reported.
+- Added read-only `validate_golden_catalog_readiness` that accepts a **trusted, datasource-scoped** `PublishedSemanticContext` and separately published `AnalyticalDimension` attributes; rejects missing/ambiguous dimensions or metrics, physical dimension source mismatch, cross-datasource context, and pending capabilities. Added **24 tests**, awaiting local verification.
+- This is a pure metadata acceptance gate; it does not retrieve records itself, grant permissions, resolve category labels, verify physical metric sources, execute queries, or integrate with live NL-to-SQL. Actual production callers must load metadata through persisted publication stores and still validate physical bindings, tenant isolation, eligibility, joins and execution authorization.
+- Next: connect trusted loaders to evaluation orchestration and inspect real Astra/AdventureWorks published metadata, then correct golden specifications and build read-only result-level evaluations.
+
+---
+
+
 ## Golden analytical question catalog — 2026-10-09
 
 - User confirmed **120 focused analytical evaluation and SQL tests passed**; full unit suite not separately confirmed.
