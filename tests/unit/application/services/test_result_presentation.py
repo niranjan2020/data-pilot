@@ -132,3 +132,25 @@ def test_two_dimension_negative_measure_falls_back_to_table():
     rows = [["A", "O", -1], ["A", "T", 2]]
     plan = plan_result_presentation("Show changes", _result(["segment", "status", "delta"], rows))
     assert plan["recommended_visual"] == "table"
+
+
+def test_repeated_years_with_two_cohorts_use_multiseries_line():
+    rows = [["Maersk", 2022, 17], ["Maersk", 2023, 18],
+            ["MSC", 2022, 78], ["MSC", 2023, 21]]
+    plan = plan_result_presentation(
+        "Vessels ordered year wise by operator",
+        _result(["operator", "ordered_year", "vessel_count"], rows),
+    )
+    assert plan["recommended_visual"] == "line"
+    assert plan["x_column"] == "ordered_year"
+    assert plan["series_column"] == "operator"
+
+
+def test_duplicate_year_cohort_pair_does_not_claim_trend():
+    rows = [["Maersk", 2022, 17], ["Maersk", 2022, 18],
+            ["MSC", 2022, 78], ["MSC", 2023, 21]]
+    plan = plan_result_presentation(
+        "Vessels ordered year wise by operator",
+        _result(["operator", "ordered_year", "vessel_count"], rows),
+    )
+    assert not plan.get("series_column")
