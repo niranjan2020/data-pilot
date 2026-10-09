@@ -1415,6 +1415,10 @@ class QueryOrchestrator:
                 # (e.g. "owned" versus "owned but chartered").
                 if not matched or (explicit_comparison and len(matched) < 2):
                     continue
+                # Multi-value non-comparison requests may refer to one
+                # composite label; defer until intent is disambiguated.
+                if not explicit_comparison and len(matched) > 1:
+                    continue
                 if len(matched) == 1 and not explicit_comparison:
                     overlapping = [
                         other for other in mappings
