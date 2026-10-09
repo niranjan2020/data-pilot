@@ -1266,9 +1266,9 @@ class PostgreSQLMetadataProvider(MetadataProvider):
 
     async def publish_categorical_mappings(
         self, *, data_source_id: int, schema_name: str, table_name: str,
-        column_name: str, mappings: list[dict],
+        column_name: str, mappings: list[dict], create_missing_attribute: bool = False,
     ) -> int:
-        """Merge approved categorical mappings without rewriting entity attributes."""
+        """Merge mappings; optionally create an approved attribute on an existing entity."""
         await self.initialize()
         pool = await self._get_pool()
         async with pool.connection() as connection:
@@ -1283,8 +1283,35 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                         (data_source_id, schema_name, table_name, column_name),
                     )
                     rows = await cursor.fetchall()
-                    if len(rows) != 1:
-                        raise MetadataError("Exactly one configured semantic attribute is required for publication")
+                    if len(rows) > 1:
+                        raise MetadataError("Ambiguous semantic attribute for publication")
+                    if not rows:
+                        if not create_missing_attribute:
+                            raise MetadataError("Approve attribute creation before publishing")
+                        await cursor.execute(
+                            """SELECT id FROM datapilot_catalog.semantic_entities
+                               WHERE data_source_id = %s AND schema_name = %s AND table_name = %s
+                               FOR UPDATE""",
+                            (data_source_id, schema_name, table_name),
+                        )
+                        entities = await cursor.fetchall()
+                        if len(entities) != 1:
+                            raise MetadataError("Configure a semantic entity for this dataset first")
+                        entity_id = entities[0][0]
+                        await cursor.execute(
+                            """SELECT id FROM datapilot_catalog.semantic_attributes
+                               WHERE entity_id = %s AND name = %s FOR UPDATE""",
+                            (entity_id, column_name),
+                        )
+                        if await cursor.fetchone():
+                            raise MetadataError("Attribute name already used by another column")
+                        await cursor.execute(
+                            """INSERT INTO datapilot_catalog.semantic_attributes
+                               (entity_id, name, description, column_name, operators)
+                               VALUES (%s, %s, %s, %s, '["="]'::jsonb) RETURNING id""",
+                            (entity_id, column_name, "Discovered categorical attribute", column_name),
+                        )
+                        rows = [await cursor.fetchone()]
                     attribute_id = rows[0][0]
                     await cursor.execute(
                         """SELECT canonical_value, synonyms FROM datapilot_catalog.semantic_attribute_values
