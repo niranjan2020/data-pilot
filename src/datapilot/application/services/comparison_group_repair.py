@@ -23,9 +23,9 @@ def repair_missing_comparison_groups(
         tree = parse_one(sql, read=dialect)
     except Exception:
         return None
-    if not isinstance(tree, exp.Select) or any(
+    if not isinstance(tree, exp.Select) or tree.args.get("distinct") is not None or any(
         isinstance(node, (exp.Join, exp.Subquery, exp.Union, exp.With, exp.Having,
-                          exp.Window, exp.Distinct, exp.Qualify))
+                          exp.Window, exp.Qualify))
         for node in tree.walk()
     ):
         return None
