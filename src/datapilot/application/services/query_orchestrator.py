@@ -1466,7 +1466,15 @@ class QueryOrchestrator:
                 # vector retrieval may include related but unused entities.
                 # Never impose its categorical mappings on an unrelated query.
                 if entity_table and not matching_tables:
-                    continue
+                    # A different physical table is unrelated retrieval context.
+                    # The same table name in another schema is instead a failed
+                    # governed binding: never silently accept that substitution.
+                    same_name_tables = [
+                        table for table in outer_tables
+                        if table.name.casefold() == entity_table
+                    ]
+                    if not same_name_tables:
+                        continue
                 valid_qualifiers = {
                     (table.alias_or_name or "").casefold()
                     for table in allowed_tables
