@@ -691,6 +691,7 @@ class QueryOrchestrator:
             "required_grouping_columns": governed_grouping_columns,
             "required_filters": governed_filters,
             "governed_entities": governed_context.get("entities", []),
+            "selected_categorical_attribute": governed_context.get("resolved_attribute_selection"),
             "required_relationships": self._required_relationships(governed_context),
             "required_time_plan": time_interpretation,
             "data_source_name": request.source_name,
@@ -815,6 +816,7 @@ class QueryOrchestrator:
         required_grouping_columns: Optional[list[str]] = None,
         required_filters: Optional[list[dict[str, Any]]] = None,
         governed_entities: Optional[list[dict[str, Any]]] = None,
+        selected_categorical_attribute: Optional[dict[str, Any]] = None,
         required_relationships: Optional[list[dict[str, Any]]] = None,
         required_time_plan: Optional[dict[str, Any]] = None,
         data_source_name: Optional[str] = None,
@@ -983,6 +985,7 @@ class QueryOrchestrator:
         try:
             self._validate_explicit_categorical_comparison(
                 question, executable_sql, governed_entities or [],
+                selected_attribute=selected_categorical_attribute,
             )
         except SQLValidationError as comparison_error:
             repaired_sql = self._repair_explicit_categorical_comparison(
@@ -1000,6 +1003,7 @@ class QueryOrchestrator:
             validation = repaired_validation
             self._validate_explicit_categorical_comparison(
                 question, executable_sql, governed_entities or [],
+                selected_attribute=selected_categorical_attribute,
             )
 
         correctness_checks = assess_query_correctness(
@@ -1397,6 +1401,7 @@ class QueryOrchestrator:
     @staticmethod
     def _validate_explicit_categorical_comparison(
         question: str, sql: str, entities: list[dict[str, Any]],
+        selected_attribute: Optional[dict[str, Any]] = None,
     ) -> None:
         """Fail closed when two explicit, governed values are not SQL-filtered."""
         import sqlglot
@@ -1421,6 +1426,10 @@ class QueryOrchestrator:
             if table.find_ancestor(exp.Select) is ast
         ] if isinstance(ast, exp.Select) else []
         for entity in entities:
+            if selected_attribute and str(entity.get("name") or "").casefold() != str(
+                selected_attribute.get("entity") or ""
+            ).casefold():
+                continue
             entity_table_name = str(entity.get("table_name") or "").casefold()
             # Only assess ambiguity for entities that could participate in
             # this query. Keep same-name/different-schema entities in scope
@@ -1435,6 +1444,10 @@ class QueryOrchestrator:
             phrase_columns = {}
             for attribute in entity.get("attributes") or []:
                 column = str(attribute.get("column_name") or "").casefold()
+                if selected_attribute and column != str(
+                    selected_attribute.get("column_name") or ""
+                ).casefold():
+                    continue
                 for mapping in attribute.get("value_mappings") or []:
                     for synonym in mapping.get("synonyms") or []:
                         phrase = tokens(str(synonym))
@@ -1476,6 +1489,10 @@ class QueryOrchestrator:
                 )
             for attribute in entity.get("attributes") or []:
                 column_name = str(attribute.get("column_name") or "")
+                if selected_attribute and column_name.casefold() != str(
+                    selected_attribute.get("column_name") or ""
+                ).casefold():
+                    continue
                 if len(explicit_columns) == 1 and column_name.casefold() not in explicit_columns:
                     continue
                 mappings = attribute.get("value_mappings") or []
