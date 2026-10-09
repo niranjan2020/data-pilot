@@ -979,6 +979,7 @@ class QueryOrchestrator:
             affected_tables=validation.affected_tables,
             governed_tables=governed_tables or [],
             sql=executable_sql,
+            question=question,
             governed_metrics=governed_metrics or [],
             required_grouping_columns=required_grouping_columns or [],
             required_filters=required_filters or [],
