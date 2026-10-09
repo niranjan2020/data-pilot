@@ -75,3 +75,39 @@ def test_conflicting_metadata_fails_closed_for_attribute():
         {"attributes": [{"name": "operator", "data_type": "text", "value_mappings": {"MSC": "MSC"}}]},
     ])
     assert result == sql
+
+
+from datapilot.domain.models import SchemaMetadata, TableMetadata, ColumnMetadata
+
+
+def test_live_operator_filter_uses_physical_schema_when_semantic_type_absent():
+    schema = SchemaMetadata(schema_name="astra", dialect="postgresql", tables=[
+        TableMetadata(name="vessels", schema_name="astra", columns=[
+            ColumnMetadata(name="operator", data_type="text"),
+            ColumnMetadata(name="ownership_status", data_type="text"),
+            ColumnMetadata(name="built_year", data_type="integer"),
+        ])
+    ])
+    sql = (
+        'SELECT "T1"."vessel_segment", COUNT(DISTINCT "T1"."id") FROM "astra"."vessels" AS "T1" '
+        'WHERE "T1"."operator" IN (\'msc\', \'maersk\') AND "T1"."built_year" > 2020 '
+        'GROUP BY "T1"."vessel_segment"'
+    )
+    result = normalize_governed_text_filters(sql, governed_entities=[
+        {"attributes": [{"name": "operator"}, {"name": "ownership_status",
+         "value_mappings": {"O": "Owned", "T": "Chartered"}}]}
+    ], physical_schema=schema)
+    assert 'LOWER("T1"."operator") IN (\'msc\', \'maersk\')' in result
+
+
+def test_physical_schema_does_not_override_published_codes():
+    schema = SchemaMetadata(schema_name="astra", dialect="postgresql", tables=[
+        TableMetadata(name="vessels", schema_name="astra", columns=[
+            ColumnMetadata(name="ownership_status", data_type="text"),
+        ])
+    ])
+    sql = "SELECT id FROM astra.vessels WHERE ownership_status IN ('O', 'T')"
+    result = normalize_governed_text_filters(sql, governed_entities=[
+        {"attributes": [{"name": "ownership_status", "value_mappings": {"O": "Owned"}}]}
+    ], physical_schema=schema)
+    assert result == sql
