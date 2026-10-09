@@ -1424,16 +1424,27 @@ class QueryOrchestrator:
                     table for table in ast.find_all(exp.Table)
                     if table.find_ancestor(exp.Select) is ast
                 ] if isinstance(ast, exp.Select) else []
+                # Match aliases to the governed entity's physical table.
+                # Legacy entities without table identity retain the previous
+                # conservative qualifier behavior.
+                entity_table = str(entity.get("table_name") or "").casefold()
+                entity_schema = str(entity.get("schema_name") or "").casefold()
+                matching_tables = [
+                    table for table in outer_tables
+                    if (not entity_table or table.name.casefold() == entity_table)
+                    and (not entity_schema or (table.db or "").casefold() == entity_schema)
+                ]
+                allowed_tables = matching_tables if entity_table else outer_tables
                 valid_qualifiers = {
                     (table.alias_or_name or "").casefold()
-                    for table in outer_tables
+                    for table in allowed_tables
                 }
                 def correct_column(column):
                     if not isinstance(column, exp.Column) or column.name.casefold() != column_name.casefold():
                         return False
                     if column.table:
                         return column.table.casefold() in valid_qualifiers
-                    return len(outer_tables) == 1
+                    return len(outer_tables) == 1 and len(allowed_tables) == 1
 
                 where = ast.args.get("where")
                 if isinstance(ast, exp.Select) and where:
