@@ -446,3 +446,39 @@ def test_distinct_attribute_synonyms_do_not_trigger_attribute_ambiguity():
         "SELECT COUNT(*) FROM public.assets WHERE ownership_status = 'O'",
         entities,
     )
+
+
+def test_unrelated_entity_conflicting_attribute_synonyms_do_not_block_query():
+    entities = [{
+        "name": "Assets", "schema_name": "public", "table_name": "assets",
+        "attributes": [
+            {"column_name": "ownership_status", "value_mappings": [
+                {"canonical_value": "O", "synonyms": ["active"]}]},
+            {"column_name": "operating_status", "value_mappings": [
+                {"canonical_value": "A", "synonyms": ["active"]}]},
+        ],
+    }]
+    QueryOrchestrator._validate_explicit_categorical_comparison(
+        "Count active customers",
+        "SELECT COUNT(*) FROM public.customers",
+        entities,
+    )
+
+
+def test_relevant_entity_conflicting_attribute_synonyms_still_fail():
+    entities = [{
+        "name": "Assets", "schema_name": "public", "table_name": "assets",
+        "attributes": [
+            {"column_name": "ownership_status", "value_mappings": [
+                {"canonical_value": "O", "synonyms": ["active"]}]},
+            {"column_name": "operating_status", "value_mappings": [
+                {"canonical_value": "A", "synonyms": ["active"]}]},
+        ],
+    }]
+    with pytest.raises(SQLValidationError) as captured:
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            "Count active assets",
+            "SELECT COUNT(*) FROM public.assets",
+            entities,
+        )
+    assert captured.value.details["checks"][0]["code"] == "categorical_attribute_ambiguity"
