@@ -1447,6 +1447,19 @@ class QueryOrchestrator:
                         required_values = {v.casefold() for v in matched}
                         if required_values.issubset(predicate_values):
                             constrained.update(predicate_values)
+                # A second AND constraint on the same column may silently
+                # narrow the requested comparison (e.g. IN ('O','T') AND
+                # status='O'). Reject rather than trusting the first IN.
+                if constrained and where:
+                    same_column_predicates = [
+                        p for p in conjuncts(where.this)
+                        if any(
+                            c.name.casefold() == column_name.casefold()
+                            for c in p.find_all(exp.Column)
+                        )
+                    ]
+                    if len(same_column_predicates) != 1:
+                        constrained.clear()
                 missing = [v for v in matched if v.casefold() not in constrained]
                 if missing:
                     raise SQLValidationError(
