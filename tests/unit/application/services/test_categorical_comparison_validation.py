@@ -245,3 +245,28 @@ def test_comparison_rejects_category_filter_only_in_nested_scope(sql):
         QueryOrchestrator._validate_explicit_categorical_comparison(
             "Compare owned versus chartered assets", sql, GOVERNED_ASSET_ENTITIES
         )
+
+
+def test_single_published_category_requires_sql_filter():
+    sql = "SELECT ownership_status, COUNT(*) FROM assets GROUP BY ownership_status"
+    with pytest.raises(SQLValidationError):
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            "Show owned assets", sql, ENTITIES
+        )
+
+
+def test_single_published_category_accepts_sql_filter():
+    sql = (
+        "SELECT ownership_status, COUNT(*) FROM assets "
+        "WHERE ownership_status = 'O' GROUP BY ownership_status"
+    )
+    QueryOrchestrator._validate_explicit_categorical_comparison(
+        "Show owned assets", sql, ENTITIES
+    )
+
+
+def test_unresolved_composite_label_is_not_misread_as_two_categories():
+    sql = "SELECT ownership_status, COUNT(*) FROM assets GROUP BY ownership_status"
+    QueryOrchestrator._validate_explicit_categorical_comparison(
+        "Show owned but chartered assets", sql, ENTITIES
+    )
