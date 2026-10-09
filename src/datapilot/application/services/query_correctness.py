@@ -1529,7 +1529,7 @@ def assess_query_correctness(
                 })
     fanout_checks = _fanout_checks(sql, governed_metrics=governed_metrics, required_relationships=required_relationships, dialect=dialect) if sql else []
     time_checks = _time_checks(sql, required_time_plan=required_time_plan, dialect=dialect) if sql else []
-    semantic_checks = metric_checks + grouping_checks + filter_checks + relationship_checks + publication_checks + join_policy_checks + fanout_checks + time_checks
+    semantic_checks = metric_checks + grouping_checks + comparison_checks + filter_checks + relationship_checks + publication_checks + join_policy_checks + fanout_checks + time_checks
 
     if not governed:
         return semantic_checks + [{
