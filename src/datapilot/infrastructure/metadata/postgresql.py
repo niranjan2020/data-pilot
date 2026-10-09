@@ -1263,6 +1263,60 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                     })
                 return entities
 
+
+    async def publish_categorical_mappings(
+        self, *, data_source_id: int, schema_name: str, table_name: str,
+        column_name: str, mappings: list[dict],
+    ) -> int:
+        """Merge approved categorical mappings without rewriting entity attributes."""
+        await self.initialize()
+        pool = await self._get_pool()
+        async with pool.connection() as connection:
+            async with connection.transaction():
+                async with connection.cursor() as cursor:
+                    await cursor.execute(
+                        """SELECT a.id FROM datapilot_catalog.semantic_attributes a
+                           JOIN datapilot_catalog.semantic_entities e ON e.id = a.entity_id
+                           WHERE e.data_source_id = %s AND e.schema_name = %s
+                             AND e.table_name = %s AND a.column_name = %s
+                           FOR UPDATE OF a""",
+                        (data_source_id, schema_name, table_name, column_name),
+                    )
+                    rows = await cursor.fetchall()
+                    if len(rows) != 1:
+                        raise MetadataError("Exactly one configured semantic attribute is required for publication")
+                    attribute_id = rows[0][0]
+                    await cursor.execute(
+                        """SELECT canonical_value, synonyms FROM datapilot_catalog.semantic_attribute_values
+                           WHERE attribute_id = %s FOR UPDATE""", (attribute_id,),
+                    )
+                    existing = {value: list(aliases or []) for value, aliases in await cursor.fetchall()}
+                    merged = dict(existing)
+                    for item in mappings:
+                        canonical = item["canonical_value"].strip()
+                        if not canonical:
+                            raise MetadataError("Canonical value cannot be empty")
+                        match = next((v for v in merged if v.casefold() == canonical.casefold()), canonical)
+                        aliases = merged.get(match, []) + list(item.get("synonyms") or [])
+                        merged[match] = sorted({v.strip() for v in aliases if isinstance(v, str) and v.strip() and v.strip().casefold() != match.casefold()})
+                    ownership = {}
+                    for canonical, aliases in merged.items():
+                        for term in [canonical, *aliases]:
+                            key = term.casefold()
+                            if key in ownership and ownership[key] != canonical.casefold():
+                                raise MetadataError("Conflicting canonical value synonyms")
+                            ownership[key] = canonical.casefold()
+                    for canonical, aliases in merged.items():
+                        await cursor.execute(
+                            """INSERT INTO datapilot_catalog.semantic_attribute_values
+                               (attribute_id, canonical_value, synonyms)
+                               VALUES (%s, %s, %s::jsonb)
+                               ON CONFLICT (attribute_id, canonical_value)
+                               DO UPDATE SET synonyms = EXCLUDED.synonyms""",
+                            (attribute_id, canonical, json.dumps(aliases)),
+                        )
+                    return len(mappings)
+
     async def save_time_dimension(
         self, *, data_source_id: int, entity_id: int, name: str,
         column_name: str, role: str, grain: str, timezone: str,
