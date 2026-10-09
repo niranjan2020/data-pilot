@@ -777,3 +777,63 @@ async def verify_reviewed_relationship(source_id: int, payload: RelationshipRevi
             await provider.close()
         if owns:
             await metadata.close()
+
+class CategoricalProposalRequest(BaseModel):
+    schema_name: str = Field(min_length=1, max_length=128)
+    table_name: str = Field(min_length=1, max_length=128)
+    column_name: str = Field(min_length=1, max_length=128)
+
+
+@router.post("/data-source/{source_id}/categorical-proposals")
+async def propose_saved_source_categorical_values(
+    source_id: int, payload: CategoricalProposalRequest, request: Request
+):
+    """Explicit administrator proposal for one selected, discovered text column.
+
+    Does not persist values, change onboarding readiness, or publish mappings.
+    """
+    metadata, owns_metadata = await _setup_metadata(request)
+    provider = None
+    try:
+        if await metadata.get_active_data_source_id() != source_id:
+            raise HTTPException(status_code=409, detail="Datasource is not active.")
+        selected = await metadata.get_selected_datasets(source_id)
+        if (payload.schema_name, payload.table_name) not in {
+            (item["schema_name"], item["table_name"]) for item in selected
+        }:
+            raise HTTPException(status_code=403, detail="Dataset is not approved for discovery.")
+        catalog = await metadata.list_catalog_tables(source_id)
+        table = next(
+            (item for item in catalog if item["schema_name"] == payload.schema_name
+             and item["table_name"] == payload.table_name),
+            None,
+        )
+        if table is None:
+            raise HTTPException(status_code=404, detail="Discovered dataset not found.")
+        column = next((item for item in table["columns"] if item["name"] == payload.column_name), None)
+        if column is None:
+            raise HTTPException(status_code=404, detail="Discovered column not found.")
+        if column["data_type"].lower() not in {"text", "character varying", "character", "varchar", "char"}:
+            raise HTTPException(status_code=422, detail="Categorical proposals support text columns only.")
+        store = getattr(request.app.state, "data_source_secret_store", None) or LocalDataSourceSecretStore()
+        try:
+            provider = await open_saved_data_source(metadata, store, source_id)
+            result = await provider.propose_categorical_values(
+                payload.schema_name, payload.table_name, payload.column_name,
+                max_values=50, timeout_seconds=2.0,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="Categorical discovery could not be completed.") from exc
+        return {
+            "schema_name": payload.schema_name,
+            "table_name": payload.table_name,
+            "column_name": payload.column_name,
+            **result,
+            "published": False,
+        }
+    finally:
+        if provider is not None:
+            await provider.close()
+        if owns_metadata:
+            await metadata.close()
+
