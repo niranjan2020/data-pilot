@@ -185,3 +185,15 @@ def test_constant_numeric_context_is_not_a_second_chart_measure():
 def test_single_row_numeric_value_still_becomes_kpi():
     plan = plan_result_presentation("Total orders", _result(["total_orders"], [[42]]))
     assert plan["recommended_visual"] == "kpi"
+
+
+def test_constant_categorical_dimension_remains_for_series_cardinality_guard():
+    rows = [["A", f"status_{i}", i + 1] for i in range(9)]
+    plan = plan_result_presentation("Show counts", _result(["segment", "status", "count"], rows))
+    assert plan["recommended_visual"] == "table"
+
+
+def test_constant_categorical_dimension_remains_for_negative_measure_guard():
+    rows = [["A", "O", -1], ["A", "T", 2]]
+    plan = plan_result_presentation("Show changes", _result(["segment", "status", "delta"], rows))
+    assert plan["recommended_visual"] == "table"
