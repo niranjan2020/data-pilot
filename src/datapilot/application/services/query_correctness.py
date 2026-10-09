@@ -194,7 +194,8 @@ def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> lis
     """
     import re
 
-    if not re.search(r"\b(compare|comparison|versus|vs\.?|between)\b", question, re.I):
+    explicit_comparison = bool(re.search(r"\b(compare|comparison|versus|vs\.?|between)\b", question, re.I))
+    if not explicit_comparison and not re.search(r"\band\b", question, re.I):
         return []
     try:
         tree = parse_one(sql, read=sqlglot_dialect(dialect))
@@ -227,7 +228,10 @@ def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> lis
         if len(literals) < 2 or not all(isinstance(value, exp.Literal) for value in literals):
             continue
         values = {str(value.this).casefold() for value in literals}
-        if len(values) > 1:
+        if len(values) > 1 and (explicit_comparison or all(
+            re.search(r"(?<![a-z0-9])" + re.escape(value) + r"(?![a-z0-9])", question.casefold())
+            for value in values
+        )):
             cohort_columns.add(_normalise(predicate.this.name))
     missing = sorted(cohort_columns - grouped)
     if not cohort_columns:
