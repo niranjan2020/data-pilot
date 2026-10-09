@@ -1373,7 +1373,7 @@ class QueryOrchestrator:
                        for suffix in ("ed", "s"))
 
         words = tokens(question)
-        if not re.search(r"\\b(?:versus|vs\\.?|between)\\b", question, re.I):
+        if not re.search(r"\b(?:versus|vs\.?|between)\b", question, re.I):
             return
         ast = sqlglot.parse_one(sql, read="postgres")
         for entity in entities:
