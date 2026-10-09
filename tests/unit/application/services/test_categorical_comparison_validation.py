@@ -148,3 +148,36 @@ def test_comparison_rejects_additional_restrictive_category_predicate(extra):
         QueryOrchestrator._validate_explicit_categorical_comparison(
             "Compare owned versus chartered assets", sql, ENTITIES
         )
+
+
+def test_comparison_accepts_valid_single_table_alias():
+    sql = (
+        "SELECT a.ownership_status, COUNT(*) FROM assets AS a "
+        "WHERE a.ownership_status IN ('O', 'T') GROUP BY a.ownership_status"
+    )
+    QueryOrchestrator._validate_explicit_categorical_comparison(
+        "Compare owned versus chartered assets", sql, ENTITIES
+    )
+
+
+def test_comparison_rejects_unknown_table_alias():
+    sql = (
+        "SELECT a.ownership_status, COUNT(*) FROM assets AS a "
+        "WHERE x.ownership_status IN ('O', 'T') GROUP BY a.ownership_status"
+    )
+    with pytest.raises(SQLValidationError):
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            "Compare owned versus chartered assets", sql, ENTITIES
+        )
+
+
+def test_comparison_rejects_ambiguous_unqualified_join_filter():
+    sql = (
+        "SELECT a.ownership_status, COUNT(*) FROM assets AS a "
+        "JOIN other_assets AS b ON b.id = a.id "
+        "WHERE ownership_status IN ('O', 'T') GROUP BY a.ownership_status"
+    )
+    with pytest.raises(SQLValidationError):
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            "Compare owned versus chartered assets", sql, ENTITIES
+        )
