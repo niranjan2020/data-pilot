@@ -105,3 +105,6 @@
 .columns .schemaColumnProposal .categoryReviewRow{display:grid;grid-template-columns:18px minmax(120px,1fr) minmax(180px,2fr);align-items:center;gap:12px;border:0;padding:6px 0}
 .columns .schemaColumnProposal .categoryReviewRow input:not([type="checkbox"]){width:100%;min-width:0}
 @media(max-width:650px){.columns .schemaColumnProposal .categoryReviewRow{grid-template-columns:18px minmax(0,1fr)}.columns .schemaColumnProposal .categoryReviewRow input:not([type="checkbox"]){grid-column:2}}
+
+/* Ranked categorical results can have many rows; do not squeeze them into the compact chart height. */
+.resultChart.rankedChart{max-height:none;width:100%;max-width:1200px;height:auto;margin-inline:auto}
