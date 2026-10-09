@@ -61,5 +61,8 @@ def test_ast_rejects_compiler_authorized_query_with_inconsistent_physical_metric
     source=GovernedMetricSource(1,schema,table,"Amount")
     compiled=compile_governed_analytical_plan(physical,metric_source=source)
     assert verify_governed_analytical_sql(physical,compiled,metric_source=source).verified
-    changed=replace(physical,metrics=(replace(physical.metrics[0],aggregation="COUNT"),))
+    changed=replace(physical,metrics=tuple(
+        replace(binding,aggregation="COUNT") if binding.step_id == "aggregate" else binding
+        for binding in physical.metrics
+    ))
     assert not verify_governed_analytical_sql(changed,compiled,metric_source=source).verified
