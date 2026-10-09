@@ -71,3 +71,34 @@ def test_postgresql_decimal_measure_is_ranked_not_plain_table():
     assert plan["recommended_visual"] == "bar"
     assert plan["x_column"] == "Name"
     assert plan["y_columns"] == ["revenue"]
+
+
+def test_detail_records_with_year_and_numeric_id_remain_table():
+    result = _result(
+        ["id", "imo", "vessel_name", "ordered_year", "ordered_month"],
+        [[11257, 9000001, "A", 2026, 2], [11258, 9000002, "B", 2026, 2]],
+    )
+    plan = plan_result_presentation("List all orders placed in the last 6 months", result)
+    assert plan["kind"] == "table"
+    assert plan["recommended_visual"] == "table"
+
+
+def test_detail_records_with_numeric_measure_remain_table():
+    result = _result(
+        ["id", "vessel_name", "built_year", "capacity"],
+        [[1, "A", 2000, 12000], [2, "B", 2002, 13000]],
+    )
+    assert plan_result_presentation("show vessels older than 20 years", result)["kind"] == "table"
+
+
+def test_repeated_temporal_buckets_do_not_form_trend():
+    result = _result(
+        ["order_date", "revenue"],
+        [["2026-01-01", 10], ["2026-01-01", 20]],
+    )
+    assert plan_result_presentation("show revenue", result)["kind"] != "trend"
+
+
+def test_aggregated_numeric_year_remains_a_trend():
+    result = _result(["year", "revenue"], [[2024, 10], [2025, 20]])
+    assert plan_result_presentation("revenue by year", result)["kind"] == "trend"
