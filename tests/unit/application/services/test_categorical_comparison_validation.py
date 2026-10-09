@@ -517,3 +517,34 @@ def test_explicit_attribute_does_not_accept_other_columns_filter():
             "SELECT COUNT(*) FROM public.assets WHERE ownership_status = 'O'",
             entities,
         )
+
+
+def test_shared_value_synonym_offers_attribute_clarification_before_sql():
+    entities = [{
+        "name": "Assets",
+        "attributes": [
+            {"name": "Ownership Status", "column_name": "ownership_status",
+             "value_mappings": [{"canonical_value": "O", "synonyms": ["active"]}]},
+            {"name": "Operating Status", "column_name": "operating_status",
+             "value_mappings": [{"canonical_value": "A", "synonyms": ["active"]}]},
+        ],
+    }]
+    candidates = QueryOrchestrator._ambiguous_attribute_matches("Count active assets", entities)
+    assert {c["value"] for c in candidates} == {
+        "Assets.Ownership Status", "Assets.Operating Status"
+    }
+
+
+def test_explicit_attribute_suppresses_shared_value_clarification():
+    entities = [{
+        "name": "Assets",
+        "attributes": [
+            {"name": "Ownership Status", "column_name": "ownership_status",
+             "value_mappings": [{"canonical_value": "O", "synonyms": ["active"]}]},
+            {"name": "Operating Status", "column_name": "operating_status",
+             "value_mappings": [{"canonical_value": "A", "synonyms": ["active"]}]},
+        ],
+    }]
+    assert QueryOrchestrator._ambiguous_attribute_matches(
+        "Count assets with active operating status", entities
+    ) == []
