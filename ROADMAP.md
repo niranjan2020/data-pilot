@@ -1,5 +1,18 @@
 # Data Pilot Roadmap
 
+## Analytical planning checkpoint — 2026-10-09 (user-verified 1,175 unit tests)
+
+**Roadmap alignment:** Generic composable plan and basic governed binding contracts exist; deterministic SQL compilation, plan/SQL verification and live Astra/AdventureWorks evaluation remain OPEN. Top-N remains one acceptance scenario, not a separate query engine.
+
+**Governance work in progress:** Persistent publication store for metrics/time roles, datasource-scoped metadata loader, administrative workflow contracts and entity-attribute dimension extraction have unit coverage. These are not yet integrated into the authenticated Admin API or live NL-to-SQL execution path. No full end-to-end publication acceptance has been demonstrated.
+
+**Contract correction (this increment):** Entity approval is not permission to group by every attribute. Add a separate datasource + entity ID + attribute name publication store. Legacy `dimension` grants still refer to entities and MUST NOT be treated as attribute approval. Do not activate dimension binding until the loader consumes explicit attribute grants. Attribute renames, revocation and authorization require integration tests.
+
+**Next priority:** Wire approved attributes into the metadata loader and plan binder; connect trusted Admin permissions; then proceed with deterministic SQL compilation and AST verification. Preserve C2/C3 acceptance, C4/C5 governance backlog, and C7 visualization as a separate milestone. No Docker volume resets or automatic publication.
+
+---
+
+
 ## Generic governed analytical planning — architecture direction (2026-10-09)
 
 **Top-N is a test case, not a dedicated product capability.** Do not add special-case operator, TEU, or Top-N SQL routing. Preserve existing generic query correctness and user-approved semantic metadata.
