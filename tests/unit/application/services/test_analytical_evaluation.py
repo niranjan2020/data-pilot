@@ -127,12 +127,11 @@ def test_evaluation_rejects_sql_or_binding_tampering(domain, tamper):
     ("expected_source", ("only_schema",)),
 ])
 def test_invalid_evaluation_contract_rejected(field, value):
+    arguments = {
+        "case_id": "case",
+        "question": "Question",
+        "expected_operations": (Op.GROUP,),
+    }
+    arguments[field] = value
     with pytest.raises(ValueError):
-        AnalyticalEvaluationCase(
-            case_id="case", question="Question",
-            expected_operations=(Op.GROUP,), **{field: value},
-        ) if field not in ("case_id", "question", "expected_operations") else
-        AnalyticalEvaluationCase(**{
-            "case_id": "case", "question": "Question",
-            "expected_operations": (Op.GROUP,), field: value,
-        })
+        AnalyticalEvaluationCase(**arguments)
