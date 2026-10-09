@@ -1462,6 +1462,11 @@ class QueryOrchestrator:
                     and (not entity_schema or (table.db or "").casefold() == entity_schema)
                 ]
                 allowed_tables = matching_tables if entity_table else outer_tables
+                # A selected semantic entity is not necessarily a SQL source:
+                # vector retrieval may include related but unused entities.
+                # Never impose its categorical mappings on an unrelated query.
+                if entity_table and not matching_tables:
+                    continue
                 valid_qualifiers = {
                     (table.alias_or_name or "").casefold()
                     for table in allowed_tables
