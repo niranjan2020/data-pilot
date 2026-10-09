@@ -97,7 +97,7 @@ def plan_result_presentation(question: str, result: QueryResult, time_interpreta
                     reason="Named comparison periods with numeric measures are best compared with bars.")
         return plan
 
-    temporal_column = next((c for c in columns if _temporal_column(c)), None)
+    temporal_column = next((c for c in dimension_columns if _temporal_column(c)), None)
     grouping_grain = time_interpretation.get("grouping_grain")
     # A genuine series needs one point per time bucket. Repeated dates/years
     # indicate detail records, not an ordered aggregate trend.
