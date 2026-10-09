@@ -94,6 +94,24 @@ def plan_result_presentation(question: str, result: QueryResult, time_interpreta
                     reason="An ordered time dimension with numeric measures is best presented as a trend.")
         return plan
 
+    # Multi-series time aggregation: a period can repeat once per cohort.
+    # Retain time as the X axis and the other dimension as series.
+    if temporal_column and len(dimension_columns) == 2 and len(numeric_columns) == 1:
+        cohort_column = next(c for c in dimension_columns if c != temporal_column)
+        ti, ci = columns.index(temporal_column), columns.index(cohort_column)
+        pairs = [(str(row[ti]), str(row[ci])) for row in result.rows]
+        periods = {pair[0] for pair in pairs}
+        cohorts = {pair[1] for pair in pairs}
+        if (len(pairs) == len(set(pairs)) and 2 <= len(periods) <= 60
+                and 2 <= len(cohorts) <= 8):
+            plan.update(
+                kind="trend", recommended_visual="line",
+                x_column=temporal_column, series_column=cohort_column,
+                y_columns=numeric_columns,
+                reason="Repeated time buckets across distinct cohorts support a multi-series trend.",
+            )
+            return plan
+
     if any(h in q for h in _COMPARE_HINTS) and dimension_columns and numeric_columns:
         plan.update(kind="comparison", recommended_visual="bar", x_column=dimension_columns[0],
                     y_columns=numeric_columns,
