@@ -297,3 +297,36 @@ def test_ambiguous_published_synonym_fails_closed():
             entities,
         )
     assert captured.value.details["checks"][0]["code"] == "categorical_mapping_ambiguity"
+
+
+def test_single_published_mapping_requires_filter():
+    entities = [{
+        "name": "Orders",
+        "schema_name": "sales",
+        "table_name": "orders",
+        "attributes": [{
+            "column_name": "order_state",
+            "value_mappings": [{"canonical_value": "P", "synonyms": ["pending"]}],
+        }],
+    }]
+    sql = "SELECT COUNT(*) FROM sales.orders"
+    with pytest.raises(SQLValidationError):
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            "Count pending orders", sql, entities
+        )
+
+
+def test_single_published_mapping_accepts_correct_filter():
+    entities = [{
+        "name": "Orders",
+        "schema_name": "sales",
+        "table_name": "orders",
+        "attributes": [{
+            "column_name": "order_state",
+            "value_mappings": [{"canonical_value": "P", "synonyms": ["pending"]}],
+        }],
+    }]
+    sql = "SELECT COUNT(*) FROM sales.orders WHERE order_state = 'P'"
+    QueryOrchestrator._validate_explicit_categorical_comparison(
+        "Count pending orders", sql, entities
+    )
