@@ -676,6 +676,23 @@ class QueryOrchestrator:
         logger.info("query generated_sql=%s", generated)
         trace.generated_sql = generated
         bound_sql = self._bind_identifiers(generated, schema)
+        # Only explicitly named, governed text attributes without categorical
+        # code mappings may use case-insensitive exact matching.
+        from datapilot.application.services.named_text_filter import normalize_named_text_filter
+        for entity in governed_context.get("entities", []):
+            for attribute in entity.get("attributes") or []:
+                column = str(attribute.get("column_name") or "")
+                names = [attribute.get("name"), *(attribute.get("synonyms") or [])]
+                explicit = any(
+                    name and re.search(r"(?<![a-z0-9])" + re.escape(str(name).casefold()) + r"(?![a-z0-9])",
+                                       request.question.casefold())
+                    for name in names
+                )
+                if (column and explicit and not attribute.get("value_mappings")
+                        and self._database.dialect in ("postgres", "postgresql")):
+                    bound_sql = normalize_named_text_filter(
+                        bound_sql, attribute_column=column, dialect="postgres",
+                    )
         trace.bound_sql = bound_sql
         logger.info("query catalog_bound_sql=%s", bound_sql)
         validation_args = {
