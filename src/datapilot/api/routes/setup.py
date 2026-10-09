@@ -844,6 +844,7 @@ class ApprovedCategoricalMapping(BaseModel):
     synonyms: list[str] = Field(default_factory=list)
 
 class PublishCategoricalMappingsRequest(CategoricalProposalRequest):
+    create_missing_attribute: bool = False
     mappings: list[ApprovedCategoricalMapping] = Field(min_length=1, max_length=50)
 
 @router.post("/data-source/{source_id}/categorical-mappings/publish")
@@ -886,9 +887,10 @@ async def publish_saved_source_categorical_mappings(
                 data_source_id=source_id, schema_name=payload.schema_name,
                 table_name=payload.table_name, column_name=payload.column_name,
                 mappings=[m.model_dump() for m in payload.mappings],
+                create_missing_attribute=payload.create_missing_attribute,
             )
         except Exception as exc:
-            raise HTTPException(409, "Publication failed: semantic attribute missing or mappings conflict.") from exc
+            raise HTTPException(409, "Publication failed: configure an entity, approve attribute creation, or resolve conflicting mappings.") from exc
         return {"published": True, "count": count, "message": "Categorical mappings published"}
     finally:
         if source is not None:
