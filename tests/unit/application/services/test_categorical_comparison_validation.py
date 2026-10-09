@@ -573,3 +573,30 @@ def test_clarified_attribute_enforces_only_selected_categorical_column():
             "SELECT COUNT(*) FROM public.assets WHERE ownership_status = 'O'",
             entities, selected_attribute=selection,
         )
+
+
+# Astra-style published categories are fixture data, not domain-specific logic.
+@pytest.mark.parametrize(("question", "expected"), [
+    ("Show owned vessels", "O"),
+    ("Show time chartered vessels", "T"),
+    ("Show owned but currently chartered vessels", "TO"),
+])
+def test_published_ownership_category_requires_exact_canonical_filter(question, expected):
+    entities = [{
+        "name": "Vessels", "schema_name": "astra", "table_name": "vessel_snapshot",
+        "attributes": [{"name": "Ownership Status", "column_name": "ownership_status",
+                        "value_mappings": [
+                            {"canonical_value": "O", "synonyms": ["owned vessel", "owned"]},
+                            {"canonical_value": "T", "synonyms": ["time chartered vessel", "chartered vessel"]},
+                            {"canonical_value": "TO", "synonyms": ["owned but currently chartered"]},
+                        ]}],
+    }]
+    sql = (
+        "SELECT COUNT(*) FROM astra.vessel_snapshot "
+        f"WHERE ownership_status = '{expected}'"
+    )
+    QueryOrchestrator._validate_explicit_categorical_comparison(question, sql, entities)
+    with pytest.raises(SQLValidationError):
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            question, "SELECT COUNT(*) FROM astra.vessel_snapshot", entities,
+        )
