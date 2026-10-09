@@ -48,3 +48,36 @@ def test_comparison_rejects_one_sided_filter():
         QueryOrchestrator._validate_explicit_categorical_comparison(
             "Compare owned versus chartered assets", sql, ENTITIES
         )
+
+
+def test_repair_missing_categorical_filter_preserves_existing_predicates():
+    sql = "SELECT ownership_status, COUNT(*) FROM assets WHERE active = TRUE GROUP BY ownership_status"
+    with pytest.raises(SQLValidationError) as captured:
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            "Compare owned versus chartered assets", sql, ENTITIES
+        )
+    repaired = QueryOrchestrator._repair_explicit_categorical_comparison(sql, captured.value)
+    assert repaired is not None
+    assert "active = TRUE" in repaired
+    assert "'O'" in repaired and "'T'" in repaired
+    QueryOrchestrator._validate_explicit_categorical_comparison(
+        "Compare owned versus chartered assets", repaired, ENTITIES
+    )
+
+
+def test_repair_refuses_existing_one_sided_filter():
+    sql = "SELECT ownership_status, COUNT(*) FROM assets WHERE ownership_status = 'O' GROUP BY ownership_status"
+    with pytest.raises(SQLValidationError) as captured:
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            "Compare owned versus chartered assets", sql, ENTITIES
+        )
+    assert QueryOrchestrator._repair_explicit_categorical_comparison(sql, captured.value) is None
+
+
+def test_repair_refuses_joined_queries():
+    sql = "SELECT a.ownership_status, COUNT(*) FROM assets a JOIN owners b ON a.id = b.asset_id GROUP BY a.ownership_status"
+    with pytest.raises(SQLValidationError) as captured:
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            "Compare owned versus chartered assets", sql, ENTITIES
+        )
+    assert QueryOrchestrator._repair_explicit_categorical_comparison(sql, captured.value) is None
