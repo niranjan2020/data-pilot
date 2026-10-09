@@ -397,3 +397,31 @@ def test_trend_answer_does_not_claim_turning_point_for_monotonic_series():
         {"kind": "trend", "x_column": "month", "y_columns": ["revenue"]},
     )
     assert "Turning points" not in summary["text"]
+
+
+def test_grouped_categorical_comparison_never_invents_period_change():
+    summary = summarize_result(
+        "How many owned and chartered vessels by segment",
+        _result(["vessel_segment", "ownership_status", "vessel_count"],
+                [["A-FDR", "O", 57], ["A-FDR", "T", 20],
+                 ["B-01400", "O", 15], ["B-01400", "T", 2]]),
+        {"kind": "comparison", "x_column": "vessel_segment",
+         "y_columns": ["vessel_count"]},
+    )
+    assert "A-FDR / O: 57" in summary["text"]
+    assert "A-FDR / T: 20" in summary["text"]
+    assert "increased" not in summary["text"]
+    assert "versus" not in summary["text"]
+    assert not any(item["type"] == "period_change" for item in summary["insights"])
+
+
+def test_generic_non_temporal_comparison_never_claims_period_change():
+    summary = summarize_result(
+        "Compare revenue by region",
+        _result(["region", "revenue"], [["East", 30], ["West", 10]]),
+        {"kind": "comparison", "x_column": "region", "y_columns": ["revenue"]},
+    )
+    assert "East: 30" in summary["text"]
+    assert "West: 10" in summary["text"]
+    assert "increased" not in summary["text"]
+    assert summary["insights"] == []
