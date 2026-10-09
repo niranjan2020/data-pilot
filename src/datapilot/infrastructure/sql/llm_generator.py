@@ -116,6 +116,11 @@ class LLMBackedSQLGenerator(SQLGenerator):
                     "function. If comparison=true, compute the requested metric separately for every entry in "
                     "periods using each period's exact half-open range and return a period label with the values. "
                     "Do not collapse comparison periods into one combined filter/result. "
+                    "For explicitly requested named text attributes, use case-insensitive exact equality "
+                    "rather than changing company or person names to uppercase. Use LOWER(column) "
+                    "with lowercase literals for multi-value IN filters when the semantic attribute "
+                    "has no published categorical code mapping. Preserve exact canonical values for "
+                    "published codes and never replace exact name matching with substring wildcards. "
                     "Return the requested structured response."
                 ),
             ),
