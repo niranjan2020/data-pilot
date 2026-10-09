@@ -1391,8 +1391,7 @@ class QueryOrchestrator:
                        for suffix in ("ed", "s"))
 
         words = tokens(question)
-        if not re.search(r"\b(?:versus|vs\.?|between)\b", question, re.I):
-            return
+        explicit_comparison = bool(re.search(r"\b(?:versus|vs\.?|between)\b", question, re.I))
         ast = sqlglot.parse_one(sql, read="postgres")
         for entity in entities:
             for attribute in entity.get("attributes") or []:
@@ -1411,8 +1410,27 @@ class QueryOrchestrator:
                         for term in terms
                     ):
                         matched.append(canonical)
-                if len(matched) < 2:
+                # Single-value requests also require governed SQL filtering.
+                # Avoid guessing when one synonym overlaps a longer mapping
+                # (e.g. "owned" versus "owned but chartered").
+                if not matched or (explicit_comparison and len(matched) < 2):
                     continue
+                if len(matched) == 1 and not explicit_comparison:
+                    overlapping = [
+                        other for other in mappings
+                        if str(other.get("canonical_value") or "") != matched[0]
+                        and any(
+                            (term_words := tokens(str(term)))
+                            and any(
+                                all(equivalent(a, b) for a, b in zip(words[i:i + len(term_words)], term_words))
+                                for i in range(len(words) - len(term_words) + 1)
+                            )
+                            for term in [other.get("canonical_value"), *(other.get("synonyms") or [])]
+                            if term
+                        )
+                    ]
+                    if overlapping:
+                        continue
                 # Only a positive WHERE conjunction on the outer query can
                 # guarantee a categorical restriction. Values in SELECT, JOIN,
                 # HAVING, OR, NOT, or a nested SELECT are not sufficient.
