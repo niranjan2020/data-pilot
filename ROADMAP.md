@@ -1,5 +1,15 @@
 # Data Pilot Roadmap
 
+## Opt-in offline golden prediction runner — 2026-10-09
+
+- User confirmed **185 focused tests passed**; full unit suite result not separately reported.
+- Added `run_offline_golden_evaluation`: loads persisted datasource-scoped semantic grants, skips blocked cases, and **only when explicitly enabled** calls a supplied async prediction adapter; independently evaluated evidence is scored using the existing batch report. Missing prediction is not evaluated; adapter failures are failed without exposing exception details. Added **19 regression scenarios**, awaiting user verification.
+- **Integration boundary:** no concrete live NL-to-SQL prediction adapter has yet been wired; no LLM/SQL is called by the runner itself. Adapter must produce genuinely evaluated `AnalyticalEvaluationResult` evidence, never self-asserted success. This does not measure actual question accuracy until wired to real predictions and independently reviewed gold expectations.
+- Next: inspect actual query pipeline interfaces, implement a non-executing prediction adapter only where the pipeline supports it, validate real published catalog against gold fixtures, and add result-level evaluation later. Do not alter live request routing.
+
+---
+
+
 ## Evidence-aware golden batch reporting — 2026-10-09
 
 - User confirmed **150 focused tests passed**; full unit suite result not separately reported.
