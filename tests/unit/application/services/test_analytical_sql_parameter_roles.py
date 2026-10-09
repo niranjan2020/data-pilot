@@ -26,14 +26,14 @@ def test_parameter_order_matches_governed_plan(schema,table,field,values,thresho
     steps=(
         PlanStep("filter",AnalyticalOperation.FILTER,("source",),
                  {"dimension":name,"operator":"IN","values":values}),
-        PlanStep("group",AnalyticalOperation.GROUP,("filter"),
+        PlanStep("group",AnalyticalOperation.GROUP,("filter",),
                  {"dimension":f"{table}.Group"}),
-        PlanStep("aggregate",AnalyticalOperation.AGGREGATE,("group"),{"metric":"Total"}),
-        PlanStep("threshold",AnalyticalOperation.THRESHOLD,("aggregate"),
+        PlanStep("aggregate",AnalyticalOperation.AGGREGATE,("group",),{"metric":"Total"}),
+        PlanStep("threshold",AnalyticalOperation.THRESHOLD,("aggregate",),
                  {"metric":"Total","operator":"GT","value":threshold}),
-        PlanStep("sort",AnalyticalOperation.SORT,("threshold"),
+        PlanStep("sort",AnalyticalOperation.SORT,("threshold",),
                  {"metric":"Total","direction":"DESC"}),
-        PlanStep("limit",AnalyticalOperation.LIMIT,("sort"),{"count":10}),
+        PlanStep("limit",AnalyticalOperation.LIMIT,("sort",),{"count":10}),
     )
     plan=AnalyticalPlan(sources=("source",),steps=steps,output="limit")
     bound=bind_analytical_plan(
