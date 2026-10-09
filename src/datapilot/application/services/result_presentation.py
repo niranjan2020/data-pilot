@@ -62,6 +62,12 @@ def plan_result_presentation(question: str, result: QueryResult, time_interpreta
         plan["reason"] = "Individual records are best presented in a table; no aggregated measure was returned."
         return plan
 
+    # A row-level identifier alongside descriptive columns signals a listing,
+    # even if another numeric column (price, capacity, age) is present.
+    if any(_identifier_column(c) for c in columns) and len(columns) > 2 and result.row_count > 1:
+        plan["reason"] = "The result contains individual records; use the raw table instead of a derived trend."
+        return plan
+
     if result.row_count == 1 and len(numeric_columns) == 1:
         plan.update(kind="scalar", recommended_visual="kpi", y_columns=numeric_columns,
                     reason="A single row with one numeric measure is best presented as a KPI.")
