@@ -330,3 +330,52 @@ def test_single_published_mapping_accepts_correct_filter():
     QueryOrchestrator._validate_explicit_categorical_comparison(
         "Count pending orders", sql, entities
     )
+
+
+def test_single_category_repair_preserves_existing_filter():
+    entities = [{
+        "name": "Orders",
+        "schema_name": "sales",
+        "table_name": "orders",
+        "attributes": [{
+            "column_name": "order_state",
+            "value_mappings": [{"canonical_value": "P", "synonyms": ["pending"]}],
+        }],
+    }]
+    sql = (
+        "SELECT order_state, COUNT(*) FROM sales.orders "
+        "WHERE active = TRUE GROUP BY order_state"
+    )
+    with pytest.raises(SQLValidationError) as captured:
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            "Count pending orders", sql, entities
+        )
+    repaired = QueryOrchestrator._repair_explicit_categorical_comparison(
+        sql, captured.value
+    )
+    assert repaired is not None
+    assert "active = TRUE" in repaired
+    QueryOrchestrator._validate_explicit_categorical_comparison(
+        "Count pending orders", repaired, entities
+    )
+
+
+def test_single_category_repair_does_not_override_existing_constraint():
+    entities = [{
+        "name": "Orders",
+        "attributes": [{
+            "column_name": "order_state",
+            "value_mappings": [{"canonical_value": "P", "synonyms": ["pending"]}],
+        }],
+    }]
+    sql = (
+        "SELECT order_state, COUNT(*) FROM orders "
+        "WHERE order_state = 'C' GROUP BY order_state"
+    )
+    with pytest.raises(SQLValidationError) as captured:
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            "Count pending orders", sql, entities
+        )
+    assert QueryOrchestrator._repair_explicit_categorical_comparison(
+        sql, captured.value
+    ) is None
