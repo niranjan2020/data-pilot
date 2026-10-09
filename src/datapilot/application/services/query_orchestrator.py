@@ -1413,17 +1413,32 @@ class QueryOrchestrator:
                         matched.append(canonical)
                 if len(matched) < 2:
                     continue
-                predicates = list(ast.find_all(exp.EQ)) + list(ast.find_all(exp.In))
+                # Only a positive WHERE conjunction on the outer query can
+                # guarantee a categorical restriction. Values in SELECT, JOIN,
+                # HAVING, OR, NOT, or a nested SELECT are not sufficient.
                 constrained = set()
-                for predicate in predicates:
-                    lhs = predicate.this
-                    if not isinstance(lhs, exp.Column) or lhs.name.casefold() != column_name.casefold():
-                        continue
-                    values = ([predicate.expression] if isinstance(predicate, exp.EQ)
-                              else list(predicate.expressions))
-                    constrained.update(
-                        str(v.this).casefold() for v in values if isinstance(v, exp.Literal)
-                    )
+                where = ast.args.get("where")
+                if isinstance(ast, exp.Select) and where:
+                    def conjuncts(node):
+                        if isinstance(node, exp.Paren):
+                            return conjuncts(node.this)
+                        if isinstance(node, exp.And):
+                            return conjuncts(node.this) + conjuncts(node.expression)
+                        return [node]
+
+                    for predicate in conjuncts(where.this):
+                        if isinstance(predicate, exp.Paren):
+                            predicate = predicate.this
+                        if not isinstance(predicate, (exp.EQ, exp.In)):
+                            continue
+                        lhs = predicate.this
+                        if not isinstance(lhs, exp.Column) or lhs.name.casefold() != column_name.casefold():
+                            continue
+                        values = ([predicate.expression] if isinstance(predicate, exp.EQ)
+                                  else list(predicate.expressions))
+                        constrained.update(
+                            str(v.this).casefold() for v in values if isinstance(v, exp.Literal) and v.is_string
+                        )
                 missing = [v for v in matched if v.casefold() not in constrained]
                 if missing:
                     raise SQLValidationError(
