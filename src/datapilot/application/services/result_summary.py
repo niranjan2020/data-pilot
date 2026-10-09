@@ -384,6 +384,32 @@ def summarize_result(question: str, result: QueryResult, presentation: dict[str,
             insights: list[dict[str, Any]] = []
             text = f"{measure} — " + "; ".join(parts) + "."
 
+            # A two-category result is a cross-sectional comparison, not
+            # a period-over-period change. Preserve both category labels.
+            categorical_series = [
+                column for column in columns
+                if column != x_column and column not in y_columns
+            ]
+            if categorical_series:
+                series_index = columns.index(categorical_series[0])
+                parts = [
+                    f"{_display(row[xi])} / {_display(row[series_index])}: {_display(row[yi])}"
+                    for row in rows[:4]
+                ]
+                text = f"{measure} — " + "; ".join(parts) + "."
+                return {
+                    "text": text, "kind": kind, "grounded": True,
+                    "insights": [], "diagnostics": diagnostics, "quality": quality,
+                }
+
+            # Only explicitly named comparison periods support a delta.
+            period_comparison = str(x_column).casefold() in {"period", "period_label"}
+            if not period_comparison:
+                return {
+                    "text": text, "kind": kind, "grounded": True,
+                    "insights": [], "diagnostics": diagnostics, "quality": quality,
+                }
+
             if len(rows) >= 2:
                 change = _change(rows[0][yi], rows[1][yi])
                 if change is not None:
