@@ -81,3 +81,28 @@ def test_repair_refuses_joined_queries():
             "Compare owned versus chartered assets", sql, ENTITIES
         )
     assert QueryOrchestrator._repair_explicit_categorical_comparison(sql, captured.value) is None
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT ownership_status, count(*) FROM assets WHERE ownership_status = 'O' OR ownership_status = 'T' GROUP BY ownership_status",
+    "SELECT ownership_status, count(*) FROM assets WHERE NOT ownership_status IN ('O', 'T') GROUP BY ownership_status",
+    "SELECT ownership_status, count(*) FROM assets WHERE active = TRUE GROUP BY ownership_status HAVING MAX(ownership_status) IN ('O', 'T')",
+    "SELECT ownership_status, count(*) FROM assets WHERE other_status IN ('O', 'T') GROUP BY ownership_status",
+    "SELECT ownership_status, count(*) FROM assets WHERE ownership_status IN ('O', 'T') OR active = TRUE GROUP BY ownership_status",
+])
+def test_comparison_does_not_accept_non_guaranteed_filter(sql):
+    with pytest.raises(SQLValidationError):
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            "Compare owned versus chartered assets", sql, ENTITIES
+        )
+
+
+def test_comparison_accepts_positive_filter_with_other_conditions():
+    sql = (
+        "SELECT ownership_status, count(*) FROM assets "
+        "WHERE active = TRUE AND ownership_status IN ('O', 'T') "
+        "GROUP BY ownership_status"
+    )
+    QueryOrchestrator._validate_explicit_categorical_comparison(
+        "Compare owned versus chartered assets", sql, ENTITIES
+    )
