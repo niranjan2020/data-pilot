@@ -1417,6 +1417,24 @@ class QueryOrchestrator:
                 # guarantee a categorical restriction. Values in SELECT, JOIN,
                 # HAVING, OR, NOT, or a nested SELECT are not sufficient.
                 constrained = set()
+                # Resolve column qualifiers against the outer query's physical
+                # tables. An unrelated alias (or an ambiguous unqualified
+                # column in a join) cannot establish a governed filter.
+                outer_tables = [
+                    table for table in ast.find_all(exp.Table)
+                    if table.find_ancestor(exp.Select) is ast
+                ] if isinstance(ast, exp.Select) else []
+                valid_qualifiers = {
+                    (table.alias_or_name or "").casefold()
+                    for table in outer_tables
+                }
+                def correct_column(column):
+                    if not isinstance(column, exp.Column) or column.name.casefold() != column_name.casefold():
+                        return False
+                    if column.table:
+                        return column.table.casefold() in valid_qualifiers
+                    return len(outer_tables) == 1
+
                 where = ast.args.get("where")
                 if isinstance(ast, exp.Select) and where:
                     def conjuncts(node):
@@ -1432,7 +1450,7 @@ class QueryOrchestrator:
                         if not isinstance(predicate, (exp.EQ, exp.In)):
                             continue
                         lhs = predicate.this
-                        if not isinstance(lhs, exp.Column) or lhs.name.casefold() != column_name.casefold():
+                        if not correct_column(lhs):
                             continue
                         values = ([predicate.expression] if isinstance(predicate, exp.EQ)
                                   else list(predicate.expressions))
@@ -1454,7 +1472,7 @@ class QueryOrchestrator:
                     same_column_predicates = [
                         p for p in conjuncts(where.this)
                         if any(
-                            c.name.casefold() == column_name.casefold()
+                            correct_column(c) or c.name.casefold() == column_name.casefold()
                             for c in p.find_all(exp.Column)
                         )
                     ]
