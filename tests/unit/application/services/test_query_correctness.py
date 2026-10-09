@@ -723,3 +723,22 @@ def test_combined_total_without_group_by_not_falsely_rejected():
         question="Show combined total for MSC and Maersk",
     )
     assert not any(check["code"] == "comparison_dimension_violation" for check in checks)
+
+
+@pytest.mark.parametrize("combined_wording", [
+    "MSC and Maersk combined by segment",
+    "MSC and Maersk together by segment",
+    "MSC and Maersk collectively by segment",
+    "MSC and Maersk in total by segment",
+])
+def test_explicit_combined_cohorts_are_not_separate_comparisons(combined_wording):
+    checks = assess_query_correctness(
+        affected_tables=["astra.vessels"],
+        governed_tables=["astra.vessels"],
+        question="Show vessel counts for " + combined_wording,
+        sql=(
+            "SELECT vessel_segment, COUNT(*) FROM astra.vessels "
+            "WHERE operator IN ('MSC', 'Maersk') GROUP BY vessel_segment"
+        ),
+    )
+    assert not any(check["code"].startswith("comparison_dimension_") for check in checks)
