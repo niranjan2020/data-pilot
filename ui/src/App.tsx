@@ -43,6 +43,19 @@ function ResultVisualization({response}:{response:any}){
    </svg></div><div className="chartLegend">{series.map((name:string,i:number)=><span key={name}><span style={{color:palette[i%palette.length]}}>●</span> {name}</span>)}</div></div>;
   }
  }
+ // Generic ranked categorical bar chart; preserve raw data ordering.
+ if(plan.recommended_visual==="bar"&&plan.kind!=="trend"&&comparisonCategoryIndices.length===1&&comparisonMeasureIndices.length===1&&rows.length>0&&rows.length<=100){
+  const ci=comparisonCategoryIndices[0],mi=comparisonMeasureIndices[0];
+  if(ci!==mi&&rows.every((r:any[])=>r[mi]!=null&&Number.isFinite(Number(r[mi]))&&Number(r[mi])>=0)){
+   const ranked=[...rows].sort((a:any[],b:any[])=>Number(b[mi])-Number(a[mi])||String(a[ci]??"").localeCompare(String(b[ci]??"")));
+   const width=900,left=230,right=90,top=20,rowHeight=30,bottom=34;
+   const height=top+ranked.length*rowHeight+bottom,plotW=width-left-right,max=Math.max(1,...ranked.map((r:any[])=>Number(r[mi])));
+   return <div className="presentationPanel"><div className="presentationHeading"><div><strong>Comparison by {columns[ci]}</strong><span>{columns[mi]} · highest to lowest</span></div><em>Auto · ranked bars</em></div><div className="chartWrap"><svg className="resultChart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${columns[mi]} ranked by ${columns[ci]}`}>
+    {[0,.25,.5,.75,1].map((fraction:number)=><g key={fraction}><line x1={left+plotW*fraction} x2={left+plotW*fraction} y1={top-6} y2={height-bottom} className="chartGrid"/><text x={left+plotW*fraction} y={height-9} textAnchor="middle" className="chartLabel">{displayValue(max*fraction)}</text></g>)}
+    {ranked.map((r:any[],i:number)=>{const label=String(r[ci]??"—"),value=Number(r[mi]),y=top+i*rowHeight;return <g key={i}><text x={left-12} y={y+17} textAnchor="end" className="chartLabel"><title>{label}</title>{label.length>32?label.slice(0,29)+"…":label}</text><rect x={left} y={y+3} width={Math.max(0,value/max*plotW)} height={20} rx="3" fill="#2563eb"><title>{label}: {displayValue(value)}</title></rect><text x={left+Math.max(0,value/max*plotW)+7} y={y+17} className="chartLabel">{displayValue(value)}</text></g>})}
+   </svg></div></div>;
+  }
+ }
  const xIndex=plan.x_column?columns.indexOf(plan.x_column):-1;
  const yColumns:string[]=plan.y_columns||[]; const yIndices=yColumns.map((y:string)=>columns.indexOf(y)).filter((i:number)=>i>=0);
  if(plan.recommended_visual==="kpi"&&yIndices.length){
