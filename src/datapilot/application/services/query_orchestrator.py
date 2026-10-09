@@ -1541,7 +1541,7 @@ class QueryOrchestrator:
             return None
         column = checks[0].get("column_name")
         values = checks[0].get("canonical_values") or []
-        if not column or len(values) < 2 or len({str(v).casefold() for v in values}) != len(values):
+        if not column or not values or len({str(v).casefold() for v in values}) != len(values):
             return None
         try:
             statements = sqlglot.parse(sql, read="postgres")
