@@ -1,7 +1,6 @@
-"""Fail-closed plan-to-SQL verification for supported governed analytical plans.
+"""Fail-closed deterministic and independent AST-role verification.
 
-This first checkpoint uses deterministic recompilation as its authority. It
-does not claim to be independent AST verification; that is a subsequent stage.
+This is not yet complete semantic equivalence verification.
 """
 from dataclasses import dataclass
 
@@ -167,6 +166,25 @@ def verify_governed_analytical_sql(
                 or predicate.left.sql(dialect="postgres") != aggregate_expr.sql(dialect="postgres")
             ):
                 return AnalyticalSQLVerification(False, "Threshold differs from governed metric")
+        # Independently reconstruct parameter order from the governed plan.
+        # Only the supported EQ/IN row filters and single numeric threshold
+        # contribute parameters; LIMIT is an already-validated integer literal.
+        expected_values = []
+        for step in filters:
+            op = step.parameters["operator"]
+            values = step.parameters["values"]
+            if not isinstance(values, (tuple, list)) or (
+                op == "EQ" and len(values) != 1
+            ) or (op == "IN" and not values):
+                return AnalyticalSQLVerification(False, "Invalid governed filter values")
+            expected_values.extend(values)
+        if thresholds:
+            expected_values.append(thresholds[0].parameters["value"])
+        if len(expected_values) != len(compiled.parameters) or any(
+            type(actual) is not type(wanted) or actual != wanted
+            for actual, wanted in zip(compiled.parameters, expected_values)
+        ):
+            return AnalyticalSQLVerification(False, "SQL parameter order or values differ from plan")
         # AST-level parameter count guards against malformed placeholder syntax.
         if len(list(parsed.find_all(exp.Literal))) < len(compiled.parameters):
             return AnalyticalSQLVerification(False, "Insufficient SQL parameter expressions")
