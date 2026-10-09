@@ -690,6 +690,7 @@ class QueryOrchestrator:
             "governed_metrics": governed_context.get("metrics", []),
             "required_grouping_columns": governed_grouping_columns,
             "required_filters": governed_filters,
+            "governed_entities": governed_context.get("entities", []),
             "required_relationships": self._required_relationships(governed_context),
             "required_time_plan": time_interpretation,
             "data_source_name": request.source_name,
@@ -813,6 +814,7 @@ class QueryOrchestrator:
         governed_metrics: Optional[list[dict[str, Any]]] = None,
         required_grouping_columns: Optional[list[str]] = None,
         required_filters: Optional[list[dict[str, Any]]] = None,
+        governed_entities: Optional[list[dict[str, Any]]] = None,
         required_relationships: Optional[list[dict[str, Any]]] = None,
         required_time_plan: Optional[dict[str, Any]] = None,
         data_source_name: Optional[str] = None,
@@ -974,6 +976,13 @@ class QueryOrchestrator:
                     )
                 # Reuse the exact grants checked against the SQL AST.
                 trusted_published_relationships = list(authorization.verified_grants)
+
+        # Explicit categorical comparisons must constrain the compared values.
+        # Grouping by the column alone is not sufficient: it includes unrelated
+        # categories and misrepresents the question. Only approved mappings count.
+        self._validate_explicit_categorical_comparison(
+            question, executable_sql, governed_entities or [],
+        )
 
         correctness_checks = assess_query_correctness(
             affected_tables=validation.affected_tables,
@@ -1343,6 +1352,63 @@ class QueryOrchestrator:
                 if tokens.intersection(location_terms):
                     add(entity, attribute)
         return candidates if len(candidates) > 1 else []
+
+    @staticmethod
+    def _validate_explicit_categorical_comparison(
+        question: str, sql: str, entities: list[dict[str, Any]],
+    ) -> None:
+        """Fail closed when two explicit, governed values are not SQL-filtered."""
+        import sqlglot
+        from sqlglot import exp
+
+        def tokens(value: str) -> list[str]:
+            return re.findall(r"[a-z0-9]+", value.casefold())
+
+        words = tokens(question)
+        if not re.search(r"\\b(?:versus|vs\\.?|between)\\b", question, re.I):
+            return
+        ast = sqlglot.parse_one(sql, read="postgres")
+        for entity in entities:
+            for attribute in entity.get("attributes") or []:
+                column_name = str(attribute.get("column_name") or "")
+                mappings = attribute.get("value_mappings") or []
+                if not column_name or len(mappings) < 2:
+                    continue
+                matched = []
+                for mapping in mappings:
+                    canonical = str(mapping.get("canonical_value") or "")
+                    terms = [canonical, *(mapping.get("synonyms") or [])]
+                    if any(
+                        (term_words := tokens(str(term)))
+                        and any(words[i:i + len(term_words)] == term_words
+                                for i in range(len(words) - len(term_words) + 1))
+                        for term in terms
+                    ):
+                        matched.append(canonical)
+                if len(matched) < 2:
+                    continue
+                predicates = list(ast.find_all(exp.EQ)) + list(ast.find_all(exp.In))
+                constrained = set()
+                for predicate in predicates:
+                    lhs = predicate.this
+                    if not isinstance(lhs, exp.Column) or lhs.name.casefold() != column_name.casefold():
+                        continue
+                    values = ([predicate.expression] if isinstance(predicate, exp.EQ)
+                              else list(predicate.expressions))
+                    constrained.update(
+                        str(v.this).casefold() for v in values if isinstance(v, exp.Literal)
+                    )
+                missing = [v for v in matched if v.casefold() not in constrained]
+                if missing:
+                    raise SQLValidationError(
+                        "Generated SQL omitted explicitly compared categorical values",
+                        details={"checks": [{
+                            "code": "categorical_comparison_filter_violation",
+                            "status": "failed", "severity": "error",
+                            "message": f"Comparison on {column_name} must filter approved values: "
+                                       + ", ".join(matched),
+                        }]},
+                    )
 
     @staticmethod
     def _required_relationships(governed_context: dict[str, Any]) -> list[dict[str, Any]]:
