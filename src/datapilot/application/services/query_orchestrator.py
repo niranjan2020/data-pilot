@@ -1055,6 +1055,41 @@ class QueryOrchestrator:
         ]
         blocking_correctness = [*failed_correctness, *unavailable_required]
         if blocking_correctness:
+            from datapilot.application.services.comparison_group_repair import repair_missing_comparison_groups
+            candidate = repair_missing_comparison_groups(
+                executable_sql, correctness_checks, dialect=self._database.dialect,
+            )
+            if candidate is not None:
+                repaired_validation = self._validator.validate(
+                    candidate, dialect=self._database.dialect, enforce_read_only=True,
+                )
+                if repaired_validation.is_valid:
+                    repaired_sql = repaired_validation.sanitized_sql or candidate
+                    repaired_checks = assess_query_correctness(
+                        affected_tables=repaired_validation.affected_tables,
+                        governed_tables=governed_tables or [],
+                        sql=repaired_sql,
+                        question=question,
+                        governed_metrics=governed_metrics or [],
+                        required_grouping_columns=required_grouping_columns or [],
+                        required_filters=required_filters or [],
+                        required_relationships=required_relationships or [],
+                        required_time_plan=required_time_plan,
+                        trusted_published_relationships=trusted_published_relationships,
+                        dialect=self._database.dialect,
+                    )
+                    if not any(c.get("status") == "failed" or (
+                        c.get("status") == "skipped" and
+                        c.get("code") in unavailable_required_codes
+                    ) for c in repaired_checks):
+                        executable_sql = repaired_sql
+                        validation = repaired_validation
+                        correctness_checks = repaired_checks
+                        blocking_correctness = []
+                        if trace is not None:
+                            trace.correctness_checks = repaired_checks
+                            trace.validated_sql = repaired_sql
+        if blocking_correctness:
             raise SQLValidationError(
                 "Generated SQL failed governed correctness checks",
                 details={"checks": blocking_correctness},
