@@ -1,5 +1,20 @@
 # Data Pilot Roadmap
 
+## Generic governed analytical planning — architecture direction (2026-10-09)
+
+**Top-N is a test case, not a dedicated product capability.** Do not add special-case operator, TEU, or Top-N SQL routing. Preserve existing generic query correctness and user-approved semantic metadata.
+
+- Represent analytical intent as a composable plan: typed operations (filter, aggregate, group, sort, limit, rank, compare, threshold, contribution, time-window), with explicit inputs, outputs, dependencies and execution order.
+- Bind each operation to published semantic entities, dimensions, metrics, grain, relationships, eligibility predicates and time roles. Keep datasource-specific policies in metadata, never in generic code.
+- Resolve ambiguous scope (global vs partitioned ranking), cohort vs output metric, and unspecified measures through semantic defaults or clarification; do not silently invent policy.
+- Compile validated plans to dialect-aware SQL. Validate the **plan and resulting SQL AST**, including operation order, cohort selection, grouping grain, metric definitions, filters, limits, and fan-out protection.
+- Make ranking-policy contracts reusable *inputs* to the general plan, not the center of the engine. Do not expose unpublished policies or treat any limit as a ranking operation.
+- Roll out incrementally: (1) generic plan model and cross-domain tests; (2) governed binding and planner integration; (3) deterministic SQL compilation; (4) plan-to-SQL verification; (5) live Astra and AdventureWorks evaluation.
+- Maintain backward compatibility with existing NL-to-SQL requests; no forced routing to an incomplete planner. Avoid altering local datasource configurations or resetting metadata.
+
+---
+
+
 > Living roadmap for the Data Pilot open-source core and future SaaS product.
 >
 > **Rule:** update this file whenever a milestone is completed, reprioritized, or a benchmark exposes a new reliability gap. Benchmark evidence, not feature speculation, drives Stage A.
