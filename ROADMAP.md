@@ -1,5 +1,15 @@
 # Data Pilot Roadmap
 
+## Trusted golden evaluation metadata integration — 2026-10-09
+
+- User confirmed **127 focused readiness tests passed** (full unit suite result not separately reported).
+- Added `evaluate_published_golden_readiness`: read-only asynchronous integration of the existing persisted metric/time publication loader and per-attribute publication loader. Checks a batch of golden cases against one datasource-scoped metadata snapshot; fails closed on missing stores, unknown datasource, ambiguous/unpublished semantics and unsupported capabilities. Added **23 integration test cases** across two illustrative domains, awaiting local verification.
+- This does not authorize SQL execution or integrate into live NL-to-SQL. It does not verify metric physical source, category mappings, joins, time/snapshot grain, or expected query results.
+- Next: run focused and full tests, then inspect actual published Astra/AdventureWorks metadata and build prediction-to-gold and read-only result comparisons.
+
+---
+
+
 ## Published semantic catalog readiness — 2026-10-09
 
 - User confirmed **103 focused golden-question and evaluation tests passed**; full unit suite result not separately reported.
