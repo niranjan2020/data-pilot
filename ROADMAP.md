@@ -1,5 +1,15 @@
 # Data Pilot Roadmap
 
+## Legacy query pipeline inspection and offline observation — 2026-10-09
+
+- User confirmed **204 focused tests passed**; full unit suite result not separately reported.
+- Inspected `QueryOrchestrator.query(QueryRequest)` and `QueryResponse`. Existing production pipeline produces governed SQL, resolved intent and trace; **it does not emit a typed `AnalyticalPlan`**. Its `dry_run=True` path validates SQL and does not call `execute_query`, but can still access metadata/schema/LLM services.
+- Added `observe_legacy_query_dry_run` for opt-in operator use with a trusted orchestrator. It always forces dry-run, does not save history, rejects completed responses or execution results, and returns a diagnostic observation explicitly marked **typed_plan_available=False**. Added **14 tests**, awaiting local verification.
+- **Not yet connected to the scored golden runner:** SQL-only legacy observations are deliberately not converted into fake typed-plan success. Next implement an independent typed-plan extraction/evidence contract or a SQL AST-to-operation evaluator with explicit provenance, after confirming production metadata and dialect behavior. No changes to live query routing.
+
+---
+
+
 ## Opt-in offline golden prediction runner — 2026-10-09
 
 - User confirmed **185 focused tests passed**; full unit suite result not separately reported.
