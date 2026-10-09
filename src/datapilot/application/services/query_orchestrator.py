@@ -1059,10 +1059,15 @@ class QueryOrchestrator:
             candidate = repair_missing_comparison_groups(
                 executable_sql, correctness_checks, dialect=self._database.dialect,
             )
+            if candidate is None:
+                logger.warning('comparison_group_repair no_candidate failed_codes=%s', [c.get('code') for c in blocking_correctness])
             if candidate is not None:
+                logger.info('comparison_group_repair validating_candidate')
                 repaired_validation = await self._validator.validate(
                     candidate, dialect=self._database.dialect, enforce_read_only=True,
                 )
+                if not repaired_validation.is_valid:
+                    logger.warning('comparison_group_repair candidate_validation_failed')
                 if repaired_validation.is_valid:
                     repaired_sql = repaired_validation.sanitized_sql or candidate
                     repaired_checks = assess_query_correctness(
@@ -1082,6 +1087,7 @@ class QueryOrchestrator:
                         c.get("status") == "skipped" and
                         c.get("code") in unavailable_required_codes
                     ) for c in repaired_checks):
+                        logger.info('comparison_group_repair accepted')
                         executable_sql = repaired_sql
                         validation = repaired_validation
                         correctness_checks = repaired_checks
@@ -1090,6 +1096,7 @@ class QueryOrchestrator:
                             trace.correctness_checks = repaired_checks
                             trace.validated_sql = repaired_sql
         if blocking_correctness:
+            logger.warning('comparison_group_repair rejected remaining_codes=%s', [c.get('code') for c in blocking_correctness])
             raise SQLValidationError(
                 "Generated SQL failed governed correctness checks",
                 details={"checks": blocking_correctness},
