@@ -88,23 +88,26 @@ export function App(){
  const [bootstrapTable,setBootstrapTable]=useState("");
  const [bootstrapPreview,setBootstrapPreview]=useState<any>(null);
  const [bootstrapSelected,setBootstrapSelected]=useState<string[]>([]);
+ const [bootstrapFilter,setBootstrapFilter]=useState<"new"|"all"|"existing">("new");
+ const [bootstrapSearch,setBootstrapSearch]=useState("");
+ const [bootstrapConfirmed,setBootstrapConfirmed]=useState(false);
  const [bootstrapBusy,setBootstrapBusy]=useState(false);
  const [bootstrapMessage,setBootstrapMessage]=useState("");
  async function previewBootstrap(){
   if(!bootstrapTable)return;
   const [schema_name,table_name]=bootstrapTable.split(".");
-  setBootstrapBusy(true);setBootstrapMessage("");setBootstrapPreview(null);setBootstrapSelected([]);
+  setBootstrapBusy(true);setBootstrapMessage("");setBootstrapPreview(null);setBootstrapSelected([]);setBootstrapConfirmed(false);
   try{
    const r=await fetch(API+"/api/admin/semantic/bootstrap/preview",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({source_name:form.name,schema_name,table_name})});
    const d=await r.json();if(!r.ok)throw new Error(typeof d.detail==="string"?d.detail:"Unable to preview semantic bootstrap");
-   setBootstrapPreview(d);
+   setBootstrapPreview(d);setBootstrapConfirmed(false);
    const existing=entities.find((e:any)=>e.schema_name===schema_name&&e.table_name===table_name);
    const known=new Set((existing?.attributes||[]).map((a:any)=>a.column_name));
-   setBootstrapSelected((d.entity?.attributes||[]).filter((a:any)=>!known.has(a.column_name)).map((a:any)=>a.column_name));
+   setBootstrapSelected([]);
   }catch(e){setBootstrapMessage(e instanceof Error?e.message:"Preview failed")}finally{setBootstrapBusy(false)}
  }
  function stageBootstrap(){
-  if(!bootstrapPreview)return;
+  if(!bootstrapPreview||!bootstrapConfirmed||!bootstrapSelected.length)return;
   const d=bootstrapPreview;const table=d.schema_name+"."+d.table_name;
   const existing=entities.find((e:any)=>e.schema_name===d.schema_name&&e.table_name===d.table_name);
   const mapped=existing?(existing.attributes||[]).map((a:any)=>({name:a.name,description:a.description||"",column_name:a.column_name,synonyms:(a.synonyms||[]).join(", "),operators:a.operators||["="],value_mappings:(a.value_mappings||[]).map((v:any)=>v.canonical_value+" | "+(v.synonyms||[]).join(", ")).join("\n")})):[];
@@ -323,9 +326,24 @@ export function App(){
  {message&&<p className="notice">{message}</p>}</article></section><section className="datasetSemantic"><article className="wide"><div className="sectionHeading"><div><h3>C5 · Semantic Bootstrap Preview</h3><p>Review schema-grounded suggestions. Existing entities, attributes and canonical value mappings are preserved; nothing is saved until you explicitly save the entity.</p></div></div>
  <div className="semanticForm"><label>Discovered table<select value={bootstrapTable} onChange={e=>{setBootstrapTable(e.target.value);setBootstrapPreview(null);setBootstrapSelected([]);setBootstrapMessage("");}}><option value="">Select table…</option>{semanticTables.map((t:any)=><option key={t.schema_name+"."+t.table_name} value={t.schema_name+"."+t.table_name}>{t.schema_name}.{t.table_name}</option>)}</select></label></div>
  <button type="button" className="secondary" disabled={bootstrapBusy||!bootstrapTable} onClick={previewBootstrap}>{bootstrapBusy?"Loading…":"Preview suggestions"}</button>
- {bootstrapPreview&&<div className="attributeEditor"><p>{bootstrapPreview.entity?.attributes?.length||0} columns suggested · {bootstrapPreview.existing_entity_id?"Existing semantic entity found":"New entity"} · Not published</p>
- <div className="attributeList">{(bootstrapPreview.entity?.attributes||[]).map((a:any)=>{const existing=entities.find((e:any)=>e.schema_name===bootstrapPreview.schema_name&&e.table_name===bootstrapPreview.table_name);const already=(existing?.attributes||[]).some((v:any)=>v.column_name===a.column_name);return <label key={a.column_name} className="attributeRow" style={{display:"flex",alignItems:"center",gap:"12px"}}><input type="checkbox" style={{width:"auto"}} disabled={already} checked={already||bootstrapSelected.includes(a.column_name)} onChange={e=>setBootstrapSelected(current=>e.target.checked?[...current,a.column_name]:current.filter(x=>x!==a.column_name))}/><span><strong>{a.name}</strong> · {a.column_name} ({a.evidence?.data_type||"unknown"}) {already?"— already configured; preserved":""}</span></label>})}</div>
- <button type="button" className="secondary" disabled={!bootstrapSelected.length} onClick={stageBootstrap}>Stage {bootstrapSelected.length} selected attributes in editor</button></div>}
+ {bootstrapPreview&&(()=>{const existing=entities.find((e:any)=>e.schema_name===bootstrapPreview.schema_name&&e.table_name===bootstrapPreview.table_name);
+ const known=new Set((existing?.attributes||[]).map((a:any)=>a.column_name));
+ const suggestions:any[]=bootstrapPreview.entity?.attributes||[];
+ const available=suggestions.filter(a=>!known.has(a.column_name));
+ const visible=suggestions.filter(a=>(bootstrapFilter==="all"||(bootstrapFilter==="new"?!known.has(a.column_name):known.has(a.column_name)))&&(!bootstrapSearch||[a.name,a.column_name,a.evidence?.data_type].join(" ").toLowerCase().includes(bootstrapSearch.toLowerCase())));
+ return <div className="attributeEditor">
+ <p>{suggestions.length} discovered · {known.size} configured · {available.length} new · {bootstrapSelected.length} selected · Not published</p>
+ <div style={{display:"flex",gap:"8px",flexWrap:"wrap",alignItems:"center",marginBottom:"12px"}}>
+ <input style={{flex:"1 1 230px"}} placeholder="Search column name or type…" value={bootstrapSearch} onChange={e=>setBootstrapSearch(e.target.value)}/>
+ <select style={{flex:"0 1 200px"}} value={bootstrapFilter} onChange={e=>setBootstrapFilter(e.target.value as "new"|"all"|"existing")}><option value="new">New suggestions</option><option value="existing">Already configured</option><option value="all">All columns</option></select>
+ <button type="button" className="secondary" onClick={()=>{setBootstrapSelected(available.map(a=>a.column_name));setBootstrapConfirmed(false);}}>Select all new</button>
+ <button type="button" className="secondary" onClick={()=>{setBootstrapSelected([]);setBootstrapConfirmed(false);}}>Clear selection</button></div>
+ <div className="attributeList" style={{maxHeight:"420px",overflowY:"auto"}}>{visible.map(a=>{const already=known.has(a.column_name);return <label key={a.column_name} className="attributeRow" style={{display:"flex",alignItems:"center",gap:"12px",justifyContent:"flex-start"}}>
+ <input type="checkbox" style={{width:"auto",flex:"0 0 auto"}} disabled={already} checked={already||bootstrapSelected.includes(a.column_name)} onChange={e=>{setBootstrapSelected(current=>e.target.checked?[...current,a.column_name]:current.filter(x=>x!==a.column_name));setBootstrapConfirmed(false);}}/>
+ <span style={{flex:"1",textAlign:"left"}}><strong>{a.name}</strong> · {a.column_name} ({a.evidence?.data_type||"unknown"}) {already?"— existing; protected":"— suggested"}</span></label>})}
+ {!visible.length&&<p>No columns match this filter.</p>}</div>
+ <label style={{display:"flex",alignItems:"center",gap:"8px",margin:"12px 0"}}><input type="checkbox" style={{width:"auto"}} checked={bootstrapConfirmed} disabled={!bootstrapSelected.length} onChange={e=>setBootstrapConfirmed(e.target.checked)}/>I reviewed these {bootstrapSelected.length} additions and understand they will be staged for manual saving.</label>
+ <button type="button" className="secondary" disabled={!bootstrapConfirmed||!bootstrapSelected.length} onClick={stageBootstrap}>Stage {bootstrapSelected.length} reviewed attributes in editor</button></div>})()}
  {bootstrapMessage&&<p className="notice">{bootstrapMessage}</p>}</article></section>
  <section className="grid semanticGrid"><article><div className="sectionHeading"><h3>{entity.id?"Edit semantic entity":"Add semantic entity"}</h3>{entity.id&&<button className="secondary" onClick={()=>setEntity(emptyEntity())}>New entity</button>}</div><div className="semanticForm">
  <label>Business name<input value={entity.name} onChange={e=>setEntity({...entity,name:e.target.value})} placeholder="Product"/></label>
