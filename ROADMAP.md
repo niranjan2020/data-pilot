@@ -1,5 +1,15 @@
 # Data Pilot Roadmap
 
+## Cross-domain analytical correctness batch — 2026-10-09
+
+- User confirmed **56 focused analytical verification tests passed**. Full unit suite was not separately reported.
+- Added **32 cross-domain regression scenarios** (20 aggregate/direction combinations, 6 filter-order/parameter combinations, 6 invalid-limit checks), awaiting user execution. Improved AST verifier fail-closed handling for malformed role/binding lookups.
+- This is still **Stage 4 verification plus pre-evaluation contract coverage**, not completion of Stage 5 live evaluation. Real Astra/AdventureWorks question-to-result correctness, governed eligibility, snapshot/grain behavior, and Admin publication permissions remain open.
+- Next: run focused + full suite, repair failures, then prepare realistic datasource-grounded question/SQL/result evaluation fixtures. Preserve existing live routing and local datasource state.
+
+---
+
+
 ## Analytical verification batch — 2026-10-09
 
 - User verified **20 focused SQL verification tests** after fixing parameter test fixture tuples. Full unit suite result not independently reported.
