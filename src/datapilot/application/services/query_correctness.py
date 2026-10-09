@@ -194,7 +194,7 @@ def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> lis
     """
     import re
 
-    explicit_comparison = bool(re.search(r"\b(compare|comparison|versus|vs\.?|between)\b", question, re.I))
+    # Explicit requests for a combined cohort take precedence over the\n    # presence of multiple named values joined by "and".\n    if re.search(r"\b(combined|together|collectively|in total|aggregate total)\b", question, re.I):\n        return []\n    explicit_comparison = bool(re.search(r"\b(compare|comparison|versus|vs\.?|between)\b", question, re.I))
     if not explicit_comparison and not re.search(r"\band\b", question, re.I):
         return []
     try:
