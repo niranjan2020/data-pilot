@@ -58,7 +58,7 @@ def plan_result_presentation(question: str, result: QueryResult, time_interpreta
     # Require multiple rows so a scalar KPI is never discarded.
     constant_indices = {
         i for i in range(len(columns))
-        if result.row_count > 1 and all(
+        if result.row_count > 1 and (i in numeric_indices or _temporal_column(columns[i])) and all(
             i < len(row) and row[i] is not None and row[i] == result.rows[0][i]
             for row in result.rows
         )
