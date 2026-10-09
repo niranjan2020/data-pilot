@@ -1350,8 +1350,31 @@ class QueryOrchestrator:
                 ):
                     add(entity, attribute)
 
-        # An explicit semantic attribute reference is stronger than generic
-        # "in/within" phrasing and must not be mixed with fallback candidates.
+        # An explicit semantic attribute reference is stronger than a value
+        # synonym. One named attribute resolves a shared-value ambiguity.
+        if candidates:
+            return candidates if len(candidates) > 1 else []
+
+        # A published value synonym used for different columns on the same
+        # entity needs clarification before SQL generation. Never treat a
+        # one-character canonical code as conversational evidence.
+        words = re.findall(r"[a-z0-9]+", question.casefold())
+        for entity in entities:
+            matched_phrases: dict[tuple[int, int], list[dict[str, Any]]] = {}
+            for attribute in entity.get("attributes") or []:
+                for mapping in attribute.get("value_mappings") or []:
+                    for synonym in mapping.get("synonyms") or []:
+                        phrase = re.findall(r"[a-z0-9]+", str(synonym).casefold())
+                        if not phrase:
+                            continue
+                        for i in range(len(words) - len(phrase) + 1):
+                            if words[i:i + len(phrase)] == phrase:
+                                matched_phrases.setdefault((i, i + len(phrase)), []).append(attribute)
+            for matched_attributes in matched_phrases.values():
+                columns = {str(a.get("column_name") or "").casefold() for a in matched_attributes}
+                if len(columns) > 1:
+                    for attribute in matched_attributes:
+                        add(entity, attribute)
         if candidates:
             return candidates if len(candidates) > 1 else []
 
