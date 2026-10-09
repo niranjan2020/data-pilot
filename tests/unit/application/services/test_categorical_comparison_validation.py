@@ -379,3 +379,34 @@ def test_single_category_repair_does_not_override_existing_constraint():
     assert QueryOrchestrator._repair_explicit_categorical_comparison(
         sql, captured.value
     ) is None
+
+
+def test_unrelated_retrieved_entity_does_not_impose_categorical_filter():
+    entities = [{
+        "name": "Assets", "schema_name": "public", "table_name": "assets",
+        "attributes": [{
+            "column_name": "ownership_status",
+            "value_mappings": [{"canonical_value": "O", "synonyms": ["owned"]}],
+        }],
+    }]
+    QueryOrchestrator._validate_explicit_categorical_comparison(
+        "Show owned customers",
+        "SELECT COUNT(*) FROM public.customers",
+        entities,
+    )
+
+
+def test_relevant_entity_still_requires_categorical_filter():
+    entities = [{
+        "name": "Assets", "schema_name": "public", "table_name": "assets",
+        "attributes": [{
+            "column_name": "ownership_status",
+            "value_mappings": [{"canonical_value": "O", "synonyms": ["owned"]}],
+        }],
+    }]
+    with pytest.raises(SQLValidationError):
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            "Show owned assets",
+            "SELECT COUNT(*) FROM public.assets",
+            entities,
+        )
