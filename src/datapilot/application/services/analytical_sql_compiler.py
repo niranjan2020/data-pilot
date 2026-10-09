@@ -451,3 +451,117 @@ def compile_analytical_filtered_grouped_limit(
         dialect=compiled.dialect,
         parameters=predicate.parameters,
     )
+
+
+def compile_analytical_grouped_having(
+    physical_plan: UnifiedPhysicalAnalyticalPlan,
+    *,
+    metric_source: GovernedMetricSource,
+    max_rows: int = 1000,
+) -> CompiledAnalyticalQuery:
+    """Compile GROUP -> AGGREGATE -> THRESHOLD -> SORT -> LIMIT.
+
+    A threshold is restricted to the existing approved aggregate metric.
+    Numeric values are passed separately as DB parameters; no arbitrary
+    expressions, additional metrics or joins are supported.
+    """
+    import math
+    from dataclasses import replace
+
+    from datapilot.application.services.analytical_plan import AnalyticalPlan
+    from datapilot.application.services.analytical_plan_binding import BoundAnalyticalPlan
+
+    if not isinstance(physical_plan, UnifiedPhysicalAnalyticalPlan):
+        raise ValueError("Unified governed physical plan is required")
+    bound = physical_plan.bound_plan
+    plan = bound.plan
+    if len(plan.sources) != 1 or len(plan.steps) != 5:
+        raise ValueError("Unsupported HAVING analytical graph")
+    group, aggregate, threshold, sort, limit = plan.steps
+    if (
+        group.operation is not AnalyticalOperation.GROUP
+        or aggregate.operation is not AnalyticalOperation.AGGREGATE
+        or threshold.operation is not AnalyticalOperation.THRESHOLD
+        or sort.operation is not AnalyticalOperation.SORT
+        or limit.operation is not AnalyticalOperation.LIMIT
+        or group.inputs != plan.sources
+        or aggregate.inputs != (group.id,)
+        or threshold.inputs != (aggregate.id,)
+        or sort.inputs != (threshold.id,)
+        or limit.inputs != (sort.id,)
+        or plan.output != limit.id
+    ):
+        raise ValueError("Unsupported HAVING operation order")
+    if set(threshold.parameters) != {"metric", "operator", "value"}:
+        raise ValueError("HAVING requires metric, operator and value")
+    op = threshold.parameters["operator"]
+    operators = {"GT": ">", "GTE": ">=", "LT": "<", "LTE": "<=", "EQ": "="}
+    if type(op) is not str or op not in operators:
+        raise ValueError("Unsupported HAVING comparison operator")
+    value = threshold.parameters["value"]
+    if type(value) not in (int, float) or (
+        type(value) is float and not math.isfinite(value)
+    ):
+        raise ValueError("HAVING requires a finite numeric threshold")
+    refs = [
+        ref for ref in bound.references if ref.step_id == threshold.id
+    ]
+    metrics = [
+        metric for metric in physical_plan.metrics if metric.step_id == threshold.id
+    ]
+    if len(refs) != 1 or len(metrics) != 1:
+        raise ValueError("HAVING requires one governed metric binding")
+    ref = refs[0]
+    metric = metrics[0]
+    if (
+        (ref.parameter, ref.kind) != ("metric", "metric")
+        or (metric.parameter, metric.semantic_name) != ("metric", ref.name)
+        or ref.name.casefold() != str(threshold.parameters["metric"]).casefold()
+    ):
+        raise ValueError("HAVING governed metric mismatch")
+    aggregate_metrics = [
+        m for m in physical_plan.metrics if m.step_id == aggregate.id
+    ]
+    if len(aggregate_metrics) != 1 or (
+        metric.semantic_name != aggregate_metrics[0].semantic_name
+        or metric.entity_id != aggregate_metrics[0].entity_id
+        or metric.attribute_name != aggregate_metrics[0].attribute_name
+        or metric.aggregation != aggregate_metrics[0].aggregation
+        or metric.calculation_expression != aggregate_metrics[0].calculation_expression
+    ):
+        raise ValueError("HAVING must target the existing aggregated metric")
+    if any(
+        item.step_id == threshold.id
+        for item in (*physical_plan.dimensions, *physical_plan.time_dimensions)
+    ):
+        raise ValueError("Unexpected HAVING physical mappings")
+    restored_sort = replace(sort, inputs=(aggregate.id,))
+    base_plan = AnalyticalPlan(
+        sources=plan.sources,
+        steps=(group, aggregate, restored_sort, limit),
+        output=limit.id,
+    )
+    base_bound = BoundAnalyticalPlan(
+        plan=base_plan,
+        references=tuple(ref for ref in bound.references if ref.step_id != threshold.id),
+    )
+    base_physical = replace(
+        physical_plan,
+        bound_plan=base_bound,
+        metrics=tuple(m for m in physical_plan.metrics if m.step_id != threshold.id),
+    )
+    compiled = compile_analytical_grouped_limit(
+        base_physical, metric_source=metric_source, max_rows=max_rows,
+    )
+    marker = " ORDER BY "
+    if compiled.sql.count(marker) != 1:
+        raise ValueError("Expected governed ORDER BY structure")
+    before, after = compiled.sql.split(marker)
+    aggregate_metric = aggregate_metrics[0]
+    column = _quote_identifier(metric_source.column_name)
+    expression = f"{aggregate_metric.aggregation}({column})"
+    return CompiledAnalyticalQuery(
+        sql=before + f" HAVING {expression} {operators[op]} %s" + marker + after,
+        dialect=compiled.dialect,
+        parameters=compiled.parameters + (value,),
+    )
