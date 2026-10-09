@@ -280,3 +280,69 @@ def compile_analytical_grouped_sort(
     return CompiledAnalyticalQuery(
         sql=compiled.sql + f' ORDER BY "{ "value" if kind == "metric" else "dimension" }" {direction}'
     )
+
+
+def compile_analytical_grouped_limit(
+    physical_plan: UnifiedPhysicalAnalyticalPlan,
+    *,
+    metric_source: GovernedMetricSource,
+    max_rows: int = 1000,
+) -> CompiledAnalyticalQuery:
+    """Compile GROUP -> AGGREGATE -> SORT -> LIMIT with a bounded row count.
+
+    The preceding sorted plan is recompiled and validated; no arbitrary SQL
+    or unordered limit is accepted. Row caps do not replace execution policy.
+    """
+    from dataclasses import replace
+
+    from datapilot.application.services.analytical_plan import AnalyticalPlan
+    from datapilot.application.services.analytical_plan_binding import BoundAnalyticalPlan
+
+    if not isinstance(physical_plan, UnifiedPhysicalAnalyticalPlan):
+        raise ValueError("Unified governed physical plan is required")
+    if type(max_rows) is not int or max_rows < 1:
+        raise ValueError("Invalid governed maximum row count")
+    bound = physical_plan.bound_plan
+    plan = bound.plan
+    if len(plan.sources) != 1 or len(plan.steps) != 4:
+        raise ValueError("Unsupported limited aggregation graph")
+    group, aggregate, sort, limit = plan.steps
+    if (
+        limit.operation is not AnalyticalOperation.LIMIT
+        or limit.inputs != (sort.id,)
+        or plan.output != limit.id
+    ):
+        raise ValueError("Unsupported analytical limit operation order")
+    if set(limit.parameters) != {"count"}:
+        raise ValueError("Limit requires exactly one count parameter")
+    count = limit.parameters["count"]
+    if type(count) is not int or not 1 <= count <= max_rows:
+        raise ValueError("Limit count must be a positive bounded integer")
+    if any(ref.step_id == limit.id for ref in bound.references):
+        raise ValueError("Limit cannot introduce semantic references")
+    if any(
+        item.step_id == limit.id
+        for item in (
+            *physical_plan.dimensions,
+            *physical_plan.metrics,
+            *physical_plan.time_dimensions,
+        )
+    ):
+        raise ValueError("Limit cannot introduce physical mappings")
+    prefix = AnalyticalPlan(
+        sources=plan.sources,
+        steps=(group, aggregate, sort),
+        output=sort.id,
+    )
+    prefix_bound = BoundAnalyticalPlan(
+        plan=prefix,
+        references=tuple(ref for ref in bound.references if ref.step_id != limit.id),
+    )
+    prefix_physical = replace(physical_plan, bound_plan=prefix_bound)
+    compiled = compile_analytical_grouped_sort(
+        prefix_physical, metric_source=metric_source,
+    )
+    return CompiledAnalyticalQuery(
+        sql=compiled.sql + f" LIMIT {count}",
+        dialect=compiled.dialect,
+    )
