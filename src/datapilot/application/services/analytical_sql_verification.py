@@ -5,6 +5,8 @@ does not claim to be independent AST verification; that is a subsequent stage.
 """
 from dataclasses import dataclass
 
+from datapilot.application.services.analytical_plan import AnalyticalOperation
+
 import sqlglot
 from sqlglot import exp
 
@@ -87,6 +89,84 @@ def verify_governed_analytical_sql(
             return AnalyticalSQLVerification(False, "SQL AST differs from governed query shape")
         if parsed.args.get("with") is not None or parsed.args.get("distinct") is not None:
             return AnalyticalSQLVerification(False, "Unexpected SQL AST clause")
+        # Derive expected roles from the governed physical plan, not the SQL compiler.
+        plan = physical_plan.bound_plan.plan
+        group_step = next(s for s in plan.steps if s.operation is AnalyticalOperation.GROUP)
+        aggregate_step = next(s for s in plan.steps if s.operation is AnalyticalOperation.AGGREGATE)
+        sort_step = next(s for s in plan.steps if s.operation is AnalyticalOperation.SORT)
+        limit_step = next(s for s in plan.steps if s.operation is AnalyticalOperation.LIMIT)
+        dimension = next(d for d in physical_plan.dimensions if d.step_id == group_step.id)
+        metric = next(m for m in physical_plan.metrics if m.step_id == aggregate_step.id)
+        group_expr = parsed.args["group"].expressions[0]
+        if not isinstance(group_expr, exp.Column) or group_expr.name != dimension.column_name:
+            return AnalyticalSQLVerification(False, "Grouping dimension differs from governed binding")
+        projections = parsed.expressions
+        if (
+            not isinstance(projections[0], exp.Alias)
+            or not isinstance(projections[0].this, exp.Column)
+            or projections[0].this.name != dimension.column_name
+            or projections[0].alias != "dimension"
+            or not isinstance(projections[1], exp.Alias)
+            or projections[1].alias != "value"
+        ):
+            return AnalyticalSQLVerification(False, "Projection differs from governed dimension")
+        aggregate_expr = projections[1].this
+        if (
+            not isinstance(aggregate_expr, exp.AggFunc)
+            or aggregate_expr.key.upper() != metric.aggregation.upper()
+            or not isinstance(aggregate_expr.this, exp.Column)
+            or aggregate_expr.this.name != metric_source.column_name
+        ):
+            return AnalyticalSQLVerification(False, "Aggregate differs from governed metric")
+        ordering = parsed.args["order"].expressions
+        sort_role = "value" if "metric" in sort_step.parameters else "dimension"
+        if (
+            len(ordering) != 1
+            or not isinstance(ordering[0].this, exp.Column)
+            or ordering[0].this.name != sort_role
+            or ordering[0].args.get("desc") != (sort_step.parameters["direction"] == "DESC")
+        ):
+            return AnalyticalSQLVerification(False, "Sort differs from governed plan")
+        limit_expr = parsed.args["limit"].expression
+        if not isinstance(limit_expr, exp.Literal) or int(limit_expr.this) != limit_step.parameters["count"]:
+            return AnalyticalSQLVerification(False, "Limit differs from governed plan")
+        filters = [s for s in plan.steps if s.operation is AnalyticalOperation.FILTER]
+        where = parsed.args.get("where")
+        if bool(filters) != bool(where):
+            return AnalyticalSQLVerification(False, "Filter presence differs from governed plan")
+        if filters:
+            def split_and(node):
+                if isinstance(node, exp.And):
+                    return split_and(node.left) + split_and(node.right)
+                return [node]
+            predicates = split_and(where.this)
+            if len(predicates) != len(filters):
+                return AnalyticalSQLVerification(False, "Filter count differs from governed plan")
+            for step, predicate in zip(filters, predicates):
+                mapping = next(d for d in physical_plan.dimensions if d.step_id == step.id)
+                op = step.parameters["operator"]
+                if op == "EQ":
+                    valid = isinstance(predicate, exp.EQ) and isinstance(predicate.left, exp.Column) and predicate.left.name == mapping.column_name
+                elif op == "IN":
+                    valid = isinstance(predicate, exp.In) and isinstance(predicate.this, exp.Column) and predicate.this.name == mapping.column_name and len(predicate.expressions) == len(step.parameters["values"])
+                else:
+                    valid = False
+                if not valid:
+                    return AnalyticalSQLVerification(False, "Filter operator or dimension differs from governed plan")
+        thresholds = [s for s in plan.steps if s.operation is AnalyticalOperation.THRESHOLD]
+        having = parsed.args.get("having")
+        if bool(thresholds) != bool(having):
+            return AnalyticalSQLVerification(False, "Threshold presence differs from governed plan")
+        if thresholds:
+            operators = {"GT": exp.GT, "GTE": exp.GTE, "LT": exp.LT, "LTE": exp.LTE, "EQ": exp.EQ}
+            threshold = thresholds[0]
+            predicate = having.this
+            if (
+                len(thresholds) != 1
+                or not isinstance(predicate, operators[threshold.parameters["operator"]])
+                or predicate.left.sql(dialect="postgres") != aggregate_expr.sql(dialect="postgres")
+            ):
+                return AnalyticalSQLVerification(False, "Threshold differs from governed metric")
         # AST-level parameter count guards against malformed placeholder syntax.
         if len(list(parsed.find_all(exp.Literal))) < len(compiled.parameters):
             return AnalyticalSQLVerification(False, "Insufficient SQL parameter expressions")
