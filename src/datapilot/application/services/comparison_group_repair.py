@@ -27,8 +27,8 @@ def repair_missing_comparison_groups(
         not isinstance(name, str) or not name.isidentifier() for name in missing
     ):
         return reject('invalid_missing_columns')
-    dialect = sqlglot_dialect(dialect)
     try:
+        dialect = sqlglot_dialect(dialect)
         tree = parse_one(sql, read=dialect)
     except Exception:
         return reject('sql_parse_failed')
