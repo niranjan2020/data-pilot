@@ -15,6 +15,7 @@ class DatasetProposal(BaseModel):
     description: str
     key_columns: list[str] = Field(default_factory=list)
     attributes: list[str] = Field(default_factory=list)
+    unique_constraints: list[dict] = Field(default_factory=list)
     provenance: str = "discovered_schema"
     status: str = "draft"
     warnings: list[str] = Field(default_factory=list)
@@ -41,6 +42,7 @@ def propose_datasets(catalog: list[dict], selected: list[dict]) -> list[DatasetP
             description=f"Discovered dataset {key[0]}.{key[1]} ({len(columns)} columns).",
             key_columns=keys,
             attributes=[c["name"] for c in columns],
+            unique_constraints=table.get("unique_constraints", []),
             warnings=warnings,
         ))
     return proposals
