@@ -9,6 +9,26 @@
 **Current semantic evaluation baseline:** 39/39 passed (100.0%) through the live production pipeline after B4 dialect isolation (p50 2.986 s, p95 4.249 s).  
 **Current unit regression baseline:** **1004 passed** (user-verified 2026-10-09, before C4 categorical proposal regressions). Full integration/evaluation suite and live semantic benchmark are not verified by this count.
 
+## Visualization Intelligence — generic result presentation (planned, 2026-10-09)
+
+**Priority:** separate Stage C7 enhancement, after active semantic-to-SQL category correctness and governed ranking work. **Status: roadmap only; not implemented.** Do not modify current SQL correctness behavior as part of visualization delivery.
+
+- **Shape-aware chart selection:** choose chart types from typed result roles (dimensions, measures, time), cardinality and user intent; support single-category bars, two-category grouped bars, time-series lines, and suitable multi-measure comparisons. Fall back to a table when no trustworthy chart fits.
+- **Generic pivoting:** convert two categorical dimensions plus one measure into category-by-series grouped bars; preserve original result rows, nulls, labels, and metric values. Support stacked bars only when composition/additivity makes sense; cap series/cardinality and provide scroll or alternate layout.
+- **Semantic labels:** use published dimension/category display labels for legends and tooltips while retaining underlying codes for query correctness; never hardcode ownership, operator, vessel, or AdventureWorks names.
+- **Narrative correctness:** describe category comparisons as comparisons, never period changes without a time dimension; avoid misleading repeated labels or arithmetic on unrelated rows. Validate comparisons, denominators, units, and metric grain against returned data.
+- **Acceptance:** fixtures across unrelated domains; category-by-series pivot accuracy, missing categories/nulls, high cardinality, semantic labels, chart fallback, and deterministic narrative tests. Chart improvements must not alter generated SQL, query safety, or published semantics.
+
+## Governed Top-N ranking — metric and dimension UX (planned, 2026-10-09)
+
+- Define reusable ranking policies in Admin Studio, discoverable from the **Metrics** section but stored as governed ranking metadata, not as a fake `Top N` metric.
+- Policy fields: applicable entity/dimension, ranking metric, sort direction, default N or maximum N, eligibility/filter scope, global versus per-group partitioning, tie policy, approval/publication state. User-specified N may override defaults within policy bounds.
+- Example datasource-specific policy: rank operators by approved SUM(TEU capacity) over an explicitly governed eligible fleet, then count ON ORDER vessels by selected operator and segment. Verify grain and avoid duplicate capacity. Never assume vessel count is the ranking metric.
+- Planner should distinguish `top N operators overall, broken down by segment` from `top N operators within each segment`; clarify when ambiguous. Generate safe two-stage SQL, then validate ranking metric, partitioning, eligibility, N and final grouping.
+- Keep domain-specific defaults only in datasource semantic configuration; add cross-domain regression fixtures (customers/revenue, products/units, operators/capacity).
+
+---
+
 ## Governed Top-N operator ranking — design checkpoint (2026-10-09)
 
 - Astra-specific approved default: an unqualified **top N operators** means operators ranked by descending **SUM of TEU capacity**, not vessel count. This is datasource semantic configuration, not a global Data Pilot assumption.
