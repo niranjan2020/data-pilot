@@ -11,7 +11,7 @@ from datapilot.application.services.analytical_golden_questions import (
 from datapilot.application.services.analytical_plan import AnalyticalOperation
 
 CATALOG = runpy.run_path(
-    str(Path(__file__).resolve().parents[2] / "fixtures" / "analytical_golden_questions.py")
+    str(Path(__file__).resolve().parents[3] / "fixtures" / "analytical_golden_questions.py")
 )["GOLDEN_QUESTIONS"]
 
 
