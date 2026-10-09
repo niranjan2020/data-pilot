@@ -719,3 +719,136 @@ def compile_analytical_multi_filtered_grouped_limit(
     return _compose_validated_grouped_limit(
         base_physical, metric_source, where=tuple(predicates), max_rows=max_rows,
     )
+
+
+def compile_analytical_filtered_having_limit(
+    physical_plan: UnifiedPhysicalAnalyticalPlan,
+    *,
+    metric_source: GovernedMetricSource,
+    published_dimensions: tuple,
+    max_rows: int = 1000,
+    max_filters: int = 10,
+) -> CompiledAnalyticalQuery:
+    """Combine validated chained WHERE filters with one governed HAVING threshold.
+
+    Shape: FILTER+ -> GROUP -> AGGREGATE -> THRESHOLD -> SORT -> LIMIT.
+    Both component compilers must validate their full physical plans before
+    their compiler-owned clauses are composed. No user SQL is accepted.
+    """
+    from dataclasses import replace
+
+    from datapilot.application.services.analytical_plan import AnalyticalPlan
+    from datapilot.application.services.analytical_plan_binding import BoundAnalyticalPlan
+    from datapilot.application.services.analytical_sql_composition import (
+        BoundPredicate, GroupedQueryClauses, compose_grouped_query,
+    )
+
+    if not isinstance(physical_plan, UnifiedPhysicalAnalyticalPlan):
+        raise ValueError("Unified governed physical plan is required")
+    bound = physical_plan.bound_plan
+    plan = bound.plan
+    if len(plan.sources) != 1 or len(plan.steps) < 6:
+        raise ValueError("Unsupported combined filter and threshold graph")
+    filters = plan.steps[:-5]
+    group, aggregate, threshold, sort, limit = plan.steps[-5:]
+    if (
+        not filters
+        or threshold.operation is not AnalyticalOperation.THRESHOLD
+        or threshold.inputs != (aggregate.id,)
+        or sort.inputs != (threshold.id,)
+        or limit.inputs != (sort.id,)
+        or plan.output != limit.id
+    ):
+        raise ValueError("Unsupported combined filter and threshold order")
+    # Validate all row filters using the existing multi-filter compiler.
+    restored_sort = replace(sort, inputs=(aggregate.id,))
+    where_plan = AnalyticalPlan(
+        sources=plan.sources,
+        steps=(*filters, group, aggregate, restored_sort, limit),
+        output=limit.id,
+    )
+    where_bound = BoundAnalyticalPlan(
+        plan=where_plan,
+        references=tuple(r for r in bound.references if r.step_id != threshold.id),
+    )
+    where_physical = replace(
+        physical_plan,
+        bound_plan=where_bound,
+        metrics=tuple(m for m in physical_plan.metrics if m.step_id != threshold.id),
+    )
+    where_compiled = compile_analytical_multi_filtered_grouped_limit(
+        where_physical,
+        metric_source=metric_source,
+        published_dimensions=published_dimensions,
+        max_rows=max_rows,
+        max_filters=max_filters,
+    )
+    # Validate HAVING independently against the same governed aggregate.
+    restored_group = replace(group, inputs=plan.sources)
+    having_plan = AnalyticalPlan(
+        sources=plan.sources,
+        steps=(restored_group, aggregate, threshold, sort, limit),
+        output=limit.id,
+    )
+    filter_ids = {step.id for step in filters}
+    having_bound = BoundAnalyticalPlan(
+        plan=having_plan,
+        references=tuple(r for r in bound.references if r.step_id not in filter_ids),
+    )
+    having_physical = replace(
+        physical_plan,
+        bound_plan=having_bound,
+        dimensions=tuple(d for d in physical_plan.dimensions if d.step_id not in filter_ids),
+    )
+    having_compiled = compile_analytical_grouped_having(
+        having_physical, metric_source=metric_source, max_rows=max_rows,
+    )
+    # These strings are generated exclusively by validated internal compilers.
+    # Parse only exact, unique clause boundaries; reject unexpected layouts.
+    where_marker = " WHERE "
+    group_marker = " GROUP BY "
+    having_marker = " HAVING "
+    order_marker = " ORDER BY "
+    if (
+        where_compiled.sql.count(where_marker) != 1
+        or where_compiled.sql.count(group_marker) != 1
+        or where_compiled.sql.count(order_marker) != 1
+        or having_compiled.sql.count(having_marker) != 1
+        or having_compiled.sql.count(order_marker) != 1
+        or having_compiled.sql.count(group_marker) != 1
+    ):
+        raise ValueError("Unexpected compiler-owned SQL structure")
+    prefix, where_tail = where_compiled.sql.split(where_marker)
+    where_sql, group_tail = where_tail.split(group_marker)
+    group_sql, order_tail = group_tail.split(order_marker)
+    having_prefix, having_tail = having_compiled.sql.split(having_marker)
+    having_sql, having_order_tail = having_tail.split(order_marker)
+    if (
+        having_prefix != prefix + group_marker + group_sql
+        or having_order_tail != order_tail
+        or not where_sql.strip()
+        or not having_sql.strip()
+        or len(having_compiled.parameters) != 1
+    ):
+        raise ValueError("Combined compiler validation mismatch")
+    # Compose from trusted clauses while preserving placeholder order.
+    select_sql, source_sql = prefix.split(" FROM ", 1)
+    if not select_sql.startswith("SELECT ") or select_sql.count("SELECT ") != 1:
+        raise ValueError("Unexpected validated SELECT clause")
+    order_sql, limit_sql = order_tail.rsplit(" LIMIT ", 1)
+    if not limit_sql.isdecimal() or int(limit_sql) != limit.parameters["count"]:
+        raise ValueError("Unexpected validated LIMIT clause")
+    clauses = GroupedQueryClauses(
+        select=tuple(select_sql[len("SELECT "):].split(", ")),
+        source=source_sql,
+        group_by=(group_sql,),
+        where=(BoundPredicate(where_sql, where_compiled.parameters),),
+        having=(BoundPredicate(having_sql, having_compiled.parameters),),
+        order_by=(order_sql,),
+        limit=int(limit_sql),
+        parenthesize_predicates=False,
+    )
+    composed = compose_grouped_query(clauses)
+    return CompiledAnalyticalQuery(
+        sql=composed.sql, dialect=where_compiled.dialect, parameters=composed.parameters,
+    )
