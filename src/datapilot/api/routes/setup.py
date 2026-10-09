@@ -837,3 +837,61 @@ async def propose_saved_source_categorical_values(
         if owns_metadata:
             await metadata.close()
 
+
+
+class ApprovedCategoricalMapping(BaseModel):
+    canonical_value: str = Field(min_length=1)
+    synonyms: list[str] = Field(default_factory=list)
+
+class PublishCategoricalMappingsRequest(CategoricalProposalRequest):
+    mappings: list[ApprovedCategoricalMapping] = Field(min_length=1, max_length=50)
+
+@router.post("/data-source/{source_id}/categorical-mappings/publish")
+async def publish_saved_source_categorical_mappings(
+    source_id: int, payload: PublishCategoricalMappingsRequest, request: Request
+):
+    """Explicit approval; publish only verified exact values on a selected dataset."""
+    metadata, owns_metadata = await _setup_metadata(request)
+    source = None
+    try:
+        if await metadata.get_active_data_source_id() != source_id:
+            raise HTTPException(409, "Datasource is not active.")
+        selected = await metadata.get_selected_datasets(source_id)
+        if (payload.schema_name, payload.table_name) not in {
+            (d["schema_name"], d["table_name"]) for d in selected
+        }:
+            raise HTTPException(403, "Dataset is not approved.")
+        catalog = await metadata.list_catalog_tables(source_id)
+        table = next((t for t in catalog if t["schema_name"] == payload.schema_name and t["table_name"] == payload.table_name), None)
+        column = next((c for c in table["columns"] if c["name"] == payload.column_name), None) if table else None
+        if not column or column["data_type"].lower() not in {"text", "character varying", "character", "varchar", "char"}:
+            raise HTTPException(422, "A discovered text column is required.")
+        store = getattr(request.app.state, "data_source_secret_store", None) or LocalDataSourceSecretStore()
+        try:
+            source = await open_saved_data_source(metadata, store, source_id)
+            discovery = await source.propose_categorical_values(
+                payload.schema_name, payload.table_name, payload.column_name,
+                max_values=50, timeout_seconds=2.0,
+            )
+        except Exception as exc:
+            raise HTTPException(422, "Cannot verify current database values.") from exc
+        if not discovery.get("complete"):
+            raise HTTPException(409, "Discovery is incomplete; publishing is disabled.")
+        verified = set(discovery.get("values") or [])
+        requested = [m.canonical_value.strip() for m in payload.mappings]
+        if len(requested) != len(set(requested)) or any(v not in verified for v in requested):
+            raise HTTPException(422, "Selected canonical values must exactly match discovered database values.")
+        try:
+            count = await metadata.publish_categorical_mappings(
+                data_source_id=source_id, schema_name=payload.schema_name,
+                table_name=payload.table_name, column_name=payload.column_name,
+                mappings=[m.model_dump() for m in payload.mappings],
+            )
+        except Exception as exc:
+            raise HTTPException(409, "Publication failed: semantic attribute missing or mappings conflict.") from exc
+        return {"published": True, "count": count, "message": "Categorical mappings published"}
+    finally:
+        if source is not None:
+            await source.close()
+        if owns_metadata:
+            await metadata.close()
