@@ -193,9 +193,9 @@ def _ranking_grain_checks(sql: str, *, question: str, required_grouping_columns:
     """
     import re
     expected = {_normalise(str(c)).rsplit(".", 1)[-1] for c in required_grouping_columns if str(c).strip()}
-    if not expected or not re.search(r"\\btop\\s+\\d+\\b", question, re.I):
+    if not expected or not re.search(r"\btop\s+\d+\b", question, re.I):
         return []
-    if re.search(r"\\b(?:grouped|broken down|split)\\s+by\\b", question, re.I):
+    if re.search(r"\b(?:grouped|broken down|split)\s+by\b", question, re.I):
         return []
     try:
         tree = parse_one(sql, read=sqlglot_dialect(dialect))
