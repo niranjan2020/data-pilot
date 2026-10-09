@@ -1,5 +1,16 @@
 # Data Pilot Roadmap
 
+## Analytical evaluation harness checkpoint — 2026-10-09
+
+- User confirmed **88 focused analytical SQL tests passed** (full unit suite not separately confirmed).
+- Added generic `AnalyticalEvaluationCase`, `AnalyticalEvaluationResult`, and `evaluate_analytical_case`: compares typed operation sequence, bound semantic dimension/metric names, ordered parameters, expected physical source, and governed SQL verifier status. Pure offline evaluation: no LLM, database access, or execution authorization.
+- Added **32 evaluation tests** across Sales and Astra-style fixtures: 8 supported shapes, 10 semantic mismatches, 6 SQL/parameter tampering cases, 8 invalid contract checks. Awaiting local test verification.
+- This is an **evaluation readiness harness**, not full Stage 5. Ground-truth question-to-plan prediction, query execution results, categorical value resolution, grain/snapshot semantics, and governance Admin integration remain future gates. No live routing changed.
+- Next: run tests; then extend to datasource-grounded gold cases and result-level checks after safe evaluation access is available.
+
+---
+
+
 ## Cross-domain analytical correctness batch — 2026-10-09
 
 - User confirmed **56 focused analytical verification tests passed**. Full unit suite was not separately reported.
