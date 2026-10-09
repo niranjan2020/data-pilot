@@ -75,3 +75,26 @@ async def load_published_analytical_context(
         time_dimensions=approved_times,
         is_published=lambda kind, record: True,
     )
+
+
+async def load_persisted_analytical_context(
+    *,
+    provider: AnalyticalMetadataProvider,
+    datasource: str,
+    publication_store: Any,
+) -> PublishedSemanticContext:
+    """Load semantic definitions using persisted, datasource-scoped grants.
+
+    This is the production-oriented entry point. The store must expose the
+    async is_published(data_source_id, kind, semantic_id) contract. Do not
+    replace it with a permissive fallback if governance is unavailable.
+    """
+    if publication_store is None or not callable(
+        getattr(publication_store, "is_published", None)
+    ):
+        raise ValueError("A persistent analytical publication store is required")
+    return await load_published_analytical_context(
+        provider=provider,
+        datasource=datasource,
+        authorize=publication_store.is_published,
+    )
