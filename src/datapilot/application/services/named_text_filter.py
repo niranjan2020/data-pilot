@@ -15,7 +15,11 @@ def normalize_named_text_filter(
 ) -> str:
     if not isinstance(sql, str) or not isinstance(attribute_column, str) or not attribute_column.strip():
         raise ValueError("SQL and governed attribute column required")
-    tree = parse_one(sql, read=dialect)
+    try:
+        tree = parse_one(sql, read=dialect)
+    except Exception:
+        # Preserve existing SQL validator ownership of malformed SQL.
+        return sql
     if not isinstance(tree, exp.Select) or any(
         isinstance(node, (exp.Join, exp.Subquery, exp.Union, exp.With))
         for node in tree.walk()
