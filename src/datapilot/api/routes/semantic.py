@@ -62,6 +62,17 @@ class MetricRequest(BaseModel):
     format:str=Field(default="number",pattern="^(number|currency|percent|integer)$")
     synonyms:list[str]=Field(default_factory=list)
 
+class RankingRuleRequest(BaseModel):
+    source_name:str=Field(min_length=1)
+    entity_id:int
+    name:str=Field(min_length=1)
+    dimension_attribute_name:str=Field(min_length=1)
+    metric_id:int
+    default_top_n:int=Field(default=10,ge=1,le=100)
+    direction:str=Field(default="desc",pattern="^(asc|desc)$")
+    scope:str=Field(default="global",pattern="^(global|per_group)$")
+    is_default:bool=False
+
 class TimeDimensionRequest(BaseModel):
     source_name:str=Field(min_length=1)
     name:str=Field(min_length=1)
@@ -310,6 +321,36 @@ async def save_metric(payload:MetricRequest):
         index_status,index_error=await sync_semantic_index(p,payload.source_name,source_id)
         return {"id":metric_id,"message":"Semantic metric saved","index_status":index_status,"index_error":index_error}
     finally: await p.close()
+
+@router.get("/{source_name}/ranking-rules")
+async def ranking_rules(source_name: str):
+    p = provider()
+    try:
+        source_id = await p.get_data_source_id(source_name)
+        if source_id is None:
+            raise HTTPException(404, "Data source not found. Discover it first.")
+        return {"source_name": source_name,
+                "rules": await p.list_semantic_ranking_rules(source_id)}
+    finally:
+        await p.close()
+
+@router.post("/ranking-rules")
+async def save_ranking_rule(payload: RankingRuleRequest):
+    p = provider()
+    try:
+        source_id = await p.get_data_source_id(payload.source_name)
+        if source_id is None:
+            raise HTTPException(404, "Data source not found. Discover it first.")
+        rule_id = await p.save_semantic_ranking_rule(
+            data_source_id=source_id, entity_id=payload.entity_id,
+            name=payload.name, dimension_attribute_name=payload.dimension_attribute_name,
+            metric_id=payload.metric_id, default_top_n=payload.default_top_n,
+            direction=payload.direction, scope=payload.scope,
+            is_default=payload.is_default)
+        return {"id": rule_id, "message": "Ranking rule saved",
+                "runtime_status": "configuration_only"}
+    finally:
+        await p.close()
 
 @router.get("/{source_name}/business-rules")
 async def business_rules(source_name:str):
