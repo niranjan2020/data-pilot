@@ -1672,8 +1672,8 @@ class QueryOrchestrator:
 
             predicates = flatten_and(where.this)
             null_pattern = (
-                rf'(?:[A-Za-z_][A-Za-z_0-9]*\\.)?"?{re.escape(column_name)}"?'
-                rf'\\s+IS\\s+NOT\\s+NULL'
+                rf'(?:[A-Za-z_][A-Za-z_0-9]*\.)?"?{re.escape(column_name)}"?'
+                rf'\s+IS\s+NOT\s+NULL'
             )
             predicates = [
                 predicate for predicate in predicates
