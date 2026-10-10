@@ -1499,12 +1499,16 @@ class QueryOrchestrator:
                             return conjuncts(node.this) + conjuncts(node.expression)
                         return [node]
                     clauses = conjuncts(where.this)
+                    # SQLGlot may normalize IS NOT NULL as NOT(IS(...)) or
+                    # another equivalent AST shape. Match the *individual*
+                    # parsed conjunct's normalized SQL instead of its class.
+                    column_pattern = r'(?:[A-Za-z_][A-Za-z_0-9]*\\.)?"?' + re.escape(column_name) + r'"?'
                     null_only = any(
-                        isinstance(predicate, exp.Not)
-                        and isinstance(predicate.this, exp.Is)
-                        and isinstance(predicate.this.this, exp.Column)
-                        and predicate.this.this.name.casefold() == column_name
-                        and isinstance(predicate.this.expression, exp.Null)
+                        re.fullmatch(
+                            rf'{column_pattern}\\s+IS\\s+NOT\\s+NULL',
+                            predicate.sql(dialect="postgres").strip(),
+                            re.I,
+                        )
                         for predicate in clauses
                     )
                     if not null_only:
@@ -1515,7 +1519,10 @@ class QueryOrchestrator:
                     others = [
                         predicate for predicate in clauses
                         if any(c.name.casefold() == column_name for c in predicate.find_all(exp.Column))
-                        and not (isinstance(predicate, exp.Not) and isinstance(predicate.this, exp.Is))
+                        and not re.fullmatch(
+                            rf'{column_pattern}\\s+IS\\s+NOT\\s+NULL',
+                            predicate.sql(dialect="postgres").strip(), re.I,
+                        )
                     ]
                     if not others:
                         raise SQLValidationError(
