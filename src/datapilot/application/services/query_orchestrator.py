@@ -2187,8 +2187,37 @@ class QueryOrchestrator:
                     (table.alias_or_name or "").casefold()
                     for table in allowed_tables
                 }
+                # A lateral UNNEST column is a derived projection of the
+                # governed physical array, not an unrelated categorical field.
+                # Bind both the source column and the output alias by AST
+                # lineage, never by coincidental name or literal matching.
+                expanded_columns = set()
+                if isinstance(ast, exp.Select):
+                    for lateral in ast.find_all(exp.Lateral):
+                        if lateral.find_ancestor(exp.Select) is not ast:
+                            continue
+                        alias = lateral.args.get("alias")
+                        source = lateral.this
+                        if not isinstance(alias, exp.TableAlias) or not alias.columns:
+                            continue
+                        source_columns = list(source.find_all(exp.Column)) if source else []
+                        if len(source_columns) != 1:
+                            continue
+                        physical = source_columns[0]
+                        if physical.name.casefold() != column_name.casefold():
+                            continue
+                        if physical.table and physical.table.casefold() not in valid_qualifiers:
+                            continue
+                        if not any(isinstance(n, exp.Unnest) for n in source.walk()):
+                            continue
+                        for output in alias.columns:
+                            expanded_columns.add((alias.this.name.casefold(), output.name.casefold()))
                 def correct_column(column):
-                    if not isinstance(column, exp.Column) or column.name.casefold() != column_name.casefold():
+                    if not isinstance(column, exp.Column):
+                        return False
+                    if column.table and (column.table.casefold(), column.name.casefold()) in expanded_columns:
+                        return True
+                    if column.name.casefold() != column_name.casefold():
                         return False
                     if column.table:
                         return column.table.casefold() in valid_qualifiers
