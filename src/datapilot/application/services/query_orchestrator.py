@@ -1865,7 +1865,12 @@ class QueryOrchestrator:
         metrics: Optional[list[dict[str, Any]]] = None,
     ) -> list[str]:
         """Resolve explicit grouping to the most specific governed dimension."""
-        if selected_attribute:
+        normalized = " ".join(re.findall(r"[a-z0-9]+", question.casefold()))
+
+        # A selected attribute can be a filter-only dimension. Do not let
+        # its presence override the grain of an explicit top-N ranking.
+        is_top_ranking = bool(re.search(r"\btop\s+\d+\b", normalized))
+        if selected_attribute and not is_top_ranking:
             selected_column = str(
                 selected_attribute.get("column_name")
                 or selected_attribute.get("column")
@@ -1873,8 +1878,6 @@ class QueryOrchestrator:
             ).strip()
             if selected_column:
                 return [selected_column]
-
-        normalized = " ".join(re.findall(r"[a-z0-9]+", question.casefold()))
 
         # In ranking forms such as "top customers by order count", "by" names
         # the ranking metric rather than a grouping dimension. Group by the
