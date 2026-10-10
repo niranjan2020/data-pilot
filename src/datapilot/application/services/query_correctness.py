@@ -1775,7 +1775,8 @@ def _array_and_period_grain_checks(sql: str, *, dialect: str) -> list[dict[str, 
 def _contract_comparison_checks(sql: str, *, cohorts: Iterable[dict[str, Any]], grain: Iterable[str], dialect: str) -> list[dict[str, Any]]:
     """Fail closed when SQL does not preserve explicitly resolved cohorts."""
     required = list(cohorts)
-    if not required:
+    required_grain = [str(column) for column in grain if str(column).strip()]
+    if not required and not required_grain:
         return []
     try:
         tree = parse_one(sql, read=sqlglot_dialect(dialect))
@@ -1840,7 +1841,7 @@ def _contract_comparison_checks(sql: str, *, cohorts: Iterable[dict[str, Any]], 
                         missing.append(column)
     if any(isinstance(a, exp.AggFunc) for a in tree.find_all(exp.AggFunc)):
         missing.extend(
-            _normalise(c).rsplit(".", 1)[-1] for c in grain
+            _normalise(c).rsplit(".", 1)[-1] for c in required_grain
             if _normalise(c).rsplit(".", 1)[-1] not in grouped
         )
     if missing:
