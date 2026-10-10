@@ -88,6 +88,7 @@ def main() -> int:
     parser.add_argument("--base-url", default="http://localhost:8000")
     parser.add_argument("--output", type=Path, default=Path("evaluation-results.json"))
     parser.add_argument("--timeout", type=int, default=120)
+    parser.add_argument("--markdown", type=Path, help="Write readable Markdown report")
     parser.add_argument("--execute", action="store_true", help="Execute read-only queries (default: dry run)")
     args = parser.parse_args()
     if args.cases.suffix.lower() == '.csv':
@@ -122,6 +123,19 @@ def main() -> int:
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
+    if args.markdown:
+        lines = ["# NL-to-SQL evaluation", "", "## Summary", ""]
+        lines.extend("- {}: {}".format(k, v) for k, v in summary.items())
+        lines.extend(["", "| ID | Verdict | API status | Checks |", "|---|---|---|---|"])
+        for item in results:
+            checks = item.get("checks") or []
+            passed = sum(bool(check.get("passed")) for check in checks)
+            lines.append("| {} | {} | {} | {}/{} |".format(
+                item["id"], item["verdict"], item.get("status") or "-",
+                passed, len(checks),
+            ))
+        args.markdown.parent.mkdir(parents=True, exist_ok=True)
+        args.markdown.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(json.dumps(summary))
     print("Report:", args.output)
     return 1 if summary["needs_review"] or summary["transport_error"] or summary["not_configured"] or summary["unreviewed"] else 0
