@@ -772,3 +772,25 @@ def test_explicit_combined_casefolded_cohorts_may_be_aggregated():
         question="Show MSC and Maersk combined by segment",
     )
     assert not any(c["code"] == "comparison_dimension_violation" for c in checks)
+
+
+def test_cte_alias_does_not_count_as_unauthorized_physical_table():
+    from datapilot.application.services.query_correctness import assess_query_correctness
+    sql = "WITH vessel_counts AS (SELECT operator, COUNT(*) AS n FROM astra.vessels GROUP BY operator) SELECT * FROM vessel_counts"
+    checks = assess_query_correctness(
+        affected_tables=["vessel_counts", "astra.vessels"],
+        governed_tables=["astra.vessels"],
+        sql=sql,
+    )
+    assert not any(c["code"] == "physical_scope_violation" for c in checks)
+
+
+def test_cte_cannot_hide_unauthorized_physical_table():
+    from datapilot.application.services.query_correctness import assess_query_correctness
+    sql = "WITH vessel_counts AS (SELECT * FROM private.secret) SELECT * FROM vessel_counts"
+    checks = assess_query_correctness(
+        affected_tables=["vessel_counts"],
+        governed_tables=["astra.vessels"],
+        sql=sql,
+    )
+    assert any(c["code"] == "physical_scope_violation" for c in checks)
