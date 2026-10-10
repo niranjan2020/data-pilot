@@ -1818,6 +1818,64 @@ def _array_and_period_grain_checks(sql: str, *, dialect: str) -> list[dict[str, 
     return checks
 
 
+
+def independent_aggregate_cohorts(tree: exp.Select, *, column: str, values: Iterable[str],
+                                  allowed_qualifiers: set[str] | None = None) -> set[str]:
+    """Prove independently aggregated cohorts from positive governed predicates."""
+    required = {str(v).casefold() for v in values}
+    def unwrap(node):
+        while isinstance(node, (exp.Paren, exp.Cast)):
+            node = node.this
+        return node
+    def is_column(node):
+        node = unwrap(node)
+        return (isinstance(node, exp.Column) and _normalise(node.name) == _normalise(column)
+                and (not node.table or (allowed_qualifiers is not None
+                     and _normalise(node.table) in allowed_qualifiers)))
+    def string(node):
+        node = unwrap(node)
+        return str(node.this).casefold() if isinstance(node, exp.Literal) and node.is_string else None
+    def codes(node):
+        node = unwrap(node)
+        if isinstance(node, (exp.And, exp.Or)):
+            return codes(node.this) | codes(node.expression)
+        if isinstance(node, exp.EQ):
+            for a, b in ((node.this, node.expression), (node.expression, node.this)):
+                a = unwrap(a)
+                if string(b) in required and (
+                    is_column(a) or (isinstance(a, exp.Any) and is_column(a.this))
+                ):
+                    return {string(b)}
+        if isinstance(node, exp.In) and is_column(node.this):
+            literals = [string(v) for v in node.expressions]
+            if literals and all(v is not None for v in literals):
+                return set(literals) & required
+        if node.key.casefold() in {"arraycontainsall", "arraycontains", "array_contains",
+                                   "arrayoverlaps", "array_overlaps"} and is_column(node.this):
+            array = unwrap(node.expression)
+            if isinstance(array, exp.Array):
+                literals = [string(v) for v in array.expressions]
+                if literals and all(v is not None for v in literals):
+                    matched = set(literals) & required
+                    return matched if len(matched) == 1 else set()
+        return set()
+    covered = set()
+    for aggregate in tree.find_all(exp.AggFunc):
+        if aggregate.find_ancestor(exp.Select) is not tree:
+            continue
+        predicates = [branch.this for case in aggregate.find_all(exp.Case)
+                      for branch in case.args.get("ifs") or []]
+        if isinstance(aggregate.parent, exp.Filter):
+            predicates.append(aggregate.parent.args.get("expression"))
+        matched = set()
+        for predicate in predicates:
+            if predicate is not None:
+                matched.update(codes(predicate))
+        if len(matched) == 1:
+            covered.update(matched)
+    return covered
+
+
 def _contract_comparison_checks(
     sql: str, *, cohorts: Iterable[dict[str, Any]], grain: Iterable[str], dialect: str
 ) -> list[dict[str, Any]]:
