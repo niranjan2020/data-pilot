@@ -40,8 +40,23 @@ def repair_missing_comparison_groups(
         return reject('unsupported_sql_shape')
     group = tree.args.get("group")
     where = tree.args.get("where")
-    if group is None or where is None:
-        return reject('missing_group_or_filter')
+    if where is None:
+        return reject('missing_filter')
+    if group is None:
+        # A global aggregate that should compare filtered cohorts can be
+        # repaired into one row per cohort, but only when every projection
+        # is an aggregate (or an alias wrapping an aggregate). Mixed scalar
+        # projections require semantic grain inference and must fail closed.
+        if not tree.expressions or any(
+            not isinstance(
+                projection.this if isinstance(projection, exp.Alias) else projection,
+                exp.AggFunc,
+            )
+            for projection in tree.expressions
+        ):
+            return reject('ungrouped_nonaggregate_projection')
+        group = exp.Group(expressions=[])
+        tree.set("group", group)
     tables = list(tree.find_all(exp.Table))
     if len(tables) != 1:
         return reject('not_single_source')
