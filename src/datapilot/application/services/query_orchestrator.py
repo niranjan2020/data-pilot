@@ -2588,16 +2588,28 @@ class QueryOrchestrator:
             if subject:
                 ranked_subject = subject.group(1)
         if ranked_subject and schema is not None:
+            # Compare tokenized schema column names to the ranked subject,
+            # allowing a trailing plural on words without changing column IDs.
+            # A column is eligible only when the subject actually names it.
+            def singular_tokens(value: str) -> list[str]:
+                return [
+                    token[:-3] + "y" if token.endswith("ies") and len(token) > 4
+                    else token[:-1] if token.endswith("s") and not token.endswith("ss") and len(token) > 3
+                    else token
+                    for token in re.findall(r"[a-z0-9]+", value.casefold())
+                ]
+
+            subject_tokens = singular_tokens(ranked_subject)
             matches = []
             for table in getattr(schema, "tables", []) or []:
                 for column in getattr(table, "columns", []) or []:
                     name = str(getattr(column, "name", "") or "")
-                    phrase = " ".join(re.findall(r"[a-z0-9]+", name.casefold()))
-                    if not phrase:
+                    column_tokens = singular_tokens(name)
+                    if not column_tokens:
                         continue
-                    singular = re.sub(r"\\b([a-z]+)s\\b", r"\\1", ranked_subject)
-                    if re.search(rf"\\b{re.escape(phrase)}\\b", singular):
-                        matches.append((len(phrase.split()), name))
+                    if any(subject_tokens[i:i + len(column_tokens)] == column_tokens
+                           for i in range(len(subject_tokens) - len(column_tokens) + 1)):
+                        matches.append((len(column_tokens), name))
             if matches:
                 longest = max(length for length, _ in matches)
                 selected = {name for length, name in matches if length == longest}
