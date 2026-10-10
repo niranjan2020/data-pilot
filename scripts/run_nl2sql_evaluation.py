@@ -141,7 +141,10 @@ def main() -> int:
         if args.max_cases < 1:
             parser.error("--max-cases must be at least 1")
         cases = cases[:args.max_cases]
-    print("Selected {} evaluation cases; each may incur LLM charges.".format(len(cases)))
+    if args.replay:
+        print("Replaying {} stored cases offline; zero API/LLM calls.".format(len(cases)))
+    else:
+        print("Selected {} live evaluation cases; each may incur LLM charges.".format(len(cases)))
     replay_responses = None
     if args.replay:
         replay_data = json.loads(args.replay.read_text(encoding="utf-8-sig"))
