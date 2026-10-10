@@ -198,3 +198,32 @@ def test_published_nonempty_phrase_rejects_disjunctive_cardinality():
             'SELECT id FROM public.items WHERE CARDINALITY(labels) > 0 OR id > 1',
             entities,
         )
+
+
+def test_metadata_catalog_declares_nonempty_semantic_attribute_fields():
+    from datapilot.infrastructure.metadata.postgresql import _CATALOG_DDL
+    assert 'ADD COLUMN IF NOT EXISTS data_type TEXT' in _CATALOG_DDL
+    assert 'ADD COLUMN IF NOT EXISTS nonempty_intent_phrases JSONB' in _CATALOG_DDL
+
+
+def test_metadata_catalog_entity_roundtrip_supports_published_phrase_fields():
+    import inspect
+    from datapilot.infrastructure.metadata.postgresql import PostgreSQLMetadataProvider
+    save = inspect.getsource(PostgreSQLMetadataProvider.save_semantic_entity)
+    load = inspect.getsource(PostgreSQLMetadataProvider.list_semantic_entities)
+    assert 'attribute.get("data_type")' in save
+    assert 'attribute.get("nonempty_intent_phrases")' in save
+    assert '"data_type": attribute[5]' in load
+    assert '"nonempty_intent_phrases": attribute[6]' in load
+
+
+def test_governed_phrase_end_to_end_validator_contract():
+    entities = [{'name': 'Items', 'attributes': [{
+        'name': 'Labels', 'column_name': 'labels', 'data_type': 'text[]',
+        'nonempty_intent_phrases': ['label enabled'],
+    }]}]
+    with pytest.raises(SQLValidationError, match='nonempty array'):
+        QueryOrchestrator._validate_nonempty_array_filters(
+            'Show label enabled items',
+            'SELECT id FROM public.items WHERE labels IS NOT NULL', entities,
+        )
