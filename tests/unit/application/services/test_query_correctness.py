@@ -825,3 +825,37 @@ def test_explicit_grouping_allows_additional_dimension_named_in_question():
         required_grouping_columns=["ownership_status"],
     )
     assert not any(c["code"] == "explicit_grouping_grain_violation" for c in checks)
+
+
+def test_array_expansion_rejects_unnest_directly_in_group_by():
+    from datapilot.application.services.query_correctness import assess_query_correctness
+
+    checks = assess_query_correctness(
+        affected_tables=["public.assets"],
+        governed_tables=["public.assets"],
+        sql="SELECT UNNEST(tags), COUNT(*) FROM public.assets GROUP BY UNNEST(tags)",
+    )
+    assert any(
+        check["code"] == "array_expansion_grouping_violation"
+        and check["status"] == "failed"
+        for check in checks
+    )
+
+
+def test_array_expansion_allows_lateral_unnest_grouped_by_element():
+    from datapilot.application.services.query_correctness import assess_query_correctness
+
+    checks = assess_query_correctness(
+        affected_tables=["public.assets"],
+        governed_tables=["public.assets"],
+        sql=(
+            "SELECT fuel.value, COUNT(*) FROM public.assets AS a "
+            "CROSS JOIN LATERAL UNNEST(a.tags) AS fuel(value) "
+            "GROUP BY fuel.value"
+        ),
+    )
+    assert not any(
+        check["code"] == "array_expansion_grouping_violation"
+        and check["status"] == "failed"
+        for check in checks
+    )
