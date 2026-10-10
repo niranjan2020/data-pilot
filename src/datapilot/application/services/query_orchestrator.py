@@ -13,7 +13,7 @@ from datapilot.application.services.time_semantics import resolve_time_semantics
 from datapilot.application.services.result_presentation import plan_result_presentation
 from datapilot.application.services.result_summary import summarize_result
 from datapilot.application.services.query_correctness import assess_query_correctness
-from datapilot.application.services.categorical_intent import is_unquoted_connective_code
+from datapilot.application.services.categorical_intent import is_unquoted_connective_code, resolve_categorical_intent
 from datapilot.application.services.sql_correction import classify_sql_correction
 from datapilot.application.services.execution_recovery import classify_execution_error
 from datapilot.application.services.query_explanation import build_query_explanation
@@ -2213,6 +2213,39 @@ class QueryOrchestrator:
 
         for item in intent_filters:
             add(item.attribute, item.column_name, item.operator, item.value)
+
+        # Published categorical mappings provide canonical values, not guessed
+        # free-text literals. Only unique single-value columns can become
+        # equality requirements; comparisons remain governed by the existing
+        # multi-value SQL validator.
+        published_values = []
+        for entity in entities:
+            for attribute in entity.get("attributes") or []:
+                column = str(attribute.get("column_name") or "").strip()
+                data_type = str(attribute.get("data_type") or "").casefold()
+                if data_type in {"date", "timestamp", "integer", "int", "bigint", "numeric"}:
+                    continue
+                for mapping in attribute.get("value_mappings") or []:
+                    canonical = mapping.get("canonical_value")
+                    if canonical is not None and column:
+                        published_values.append({
+                            "column_name": column,
+                            "value": str(canonical),
+                            "synonyms": mapping.get("synonyms") or [],
+                        })
+        resolved = resolve_categorical_intent(question, published_values)
+        by_column: dict[str, set[str]] = {}
+        for item in resolved:
+            by_column.setdefault(item["column_name"].casefold(), set()).add(item["value"])
+        for item in resolved:
+            column = item["column_name"]
+            # Do not force mutually exclusive equality filters or override
+            # explicit filters supplied by the intent planner.
+            if len(by_column[column.casefold()]) != 1:
+                continue
+            if any(entry["column_name"].casefold() == column.casefold() for entry in required):
+                continue
+            add(column, column, "=", item["value"])
 
         normalized_tokens = re.findall(r"[a-z0-9]+", question.casefold())
         stop_words = {
