@@ -92,3 +92,26 @@ def test_governed_filter_repair_rejects_conflicting_predicate(dialect):
     assert QueryOrchestrator._repair_missing_governed_filter(
         sql, checks, dialect=dialect,
     ) is None
+
+
+@pytest.mark.parametrize("dialect", ["postgresql", "postgres", "mysql", "duckdb"])
+def test_categorical_validator_uses_configured_dialect(dialect):
+    sql = (
+        "SELECT ownership_status, COUNT(*) FROM assets "
+        "WHERE ownership_status IN ('O', 'T') GROUP BY ownership_status"
+    )
+    QueryOrchestrator._validate_explicit_categorical_comparison(
+        "Compare owned versus chartered assets", sql, ENTITIES, dialect=dialect,
+    )
+
+
+@pytest.mark.parametrize("dialect", ["postgresql", "postgres", "mysql", "duckdb"])
+def test_categorical_validator_rejects_missing_value_in_any_dialect(dialect):
+    sql = (
+        "SELECT ownership_status, COUNT(*) FROM assets "
+        "WHERE ownership_status = 'O' GROUP BY ownership_status"
+    )
+    with pytest.raises(SQLValidationError):
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            "Compare owned versus chartered assets", sql, ENTITIES, dialect=dialect,
+        )
