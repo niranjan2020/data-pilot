@@ -41,3 +41,29 @@ def test_nonarray_attribute_does_not_trigger_array_rule():
         "SELECT id FROM public.items WHERE labels IS NOT NULL",
         [{"name": "Items", "attributes": [{"name": "tags", "column_name": "labels", "data_type": "text"}]}],
     )
+
+
+def test_rejects_null_only_plus_empty_array_equality():
+    with pytest.raises(SQLValidationError, match="nonempty array"):
+        QueryOrchestrator._validate_nonempty_array_filters(
+            "Show items with non-empty tags",
+            "SELECT id FROM public.items WHERE labels IS NOT NULL AND labels = ARRAY[]::TEXT[]",
+            ENTITIES,
+        )
+
+
+def test_rejects_zero_cardinality_even_when_not_null():
+    with pytest.raises(SQLValidationError, match="nonempty array"):
+        QueryOrchestrator._validate_nonempty_array_filters(
+            "Show items with non-empty tags",
+            "SELECT id FROM public.items WHERE labels IS NOT NULL AND CARDINALITY(labels) = 0",
+            ENTITIES,
+        )
+
+
+def test_accepts_positive_cardinality_with_unrelated_predicate():
+    QueryOrchestrator._validate_nonempty_array_filters(
+        "Show items with non-empty tags",
+        "SELECT id FROM public.items WHERE labels IS NOT NULL AND CARDINALITY(labels) > 0 AND id > 1",
+        ENTITIES,
+    )
