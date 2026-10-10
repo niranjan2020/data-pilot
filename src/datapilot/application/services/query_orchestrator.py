@@ -1813,6 +1813,23 @@ class QueryOrchestrator:
                 mappings = attribute.get("value_mappings") or []
                 if not column_name or not mappings:
                     continue
+                # Categorical literal validation applies to categorical data,
+                # not numeric/date range boundaries. Published numeric value
+                # labels must not convert "between 2020 and 2021" into a
+                # requirement for string equality/IN filters.
+                data_type = str(attribute.get("data_type") or "").strip().casefold()
+                numeric_or_temporal = (
+                    data_type in {
+                        "int", "int2", "int4", "int8", "integer", "bigint",
+                        "smallint", "numeric", "decimal", "float", "float4",
+                        "float8", "real", "double precision", "date",
+                        "timestamp", "timestamptz", "timestamp without time zone",
+                        "timestamp with time zone",
+                    }
+                    or data_type.startswith(("numeric(", "decimal(", "timestamp("))
+                )
+                if numeric_or_temporal:
+                    continue
                 # Resolve longest matching published phrases first, so a
                 # composite label is not mistaken for its component synonyms.
                 # Equal-length matches for different codes are ambiguous and
