@@ -11,6 +11,52 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 
+def resolve_published_comparison_cohorts(
+    question: str,
+    entities: Sequence[dict[str, Any]],
+    *,
+    selected_attribute: Mapping[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Resolve multi-value comparisons using only published value mappings.
+
+    Never derive cohorts from the SQL proposal or ungoverned question tokens.
+    Ambiguous matches across columns are left to the existing clarification
+    path; a contract must not arbitrarily choose an attribute.
+    """
+    import re
+    from datapilot.application.services.categorical_intent import resolve_categorical_intent
+
+    if not re.search(r"\b(compare|comparison|versus|vs\.?|between)\b", question, re.I):
+        return []
+    published = []
+    for entity in entities:
+        for attribute in entity.get("attributes") or []:
+            column = str(attribute.get("column_name") or "").strip()
+            if not column:
+                continue
+            for mapping in attribute.get("value_mappings") or []:
+                value = mapping.get("canonical_value")
+                if value is not None:
+                    published.append({
+                        "column_name": column,
+                        "value": str(value),
+                        "synonyms": mapping.get("synonyms") or [],
+                    })
+    resolved = resolve_categorical_intent(question, published)
+    by_column: dict[str, set[str]] = {}
+    for match in resolved:
+        by_column.setdefault(str(match["column_name"]).casefold(), set()).add(str(match["value"]))
+    if selected_attribute:
+        selected_column = str(selected_attribute.get("column_name") or "").casefold()
+        if selected_column:
+            by_column = {k: v for k, v in by_column.items() if k == selected_column}
+    eligible = [(column, values) for column, values in by_column.items() if len(values) >= 2]
+    if len(eligible) != 1:
+        return []
+    column, values = eligible[0]
+    return [{"column_name": column, "values": sorted(values)}]
+
+
 @dataclass(frozen=True)
 class SemanticIntentContract:
     metrics: tuple[dict[str, Any], ...]
