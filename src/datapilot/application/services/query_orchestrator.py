@@ -1101,7 +1101,14 @@ class QueryOrchestrator:
         except SQLValidationError as nonempty_error:
             repaired_sql = self._repair_nonempty_array_filter(executable_sql, nonempty_error)
             if repaired_sql is None:
-                raise
+                # Keep the rejected SQL visible to the evaluation harness.
+                # Without this, a 400 response hides whether generation
+                # omitted cohorts or the AST verifier rejected valid SQL.
+                details = dict(getattr(comparison_error, "details", None) or {})
+                details["generated_sql"] = executable_sql
+                raise SQLValidationError(
+                    str(comparison_error), details=details,
+                ) from comparison_error
             repaired_validation = await self._validator.validate(
                 repaired_sql, dialect=self._database.dialect, enforce_read_only=True,
             )
