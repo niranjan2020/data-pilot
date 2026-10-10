@@ -1033,6 +1033,7 @@ class QueryOrchestrator:
             self._validate_explicit_categorical_comparison(
                 question, executable_sql, governed_entities or [],
                 selected_attribute=selected_categorical_attribute,
+                dialect=self._database.dialect,
             )
         except SQLValidationError as comparison_error:
             repaired_sql = self._repair_explicit_categorical_comparison(
@@ -1051,6 +1052,7 @@ class QueryOrchestrator:
             self._validate_explicit_categorical_comparison(
                 question, executable_sql, governed_entities or [],
                 selected_attribute=selected_categorical_attribute,
+                dialect=self._database.dialect,
             )
 
         correctness_checks = assess_query_correctness(
@@ -1854,6 +1856,7 @@ class QueryOrchestrator:
     def _validate_explicit_categorical_comparison(
         question: str, sql: str, entities: list[dict[str, Any]],
         selected_attribute: Optional[dict[str, Any]] = None,
+        *, dialect: str = "postgresql",
     ) -> None:
         """Fail closed when two explicit, governed values are not SQL-filtered."""
         import sqlglot
@@ -1872,7 +1875,7 @@ class QueryOrchestrator:
 
         words = tokens(question)
         explicit_comparison = bool(re.search(r"\b(?:versus|vs\.?|between)\b", question, re.I))
-        ast = sqlglot.parse_one(sql, read="postgres")
+        ast = sqlglot.parse_one(sql, read=sqlglot_dialect(dialect))
         outer_tables = [
             table for table in ast.find_all(exp.Table)
             if table.find_ancestor(exp.Select) is ast
