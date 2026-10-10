@@ -1528,8 +1528,9 @@ class QueryOrchestrator:
                         )
                         for predicate in clauses
                     )
-                    if not null_only:
-                        continue
+                    # Explicit nonempty intent requires proof even when the SQL
+                    # omits IS NOT NULL entirely. A missing filter must not
+                    # silently pass merely because there is no null check.
                     # Cardinality > 0, array_length > 0, or a positive
                     # element-membership predicate may establish population.
                     # Fail closed if the generated SQL uses only IS NOT NULL.
