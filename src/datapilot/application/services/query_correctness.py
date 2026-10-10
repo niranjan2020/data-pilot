@@ -348,24 +348,25 @@ def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> lis
         for aggregate in tree.find_all(exp.AggFunc):
             if aggregate.find_ancestor(exp.Select) is not tree:
                 continue
+            # Each aggregate must isolate exactly one cohort. Counting two
+            # CASE branches inside a single aggregate as two output cohorts
+            # would silently collapse the comparison into one measure.
             predicates = []
             for case in aggregate.find_all(exp.Case):
                 predicates.extend(branch.this for branch in case.args.get("ifs") or [])
             parent = aggregate.parent
             if isinstance(parent, exp.Filter):
                 filter_predicate = parent.args.get("expression")
-                # SQLGlot represents FILTER (WHERE x = y) as a Where node.
                 if isinstance(filter_predicate, exp.Where):
                     filter_predicate = filter_predicate.this
                 predicates.append(filter_predicate)
+            discriminators: set[tuple[str, str]] = set()
+            valid = bool(predicates)
             for predicate in predicates:
-                if predicate is None:
-                    continue
-                # A disjunction, negation or nested expression is not reliable
-                # evidence that one conditional aggregate isolates one cohort.
-                # Accept only direct equality branches (including reversed EQ).
                 if not isinstance(predicate, exp.EQ):
-                    continue
+                    valid = False
+                    break
+                matches = []
                 for column, literal in (
                     (predicate.this, predicate.expression),
                     (predicate.expression, predicate.this),
@@ -374,7 +375,14 @@ def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> lis
                         key = _normalise(column.name)
                         value = str(literal.this).casefold()
                         if value in cohort_values.get(key, set()):
-                            conditional_values.setdefault(key, set()).add(value)
+                            matches.append((key, value))
+                if len(matches) != 1:
+                    valid = False
+                    break
+                discriminators.add(matches[0])
+            if valid and len(discriminators) == 1:
+                key, value = next(iter(discriminators))
+                conditional_values.setdefault(key, set()).add(value)
         missing = sorted(column for column in missing
                          if len(conditional_values.get(column, set())) < 2)
     return [{
