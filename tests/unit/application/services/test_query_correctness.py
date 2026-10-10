@@ -814,3 +814,14 @@ def test_governed_array_categorical_membership_rejects_unrelated_literal():
         required_filters=[{"column_name": "tags", "operator": "=", "value": "LNG", "data_type": "text[]"}],
     )
     assert any(c["code"] == "filter_violation" for c in checks)
+
+
+def test_explicit_grouping_allows_additional_dimension_named_in_question():
+    from datapilot.application.services.query_correctness import assess_query_correctness
+    checks = assess_query_correctness(
+        affected_tables=["public.items"], governed_tables=["public.items"],
+        sql="SELECT operator, ownership_status, COUNT(*) FROM public.items GROUP BY operator, ownership_status",
+        question="Compare vessel counts for each operator, grouped by ownership status",
+        required_grouping_columns=["ownership_status"],
+    )
+    assert not any(c["code"] == "explicit_grouping_grain_violation" for c in checks)
