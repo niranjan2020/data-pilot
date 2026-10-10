@@ -969,3 +969,25 @@ def test_aggregate_alias_cannot_satisfy_governed_grouping():
         required_grouping_columns=["fuel_types"],
     )
     assert any(c["code"] == "grouping_dimension_violation" for c in checks)
+
+
+def test_comparison_grain_resolves_grouped_projection_alias():
+    checks = assess_query_correctness(
+        affected_tables=["public.inventory"], governed_tables=["public.inventory"],
+        sql=("SELECT UNNEST(i.tags) AS tag, COUNT(*) "
+             "FROM public.inventory i GROUP BY tag"),
+        required_grouping_columns=["tags"],
+        aggregation_grain=["tags"],
+    )
+    assert not any(c.get("code") in {"grouping_dimension_violation", "comparison_contract_violation"}
+                   and c.get("status") == "failed" for c in checks)
+
+
+def test_comparison_grain_still_rejects_unrelated_grouping():
+    checks = assess_query_correctness(
+        affected_tables=["public.inventory"], governed_tables=["public.inventory"],
+        sql="SELECT i.category, COUNT(*) FROM public.inventory i GROUP BY i.category",
+        aggregation_grain=["tags"],
+    )
+    assert any(c.get("code") == "comparison_contract_violation"
+               and c.get("status") == "failed" for c in checks)
