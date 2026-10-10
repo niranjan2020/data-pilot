@@ -1999,9 +1999,23 @@ class QueryOrchestrator:
                     phrase = " ".join(re.findall(r"[a-z0-9]+", str(term or "").casefold()))
                     if phrase and re.search(rf"\b{re.escape(phrase)}(?:s)?\b", ranked_phrase):
                         candidates.append((len(phrase.split()), column))
+            # Ranked dimensions may be governed attributes rather than entities.
+            # Resolve them only in the phrase before the metric's "by" clause.
+            for entity in entities:
+                for attribute in entity.get("attributes") or []:
+                    column = str(attribute.get("column_name") or "").strip()
+                    if not column:
+                        continue
+                    for term in [attribute.get("name"), *(attribute.get("synonyms") or [])]:
+                        phrase = " ".join(re.findall(r"[a-z0-9]+", str(term or "").casefold()))
+                        if phrase and re.search(rf"\b{re.escape(phrase)}(?:s)?\b", ranked_phrase):
+                            candidates.append((len(phrase.split()), column))
             if candidates:
                 best = max(score for score, _ in candidates)
                 return list(dict.fromkeys(column for score, column in candidates if score == best))
+            # No verified ranked dimension: fail closed instead of treating
+            # attributes mentioned later in WHERE-like clauses as GROUP BY.
+            return []
 
         attribute_matches: list[tuple[int, str]] = []
         entity_matches: list[tuple[int, str]] = []
