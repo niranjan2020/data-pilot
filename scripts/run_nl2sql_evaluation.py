@@ -34,11 +34,20 @@ def evaluate_case(case: dict, response: dict) -> dict:
             count = len(result.get("rows") or [])
         checks.append({"check": "min_rows", "passed": count >= expected["min_rows"]})
     if "error_code" in expected:
+        detail = response.get("details") or {}
+        if "detail" in detail and isinstance(detail["detail"], dict):
+            detail = detail["detail"].get("details") or detail["detail"]
         codes = [
             item.get("code")
-            for item in (response.get("details") or {}).get("checks", [])
+            for item in detail.get("checks", [])
         ]
         checks.append({"check": "error_code", "passed": expected["error_code"] in codes})
+    if "row_count_equals" in expected:
+        result = response.get("result") or {}
+        count = result.get("row_count")
+        if count is None:
+            count = len(result.get("rows") or [])
+        checks.append({"check": "row_count_equals", "passed": count == expected["row_count_equals"]})
     if "trace_field" in expected:
         checks.append({"check": "trace_field", "passed": expected["trace_field"] in trace})
     return {
@@ -104,7 +113,7 @@ def main() -> int:
     args.output.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
     print(json.dumps(summary))
     print("Report:", args.output)
-    return 1 if summary["needs_review"] or summary["transport_error"] else 0
+    return 1 if summary["needs_review"] or summary["transport_error"] or summary["not_configured"] else 0
 
 
 if __name__ == "__main__":
