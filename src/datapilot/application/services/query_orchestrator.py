@@ -991,7 +991,23 @@ class QueryOrchestrator:
                 trusted_published_relationships = list(authorization.verified_grants)
 
         self._validate_nonempty_array_filters(question, executable_sql, governed_entities or [])
-        self._validate_canonical_array_literals(question, executable_sql, governed_entities or [])
+        try:
+            self._validate_canonical_array_literals(question, executable_sql, governed_entities or [])
+        except SQLValidationError as array_error:
+            repaired_sql = self._repair_canonical_array_literal(executable_sql, array_error)
+            if repaired_sql is None:
+                raise
+            repaired_validation = await self._validator.validate(
+                repaired_sql, dialect=self._database.dialect, enforce_read_only=True,
+            )
+            if not repaired_validation.is_valid:
+                raise array_error
+            candidate_sql = repaired_validation.sanitized_sql or repaired_sql
+            self._validate_canonical_array_literals(
+                question, candidate_sql, governed_entities or [],
+            )
+            executable_sql = candidate_sql
+            validation = repaired_validation
 
         # Enforce resolved published categorical values for both single-value
         # requests and explicit comparisons. Grouping by a categorical column
@@ -1539,6 +1555,54 @@ class QueryOrchestrator:
                                 "message": "IS NOT NULL includes empty arrays; require a positive cardinality or governed membership condition.",
                             }]},
                         )
+
+    @staticmethod
+    def _repair_canonical_array_literal(sql: str, error: SQLValidationError) -> Optional[str]:
+        """Repair one unambiguous case-only array literal mismatch, fail closed otherwise."""
+        import sqlglot
+        from sqlglot import exp
+
+        checks = (getattr(error, "details", None) or {}).get("checks") or []
+        check = next((item for item in checks if item.get("code") == "canonical_array_value_violation"), None)
+        if not check or len(check.get("canonical_values") or []) != 1:
+            return None
+        canonical = str(check["canonical_values"][0])
+        column = str(check.get("column_name") or "").casefold()
+        if not column:
+            return None
+        try:
+            tree = sqlglot.parse_one(sql, read="postgres")
+        except Exception:
+            return None
+        if not isinstance(tree, exp.Select) or any(
+            isinstance(node, (exp.Join, exp.Subquery, exp.Union, exp.With))
+            for node in tree.walk()
+        ):
+            return None
+        where = tree.args.get("where")
+        if where is None or where.find(exp.Or) or where.find(exp.Not):
+            return None
+        # A single positive, direct array-containment filter is the only
+        # permitted repair surface. Other predicates remain fail-closed.
+        pattern = (
+            r'(?P<column>(?:[A-Za-z_]\w*\.)?"?[A-Za-z_]\w*"?)'
+            r"\s*@>\s*ARRAY\s*\[\s*'(?P<value>(?:''|[^'])*)'\s*\]"
+        )
+        matches = []
+        for match in re.finditer(pattern, sql, re.I):
+            if match.group("column").split(".")[-1].strip('"').casefold() != column:
+                continue
+            value = match.group("value").replace("''", "'")
+            if value.casefold() == canonical.casefold() and value != canonical:
+                matches.append(match)
+        if len(matches) != 1:
+            return None
+        match = matches[0]
+        # Ensure the matching predicate belongs to WHERE, not SELECT.
+        if match.group(0) not in where.sql(dialect="postgres"):
+            return None
+        start, end = match.span("value")
+        return sql[:start] + canonical.replace("'", "''") + sql[end:]
 
     @staticmethod
     def _validate_canonical_array_literals(
