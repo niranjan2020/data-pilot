@@ -15,6 +15,47 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
+
+def _normalized_rows(result: dict) -> list[str]:
+    """Canonicalize rows for order-insensitive, type-preserving comparisons."""
+    rows = result.get("rows") or []
+    if not isinstance(rows, list):
+        return []
+    return sorted(json.dumps(row, sort_keys=True, separators=(",", ":"), default=str)
+                  for row in rows)
+
+
+def _result_semantic_checks(case: dict, response: dict) -> list[dict]:
+    """Only independently approved result assertions can verify semantics.
+
+    SQL substring checks and HTTP success never establish semantic correctness.
+    """
+    if case.get("review_status") != "approved" or response.get("status") != "completed":
+        return []
+    expected = case.get("expected_result")
+    if not isinstance(expected, dict):
+        return []
+    result = response.get("result")
+    if not isinstance(result, dict):
+        return []
+    checks = []
+    if "rows" in expected:
+        expected_rows = expected["rows"]
+        if isinstance(expected_rows, list):
+            checks.append({"check": "result_rows", "passed": (
+                _normalized_rows(result) == _normalized_rows({"rows": expected_rows})
+            )})
+    if "row_count" in expected:
+        checks.append({"check": "result_row_count", "passed": (
+            result.get("row_count", len(result.get("rows") or [])) == expected["row_count"]
+        )})
+    if "columns" in expected:
+        checks.append({"check": "result_columns", "passed": (
+            result.get("columns") == expected["columns"]
+        )})
+    return checks
+
+
 def evaluate_case(case: dict, response: dict) -> dict:
     expected = case.get("expect") or {}
     status = response.get("status")
@@ -35,7 +76,18 @@ def evaluate_case(case: dict, response: dict) -> dict:
     if not isinstance(error_info, dict):
         error_info = {}
     error_codes = [c.get("code") for c in error_info.get("checks", []) if isinstance(c, dict)]
-    semantic_approved = case.get("review_status") == "approved"
+    semantic_checks = _result_semantic_checks(case, response)
+    generation_status = (
+        "passed" if status in ("dry_run", "completed")
+        else "failed" if status in ("http_error", "rejected")
+        else "not_verified"
+    )
+    database_execution_status = (
+        "passed" if status == "completed" and response.get("result") is not None
+        else "failed" if status == "http_error" and response.get("http_status", 0) >= 500
+        else "not_run" if status in ("dry_run", "http_error", "rejected", "clarification_required", "needs_clarification")
+        else "not_verified"
+    )
     for field, actual in (("status", status),):
         if field in expected:
             checks.append({"check": field, "passed": actual == expected[field]})
@@ -77,9 +129,12 @@ def evaluate_case(case: dict, response: dict) -> dict:
         "error_codes": error_codes,
         "sql_checks_status": ("passed" if checks and all(c["passed"] for c in checks)
                               else "failed" if checks else "not_configured"),
-        "semantic_status": ("not_verified" if not semantic_approved or not checks
-                            else "passed" if all(c["passed"] for c in checks)
+        "semantic_status": ("not_verified" if not semantic_checks
+                            else "passed" if all(c["passed"] for c in semantic_checks)
                             else "failed"),
+        "semantic_checks": semantic_checks,
+        "generation_status": generation_status,
+        "database_execution_status": database_execution_status,
         "verdict": ("unreviewed" if not checks else
                     "pass" if all(item["passed"] for item in checks) else "needs_review"),
         "response": response,
@@ -181,7 +236,13 @@ def main() -> int:
                          for key in ("succeeded", "api_error", "rejected", "not_executed", "other")}
     semantic_summary = {key: sum(x.get("semantic_status") == key for x in results)
                         for key in ("passed", "failed", "not_verified")}
+    generation_summary = {key: sum(x.get("generation_status") == key for x in results)
+                          for key in ("passed", "failed", "not_verified")}
+    database_execution_summary = {key: sum(x.get("database_execution_status") == key for x in results)
+                                  for key in ("passed", "failed", "not_run", "not_verified")}
     report = {
+        "generation_summary": generation_summary,
+        "database_execution_summary": database_execution_summary,
         "execution_summary": execution_summary, "semantic_summary": semantic_summary,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "source": args.source, "mode": "replay" if args.replay else "execute" if args.execute else "dry_run",
@@ -192,6 +253,10 @@ def main() -> int:
     if args.markdown:
         lines = ["# NL-to-SQL evaluation", "", "## Summary", ""]
         lines.extend("- {}: {}".format(k, v) for k, v in summary.items())
+        lines.extend(["", "## SQL generation and validation", ""])
+        lines.extend("- {}: {}".format(k, v) for k, v in generation_summary.items())
+        lines.extend(["", "## Database execution (separate from dry runs)", ""])
+        lines.extend("- {}: {}".format(k, v) for k, v in database_execution_summary.items())
         lines.extend(["", "## Execution outcomes", ""])
         lines.extend("- {}: {}".format(k, v) for k, v in execution_summary.items())
         lines.extend(["", "## Semantic verification", ""])
