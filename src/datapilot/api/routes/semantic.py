@@ -38,6 +38,8 @@ class AttributeRequest(BaseModel):
     column_name:str=Field(min_length=1)
     synonyms:list[str]=Field(default_factory=list)
     operators:list[str]=Field(default_factory=lambda:["="])
+    data_type:Optional[str]=None
+    nonempty_intent_phrases:list[str]=Field(default_factory=list)
     value_mappings:list[CanonicalValueRequest]=Field(default_factory=list)
 
 class BusinessRuleRequest(BaseModel):
