@@ -128,3 +128,23 @@ def test_canonical_filter_value_respects_sql_case_semantics(predicate, expected,
     actual = [c for c in result if c["code"] in ("filter_alignment", "filter_violation")]
     assert len(actual) == 1
     assert actual[0]["status"] == status
+
+
+@pytest.mark.parametrize("operator,predicate", [
+    (">", "LOWER(status) > 'b'"),
+    (">=", "LOWER(status) >= 'b'"),
+    ("<", "LOWER(status) < 'b'"),
+    ("<=", "LOWER(status) <= 'b'"),
+    (">", "'b' < LOWER(status)"),
+])
+def test_transformed_column_does_not_satisfy_governed_range(operator, predicate):
+    result = assess_query_correctness(
+        affected_tables=["public.records"],
+        governed_tables=["public.records"],
+        sql="SELECT * FROM public.records WHERE " + predicate,
+        required_filters=[{
+            "column_name": "status", "operator": operator,
+            "value": "b", "data_type": "text",
+        }],
+    )
+    assert any(c["code"] == "filter_violation" for c in result)
