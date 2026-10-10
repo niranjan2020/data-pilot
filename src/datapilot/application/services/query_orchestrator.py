@@ -13,7 +13,7 @@ from datapilot.application.services.time_semantics import resolve_time_semantics
 from datapilot.application.services.result_presentation import plan_result_presentation
 from datapilot.application.services.result_summary import summarize_result
 from datapilot.application.services.query_correctness import assess_query_correctness, sqlglot_dialect
-from datapilot.application.services.semantic_intent_contract import SemanticIntentContract
+from datapilot.application.services.semantic_intent_contract import SemanticIntentContract, resolve_published_comparison_cohorts
 from datapilot.application.services.categorical_intent import is_unquoted_connective_code, resolve_categorical_intent
 from datapilot.application.services.sql_correction import classify_sql_correction
 from datapilot.application.services.execution_recovery import classify_execution_error
@@ -650,7 +650,11 @@ class QueryOrchestrator:
             required_filters=governed_filters,
             required_relationships=self._required_relationships(governed_context),
             time_plan=time_interpretation,
-            comparison_cohorts=[
+            comparison_cohorts=resolve_published_comparison_cohorts(
+                contextual_question,
+                governed_context.get("entities", []),
+                selected_attribute=governed_context.get("resolved_attribute_selection"),
+            ) or [
                 {"column_name": item["column_name"], "values": item["values"]}
                 for item in governed_filters
                 if str(item.get("operator", "")).upper() == "IN"
