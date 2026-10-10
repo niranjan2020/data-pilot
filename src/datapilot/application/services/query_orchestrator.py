@@ -2268,6 +2268,12 @@ class QueryOrchestrator:
             if not values:
                 continue
             for attribute in entity.get("attributes") or []:
+                # Published value mappings are authoritative for this attribute.
+                # Do not run legacy adjective inference afterward: in a
+                # comparison it can add an arbitrary equality filter even
+                # when the canonical resolver correctly found two cohorts.
+                if attribute.get("value_mappings"):
+                    continue
                 # Value-only inference is intentionally limited to categorical
                 # governed attributes. Free-text/display columns must not absorb
                 # arbitrary words from the question.
