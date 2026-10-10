@@ -188,3 +188,35 @@ def test_maritime_ranking_rejects_fuel_grouping_instead_of_owner():
         and c["code"] in {"grouping_dimension_violation", "ranking_grain_violation"}
         for c in checks
     )
+
+
+@pytest.mark.parametrize("question,expected", [
+    ("Which managing owners have vessels built after 2020? Show the top 10 by vessel count.",
+     ["managing_owner"]),
+    ("Which customers have overdue invoices? Show the top 5 by invoice count.",
+     ["customer_name"]),
+    ("Which suppliers have late deliveries? Show top 10 by order count.",
+     ["supplier_name"]),
+])
+def test_elliptical_top_n_uses_governed_subject_not_default_entity(question, expected):
+    entities = [
+        {"name": "Vessel", "display_column": "vessel_name",
+         "attributes": [{"name": "Managing Owner", "column_name": "managing_owner"}]},
+        {"name": "Invoice", "display_column": "invoice_id",
+         "attributes": [{"name": "Customer", "column_name": "customer_name"}]},
+        {"name": "Order", "display_column": "order_id",
+         "attributes": [{"name": "Supplier", "column_name": "supplier_name"}]},
+    ]
+    assert QueryOrchestrator._required_grouping_columns(question, entities, metrics=[]) == expected
+
+
+def test_elliptical_top_n_ambiguous_governed_subject_fails_closed():
+    entities = [{"name": "Account", "display_column": "account_id",
+                 "attributes": [
+                     {"name": "Buyer", "column_name": "buyer_id"},
+                     {"name": "Seller", "column_name": "seller_id"},
+                 ]}]
+    assert QueryOrchestrator._required_grouping_columns(
+        "Which buyers and sellers are active? Show top 10 by deal count.",
+        entities, metrics=[],
+    ) == []
