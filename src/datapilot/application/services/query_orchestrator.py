@@ -1660,7 +1660,32 @@ class QueryOrchestrator:
         if where is None:
             tree.set("where", exp.Where(this=condition))
         else:
-            tree.set("where", exp.Where(this=exp.and_(where.this.copy(), condition)))
+            # Preserve all business filters; only eliminate exact redundant
+            # non-null checks on the same governed array. CARDINALITY > 0
+            # already excludes NULL, and other comparisons may be meaningful.
+            def flatten_and(node):
+                if isinstance(node, exp.Paren):
+                    return flatten_and(node.this)
+                if isinstance(node, exp.And):
+                    return flatten_and(node.this) + flatten_and(node.expression)
+                return [node]
+
+            predicates = flatten_and(where.this)
+            null_pattern = (
+                rf'(?:[A-Za-z_][A-Za-z_0-9]*\\.)?"?{re.escape(column_name)}"?'
+                rf'\\s+IS\\s+NOT\\s+NULL'
+            )
+            predicates = [
+                predicate for predicate in predicates
+                if not re.fullmatch(
+                    null_pattern, predicate.sql(dialect="postgres").strip(), re.I,
+                )
+            ]
+            predicates.append(condition)
+            combined = predicates[0]
+            for predicate in predicates[1:]:
+                combined = exp.and_(combined, predicate)
+            tree.set("where", exp.Where(this=combined))
         return tree.sql(dialect="postgres")
 
     @staticmethod
