@@ -794,3 +794,23 @@ def test_cte_cannot_hide_unauthorized_physical_table():
         sql=sql,
     )
     assert any(c["code"] == "physical_scope_violation" for c in checks)
+
+
+def test_governed_array_categorical_membership_accepts_containment():
+    from datapilot.application.services.query_correctness import assess_query_correctness
+    checks = assess_query_correctness(
+        affected_tables=["public.items"], governed_tables=["public.items"],
+        sql="SELECT * FROM public.items WHERE tags @> ARRAY['LNG']",
+        required_filters=[{"column_name": "tags", "operator": "=", "value": "LNG", "data_type": "text[]"}],
+    )
+    assert any(c["code"] == "filter_alignment" for c in checks)
+
+
+def test_governed_array_categorical_membership_rejects_unrelated_literal():
+    from datapilot.application.services.query_correctness import assess_query_correctness
+    checks = assess_query_correctness(
+        affected_tables=["public.items"], governed_tables=["public.items"],
+        sql="SELECT * FROM public.items WHERE name = 'LNG'",
+        required_filters=[{"column_name": "tags", "operator": "=", "value": "LNG", "data_type": "text[]"}],
+    )
+    assert any(c["code"] == "filter_violation" for c in checks)
