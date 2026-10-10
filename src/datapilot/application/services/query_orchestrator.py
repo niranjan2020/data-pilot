@@ -946,9 +946,9 @@ class QueryOrchestrator:
                 from sqlglot.optimizer.scope import traverse_scope
                 unqualified = set()
                 for scope in traverse_scope(statements[0]):
-                    for _alias, (node, source) in scope.selected_sources.items():
+                    for _alias, (node, resolved_source) in scope.selected_sources.items():
                         if isinstance(node, exp.Table) and not node.db:
-                            if isinstance(source, exp.Table):
+                            if isinstance(resolved_source, exp.Table):
                                 unqualified.add(node.name)
                     selected_nodes = {id(node) for node, _ in scope.selected_sources.values()}
                     for node in scope.tables:
