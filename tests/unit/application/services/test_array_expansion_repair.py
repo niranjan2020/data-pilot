@@ -39,3 +39,11 @@ def test_grouped_unnest_repair_fails_closed_for_unsafe_shapes(sql):
 def test_grouped_unnest_repair_requires_single_exclusive_failure():
     sql = "SELECT UNNEST(tags), COUNT(*) FROM public.products GROUP BY UNNEST(tags)"
     assert repair_grouped_array_expansion(sql, FAILED + [{"code": "comparison_dimension_violation", "status": "failed"}]) is None
+
+
+def test_repair_candidate_requires_governed_dataset_and_valid_alias():
+    from datapilot.application.services.query_orchestrator import _repaired_sql_scope_safe
+    safe = _repaired_sql_scope_safe
+    assert safe("SELECT o.id FROM public.orders o", dialect="postgres", allowed_tables={"public.orders"})
+    assert not safe("SELECT z.id FROM public.orders o", dialect="postgres", allowed_tables={"public.orders"})
+    assert not safe("SELECT o.id FROM public.orders o", dialect="postgres", allowed_tables={"public.customers"})
