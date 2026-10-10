@@ -169,6 +169,11 @@ CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_attributes (
     UNIQUE (entity_id, name)
 );
 
+ALTER TABLE datapilot_catalog.semantic_attributes
+    ADD COLUMN IF NOT EXISTS data_type TEXT;
+
+ALTER TABLE datapilot_catalog.semantic_attributes
+    ADD COLUMN IF NOT EXISTS nonempty_intent_phrases JSONB NOT NULL DEFAULT '[]'::jsonb;
 CREATE TABLE IF NOT EXISTS datapilot_catalog.semantic_attribute_synonyms (
     attribute_id BIGINT NOT NULL REFERENCES datapilot_catalog.semantic_attributes(id) ON DELETE CASCADE,
     synonym TEXT NOT NULL,
@@ -1149,8 +1154,8 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                         await cursor.execute(
                             """
                             INSERT INTO datapilot_catalog.semantic_attributes
-                                (entity_id, name, description, column_name, operators)
-                            VALUES (%s, %s, %s, %s, %s::jsonb)
+                                (entity_id, name, description, column_name, operators, data_type, nonempty_intent_phrases)
+                            VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s::jsonb)
                             RETURNING id
                             """,
                             (
@@ -1159,6 +1164,11 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                                 attribute.get("description"),
                                 attribute["column_name"],
                                 json.dumps(attribute.get("operators") or ["="]),
+                                attribute.get("data_type"),
+                                json.dumps(sorted({
+                                    phrase.strip() for phrase in attribute.get("nonempty_intent_phrases") or []
+                                    if isinstance(phrase, str) and phrase.strip()
+                                })),
                             ),
                         )
                         attribute_id = (await cursor.fetchone())[0]
@@ -1231,7 +1241,8 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                 for row in entity_rows:
                     await cursor.execute(
                         """
-                        SELECT a.id, a.name, a.description, a.column_name, a.operators
+                        SELECT a.id, a.name, a.description, a.column_name, a.operators,
+                               a.data_type, a.nonempty_intent_phrases
                         FROM datapilot_catalog.semantic_attributes a
                         WHERE a.entity_id = %s
                         ORDER BY a.name
@@ -1267,6 +1278,8 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                             "description": attribute[2],
                             "column_name": attribute[3],
                             "operators": attribute[4] or ["="],
+                            "data_type": attribute[5],
+                            "nonempty_intent_phrases": attribute[6] or [],
                             "synonyms": synonyms,
                             "value_mappings": value_mappings,
                         })
