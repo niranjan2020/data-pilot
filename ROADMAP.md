@@ -1,5 +1,87 @@
 # Data Pilot Roadmap
 
+## Active delivery plan — 2026-10-10: multi-table and snapshot analytics
+
+**Product goal:** prove correct answers to real questions across related tables,
+historical snapshots, and follow-up context. Data Pilot remains database- and
+domain-agnostic. Vessel, fixture, and fixture-option tables are acceptance
+fixtures, **not** hardcoded production concepts.
+
+**Delivery policy:** build cohesive end-to-end feature slices, commit
+implementation and focused regressions together, use GitHub Actions for the
+full unit suite, and reserve user testing for real questions in Playground.
+A passing SQL AST test does not prove a correct answer. Record generated SQL,
+semantic bindings, result grain, and independently checked expected results.
+
+### Milestone 1 — Relationship-aware query planning (NEXT)
+
+- Load and publish physical relationships with join cardinality, optionality,
+  join keys, source/target entities, and approval status.
+- Resolve a question spanning vessel + fixture + fixture option to an explicit
+  relationship path; reject ambiguous paths rather than inventing joins.
+- Select the base fact/grain from the requested metric and dimensions. Protect
+  counts and averages from one-to-many join fan-out.
+- Make join path, chosen grain, rejected alternatives, and SQL visible in the
+  Playground trace.
+- Acceptance: vessel count by fixture status; fixture count by vessel operator;
+  option count by fixture attribute; fixtures without options; independent
+  reference-SQL result comparison.
+
+### Milestone 2 — Snapshot and effective-date semantics
+
+- Distinguish snapshot date/month from business event dates (signed, delivery,
+  expiry, etc.) through published time dimensions.
+- Model snapshot identity, latest available snapshot, as-of date, monthly
+  history, and no-cross-snapshot duplication.
+- Define entity identity across snapshots, snapshot-aligned joins, and explicit
+  cross-period comparison grain; clarify unspecified snapshot interpretation
+  where material.
+- Acceptance: latest snapshot vessel/fixture counts, month-over-month change,
+  as-of fixture status, trend without multiplying repeated snapshots, and
+  fixtures joined to the correct vessel snapshot.
+
+### Milestone 3 — Fixture lifecycle and optional relationships
+
+- Publish fixture-to-vessel and fixture-option-to-fixture relationships, plus
+  effective-status and lifecycle rules from actual source metadata.
+- Preserve parent fixtures with no options when the question requires them;
+  use INNER versus LEFT joins deliberately.
+- Handle multi-option fixtures, duplicates, cancellations, and business-valid
+  status transitions without hardcoded maritime labels.
+- Acceptance: fixture counts by operator/segment; active fixtures with options;
+  fixtures without options; counts of distinct fixtures versus options; latest
+  status as of a chosen date.
+
+### Milestone 4 — Follow-up and comparative analytics
+
+- Preserve selected metric, relationship path, cohort definitions, and snapshot
+  semantics across follow-ups; change only explicitly modified dimensions.
+- Support cross-period and cross-cohort comparisons at consistent grain.
+- Surface clarification when a term could bind to operator, owner, fixture
+  counterparty, or another published attribute.
+- Acceptance: compare operators, restrict to a segment, switch to previous
+  month, and drill into options without silently changing count grain.
+
+### Milestone 5 — Evaluation, OSS onboarding, and release hardening
+
+- Wire real generated predictions to independent golden SQL/result evaluation;
+  never mark missing prediction evidence as passed.
+- Publish sample datasets and a reproducible multi-table snapshot fixture.
+- Test local onboarding, migrations, provider failures, dry-run, tracing,
+  and read-only execution against a real database.
+- SaaS billing, tenancy, and commercial deployment remain a later phase.
+
+### Immediate next implementation slice
+
+**Relationship path + grain contract for a 3-table join**, integrated into
+semantic selection, SQL validation, and trace, with real-question acceptance
+cases. Before writing maritime-specific semantics, inspect the user's actual
+vessel/fixture/option keys, date columns, and published relationship metadata.
+Do not assume foreign keys or status meanings that have not been supplied.
+
+---
+
+
 ## Consolidated offline-to-live evaluation gate — 2026-10-09
 
 - User confirmed **59 focused tests passed** and requested one consolidated offline testing batch before live query testing.
