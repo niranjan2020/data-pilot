@@ -251,3 +251,43 @@ def test_admin_ui_exposes_and_submits_nonempty_metadata():
     assert 'Non-empty intent phrases (one per line)' in source
     assert 'data_type:a.data_type||null' in source
     assert 'nonempty_intent_phrases:a.nonempty_intent_phrases.split' in source
+
+
+def _nonempty_error():
+    return SQLValidationError('Generated SQL does not enforce nonempty array semantics',
+        details={'checks': [{'code': 'nonempty_array_filter_violation',
+                             'column_name': 'labels'}]})
+
+
+@pytest.mark.parametrize('sql', [
+    'SELECT labels FROM public.items WHERE labels IS NOT NULL',
+    'SELECT labels FROM public.items',
+    'SELECT id, labels FROM public.items WHERE id > 1',
+])
+def test_repair_adds_positive_cardinality_to_simple_query(sql):
+    repaired = QueryOrchestrator._repair_nonempty_array_filter(sql, _nonempty_error())
+    assert repaired is not None
+    assert 'CARDINALITY(labels) > 0' in repaired
+    QueryOrchestrator._validate_nonempty_array_filters(
+        'Show items with non-empty tags', repaired, ENTITIES,
+    )
+
+
+@pytest.mark.parametrize('sql', [
+    'SELECT id FROM public.items',
+    'SELECT labels FROM public.items i JOIN public.other o ON i.id = o.id',
+    'SELECT labels FROM public.items WHERE id > 1 OR id < 0',
+    'SELECT labels FROM public.items WHERE NOT (id > 1)',
+    'SELECT labels FROM public.items UNION SELECT labels FROM public.other',
+    'WITH source AS (SELECT labels FROM public.items) SELECT labels FROM source',
+    'SELECT labels FROM public.items WHERE EXISTS (SELECT 1 FROM public.other)',
+])
+def test_repair_refuses_ambiguous_or_unsafe_sql(sql):
+    assert QueryOrchestrator._repair_nonempty_array_filter(sql, _nonempty_error()) is None
+
+
+def test_repair_refuses_missing_or_untrusted_error_metadata():
+    error = SQLValidationError('error', details={'checks': []})
+    assert QueryOrchestrator._repair_nonempty_array_filter(
+        'SELECT labels FROM public.items', error,
+    ) is None
