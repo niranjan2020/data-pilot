@@ -909,3 +909,20 @@ def test_lexical_qualifier_validation(sql, expected):
     from datapilot.application.services.query_orchestrator import _invalid_qualified_columns
     ast = sqlglot.parse_one(sql, read="postgres")
     assert sorted({col.table for col in _invalid_qualified_columns(ast)}) == expected
+
+
+@pytest.mark.parametrize("sql,expected", [
+    ("WITH x AS (SELECT a.id FROM public.orders a) SELECT x.id FROM x", []),
+    ("WITH x AS (SELECT a.id FROM public.orders a) SELECT z.id FROM x", ["z"]),
+    ("SELECT q.id FROM (SELECT a.id FROM public.orders a) q", []),
+    ("SELECT a.id FROM public.orders a WHERE EXISTS (SELECT 1 FROM public.customers c WHERE c.id = a.customer_id)", []),
+    ("SELECT a.id FROM public.orders a WHERE EXISTS (SELECT 1 FROM public.customers c WHERE missing.id = a.customer_id)", ["missing"]),
+    ("SELECT a.id FROM public.orders a JOIN public.customers c ON c.id = a.customer_id", []),
+    ("SELECT a.id FROM public.orders a JOIN public.customers c ON absent.id = a.customer_id", ["absent"]),
+])
+def test_scope_qualifiers_across_ctes_joins_and_correlations(sql, expected):
+    import sqlglot
+    from datapilot.application.services.query_orchestrator import _invalid_qualified_columns
+    parsed = sqlglot.parse_one(sql, read="postgres")
+    actual = sorted({col.table for col in _invalid_qualified_columns(parsed)})
+    assert actual == expected
