@@ -298,11 +298,9 @@ def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> lis
                for node in tree.find_all(exp.AggFunc)):
         return []
     group = tree.args.get("group")
-    if group is None:
-        return []
     grouped = {
         _normalise(column.name)
-        for expression in group.expressions
+        for expression in (group.expressions if group is not None else [])
         for column in expression.find_all(exp.Column)
     }
     cohort_columns: set[str] = set()
