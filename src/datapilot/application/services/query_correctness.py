@@ -536,7 +536,18 @@ def _filter_checks(
 
             if governed_operand(predicate.this) == column_name:
                 actual = literal_value(predicate.expression)
-            elif operator == "=" and governed_operand(predicate.expression) == column_name:
+            elif governed_operand(predicate.expression) == column_name:
+                # SQL comparisons are directional. A governed "age > 10"
+                # requirement is equivalent to "10 < age", but not to
+                # "10 > age". Equality and inequality are symmetric.
+                inverse = {
+                    "=": "=", "!=": "!=", "<>": "<>",
+                    ">": "<", ">=": "<=", "<": ">", "<=": ">=",
+                }
+                if operator not in ("=", "!=", "<>"):
+                    reverse_operator = inverse[operator]
+                    if not isinstance(predicate, operator_nodes[reverse_operator]):
+                        continue
                 actual = literal_value(predicate.this)
             else:
                 continue
