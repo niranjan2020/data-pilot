@@ -114,6 +114,8 @@ def main() -> int:
     parser.add_argument("--timeout", type=int, default=120)
     parser.add_argument("--markdown", type=Path, help="Write readable Markdown report")
     parser.add_argument("--execute", action="store_true", help="Execute read-only queries (default: dry run)")
+    parser.add_argument("--ids", help="Comma-separated case IDs to run (avoids unnecessary LLM calls)")
+    parser.add_argument("--max-cases", type=int, help="Maximum number of selected cases to run")
     args = parser.parse_args()
     if args.cases.suffix.lower() == '.csv':
         with args.cases.open(encoding='utf-8-sig', newline='') as stream:
@@ -128,6 +130,17 @@ def main() -> int:
     ids = [case["id"] for case in cases]
     if len(ids) != len(set(ids)):
         parser.error("Case IDs must be unique")
+    if args.ids:
+        requested = [item.strip() for item in args.ids.split(",") if item.strip()]
+        unknown = set(requested) - set(ids)
+        if unknown:
+            parser.error("Unknown case IDs: " + ", ".join(sorted(unknown)))
+        cases = [case for case in cases if case["id"] in set(requested)]
+    if args.max_cases is not None:
+        if args.max_cases < 1:
+            parser.error("--max-cases must be at least 1")
+        cases = cases[:args.max_cases]
+    print("Selected {} evaluation cases; each may incur LLM charges.".format(len(cases)))
     results = []
     endpoint = args.base_url.rstrip("/") + "/api/query"
     for case in cases:
