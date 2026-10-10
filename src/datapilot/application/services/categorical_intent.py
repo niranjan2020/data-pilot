@@ -22,6 +22,26 @@ def _matches(tokens: list[str], phrase: list[str]) -> list[int]:
     ]
 
 
+
+
+_CONNECTIVE_CODES = frozenset({
+    "to", "in", "on", "at", "by", "as", "or", "and", "for", "of", "from", "with",
+})
+
+
+def is_unquoted_connective_code(question: str, phrase: str) -> bool:
+    """Prevent grammatical connectors from being interpreted as category codes.
+
+    A literal quoted code remains an explicit user selection. Multiword
+    published synonyms are not suppressed.
+    """
+    words = _tokens(phrase)
+    if len(words) != 1 or words[0] not in _CONNECTIVE_CODES:
+        return False
+    quotes = "'\u0022\u2018\u2019\u201c\u201d"
+    pattern = "[" + re.escape(quotes) + "]" + re.escape(str(phrase).strip()) + "[" + re.escape(quotes) + "]"
+    return re.search(pattern, question, flags=re.I) is None
+
 def resolve_categorical_intent(
     question: str,
     published_mappings: Iterable[dict[str, Any]],
@@ -48,18 +68,8 @@ def resolve_categorical_intent(
                 # Single-token category codes that are ordinary connective
                 # words must be explicitly quoted or handled by a richer
                 # semantic intent plan. Avoid substring matching altogether.
-                if len(words) == 1 and words[0] in {
-                    "to", "in", "on", "at", "by", "as", "or", "and", "for",
-                    "of", "from", "with",
-                }:
-                    if not re.search(
-                        r"(?<!\w)[\x27\x22\u2018\u2019\u201c\u201d]"
-                        + re.escape(str(phrase).strip())
-                        + r"[\x27\x22\u2018\u2019\u201c\u201d](?!\w)",
-                        question,
-                        flags=re.I,
-                    ):
-                        continue
+                if is_unquoted_connective_code(question, str(phrase)):
+                    continue
                 candidates.append({
                     "column_name": column,
                     "value": value,
