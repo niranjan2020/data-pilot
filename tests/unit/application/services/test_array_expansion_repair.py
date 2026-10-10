@@ -47,3 +47,25 @@ def test_repair_candidate_requires_governed_dataset_and_valid_alias():
     assert safe("SELECT o.id FROM public.orders o", dialect="postgres", allowed_tables={"public.orders"})
     assert not safe("SELECT z.id FROM public.orders o", dialect="postgres", allowed_tables={"public.orders"})
     assert not safe("SELECT o.id FROM public.orders o", dialect="postgres", allowed_tables={"public.customers"})
+
+
+@pytest.mark.parametrize("group", ["fuel_type", "1", 'UNNEST("v"."fuel_types")'])
+def test_repair_grouped_unnest_projection_alias_or_ordinal(group):
+    sql = (
+        'SELECT UNNEST("v"."fuel_types") AS fuel_type, COUNT(*) '
+        'FROM "public"."inventory" AS "v" '
+        f'GROUP BY {group}'
+    )
+    repaired = repair_grouped_array_expansion(sql, FAILED)
+    assert repaired is not None
+    assert "LATERAL" in repaired.upper()
+    checks = assess_query_correctness(
+        sql=repaired,
+        affected_tables=["public.inventory"],
+        governed_tables=["public.inventory"],
+    )
+    assert not any(
+        check.get("code") == "array_expansion_grouping_violation"
+        and check.get("status") == "failed"
+        for check in checks
+    )
