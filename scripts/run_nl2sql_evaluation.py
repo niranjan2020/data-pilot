@@ -105,6 +105,7 @@ def main() -> int:
     if len(ids) != len(set(ids)):
         parser.error("Case IDs must be unique")
     results = []
+    endpoint = args.base_url.rstrip("/") + "/api/query"
     for case in cases:
         if not case.get("question"):
             results.append({"id": case["id"], "verdict": "not_configured", "question": case.get("question")})
@@ -113,7 +114,15 @@ def main() -> int:
             response = request_case(args.base_url, args.source, case, args.timeout, not args.execute)
             results.append(evaluate_case(case, response))
         except (URLError, TimeoutError, OSError) as exc:
-            results.append({"id": case["id"], "verdict": "transport_error", "error_type": type(exc).__name__})
+            reason = getattr(exc, "reason", None)
+            detail = str(reason if reason is not None else exc)
+            results.append({
+                "id": case["id"], "verdict": "transport_error",
+                "error_type": type(exc).__name__, "reason": detail, "endpoint": endpoint,
+            })
+            print("Cannot connect to {}: {}: {}".format(endpoint, type(exc).__name__, detail))
+            print("Stopping evaluation after the first connection failure.")
+            break
     summary = {key: sum(x["verdict"] == key for x in results)
                for key in ("pass", "needs_review", "unreviewed", "not_configured", "transport_error")}
     report = {
