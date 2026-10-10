@@ -306,6 +306,7 @@ def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> lis
         for column in expression.find_all(exp.Column)
     }
     cohort_columns: set[str] = set()
+    cohort_values: dict[str, set[str]] = {}
     where = tree.args.get("where")
     if where is None:
         return []
@@ -336,6 +337,7 @@ def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> lis
             for value in values
         )):
             cohort_columns.add(_normalise(cohort_column.name))
+            cohort_values.setdefault(_normalise(cohort_column.name), set()).update(values)
     missing = sorted(cohort_columns - grouped)
     if not cohort_columns:
         return []
@@ -355,13 +357,20 @@ def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> lis
             for predicate in predicates:
                 if predicate is None:
                     continue
-                for equality in predicate.find_all(exp.EQ):
-                    sides = ((equality.this, equality.expression),
-                             (equality.expression, equality.this))
-                    for column, literal in sides:
-                        if isinstance(column, exp.Column) and isinstance(literal, exp.Literal):
-                            key = _normalise(column.name)
-                            conditional_values.setdefault(key, set()).add(str(literal.this).casefold())
+                # A disjunction, negation or nested expression is not reliable
+                # evidence that one conditional aggregate isolates one cohort.
+                # Accept only direct equality branches (including reversed EQ).
+                if not isinstance(predicate, exp.EQ):
+                    continue
+                for column, literal in (
+                    (predicate.this, predicate.expression),
+                    (predicate.expression, predicate.this),
+                ):
+                    if isinstance(column, exp.Column) and isinstance(literal, exp.Literal):
+                        key = _normalise(column.name)
+                        value = str(literal.this).casefold()
+                        if value in cohort_values.get(key, set()):
+                            conditional_values.setdefault(key, set()).add(value)
         missing = sorted(column for column in missing
                          if len(conditional_values.get(column, set())) < 2)
     return [{
