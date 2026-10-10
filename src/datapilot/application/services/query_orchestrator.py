@@ -2125,7 +2125,7 @@ class QueryOrchestrator:
                             lhs = predicate.this
                             rhs = predicate.expression
                             observed = set()
-                            if kind in {"arraycontains", "array_contains"} and correct_column(lhs):
+                            if kind in {"arraycontainsall", "arraycontains", "array_contains"} and correct_column(lhs):
                                 observed = literal_values(rhs)
                             elif kind in {"arrayoverlaps", "array_overlaps"} and correct_column(lhs):
                                 if len(matched) == 1:
@@ -2134,7 +2134,7 @@ class QueryOrchestrator:
                                 # 'LNG' = ANY(array_col) is single-value membership.
                                 if len(matched) == 1:
                                     for value, any_node in ((lhs, rhs), (rhs, lhs)):
-                                        if isinstance(any_node, exp.Any) and correct_column(any_node.this):
+                                        if isinstance(any_node, exp.Any) and correct_column(any_node.this.this if isinstance(any_node.this, exp.Paren) else any_node.this):
                                             observed = literal_values(value)
                             if {v.casefold() for v in matched}.issubset(observed):
                                 constrained.update(observed)
