@@ -107,3 +107,55 @@ def test_conditional_aggregate_grouped_by_unrelated_dimension_allowed():
         'FROM public.items GROUP BY category'
     )
     assert 'conditional_comparison_grain_violation' not in _codes(sql)
+
+
+def _grain_codes(sql, question, required=('owner',)):
+    return {check['code'] for check in assess_query_correctness(
+        sql=sql, question=question, required_grouping_columns=required,
+        affected_tables=['public.items'], governed_tables=['public.items'],
+        dialect='postgresql',
+    ) if check['status'] == 'failed'}
+
+
+def test_explicit_grouping_rejects_extra_vessel_dimension():
+    sql = 'SELECT owner, item_name, COUNT(*) FROM public.items GROUP BY owner, item_name'
+    assert 'explicit_grouping_grain_violation' in _grain_codes(sql, 'Show items grouped by owner')
+
+
+def test_explicit_grouping_accepts_exact_grain():
+    sql = 'SELECT owner, COUNT(*) FROM public.items GROUP BY owner'
+    assert 'explicit_grouping_grain_violation' not in _grain_codes(sql, 'Show items grouped by owner')
+
+
+def test_unresolved_grain_does_not_guess():
+    sql = 'SELECT owner, item_name, COUNT(*) FROM public.items GROUP BY owner, item_name'
+    assert 'explicit_grouping_grain_violation' not in _grain_codes(sql, 'Show items grouped by owner', ())
+
+
+def test_explicit_multiple_dimensions_accepted_when_governed():
+    sql = 'SELECT owner, category, COUNT(*) FROM public.items GROUP BY owner, category'
+    assert 'explicit_grouping_grain_violation' not in _grain_codes(
+        sql, 'Show items grouped by owner and by category', ('owner', 'category')
+    )
+
+
+def test_implicit_grouping_does_not_enforce_exact_grain():
+    sql = 'SELECT owner, item_name, COUNT(*) FROM public.items GROUP BY owner, item_name'
+    assert 'explicit_grouping_grain_violation' not in _grain_codes(sql, 'Count items per owner')
+
+
+def test_joined_query_does_not_guess_extra_grain():
+    sql = ('SELECT i.owner, i.item_name, COUNT(*) FROM public.items i '
+           'JOIN public.groups g ON g.id = i.group_id GROUP BY i.owner, i.item_name')
+    assert 'explicit_grouping_grain_violation' not in _grain_codes(
+        sql, 'Show items grouped by owner')
+
+
+def test_missing_required_grouping_still_rejected():
+    sql = 'SELECT category, COUNT(*) FROM public.items GROUP BY category'
+    assert 'grouping_dimension_violation' in _grain_codes(sql, 'Show items grouped by owner')
+
+
+def test_explicit_grouping_rejects_extra_date_dimension():
+    sql = 'SELECT owner, period, COUNT(*) FROM public.items GROUP BY owner, period'
+    assert 'explicit_grouping_grain_violation' in _grain_codes(sql, 'Show items grouped by owner')
