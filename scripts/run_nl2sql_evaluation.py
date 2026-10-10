@@ -114,6 +114,7 @@ def main() -> int:
     parser.add_argument("--timeout", type=int, default=120)
     parser.add_argument("--markdown", type=Path, help="Write readable Markdown report")
     parser.add_argument("--execute", action="store_true", help="Execute read-only queries (default: dry run)")
+    parser.add_argument("--replay", type=Path, help="Re-evaluate stored responses offline; makes zero API/LLM calls")
     parser.add_argument("--ids", help="Comma-separated case IDs to run (avoids unnecessary LLM calls)")
     parser.add_argument("--max-cases", type=int, help="Maximum number of selected cases to run")
     args = parser.parse_args()
@@ -141,6 +142,16 @@ def main() -> int:
             parser.error("--max-cases must be at least 1")
         cases = cases[:args.max_cases]
     print("Selected {} evaluation cases; each may incur LLM charges.".format(len(cases)))
+    replay_responses = None
+    if args.replay:
+        replay_data = json.loads(args.replay.read_text(encoding="utf-8-sig"))
+        if not isinstance(replay_data, dict) or not isinstance(replay_data.get("results"), list):
+            parser.error("--replay must contain an evaluation report with a results array")
+        replay_responses = {item["id"]: item["response"] for item in replay_data["results"]
+                            if isinstance(item, dict) and "id" in item and isinstance(item.get("response"), dict)}
+        missing = [case["id"] for case in cases if case["id"] not in replay_responses]
+        if missing:
+            parser.error("Missing stored responses for case IDs: " + ", ".join(missing))
     results = []
     endpoint = args.base_url.rstrip("/") + "/api/query"
     for case in cases:
@@ -148,7 +159,8 @@ def main() -> int:
             results.append({"id": case["id"], "verdict": "not_configured", "question": case.get("question")})
             continue
         try:
-            response = request_case(args.base_url, args.source, case, args.timeout, not args.execute)
+            response = (replay_responses[case["id"]] if replay_responses is not None
+                        else request_case(args.base_url, args.source, case, args.timeout, not args.execute))
             results.append(evaluate_case(case, response))
         except (URLError, TimeoutError, OSError) as exc:
             reason = getattr(exc, "reason", None)
@@ -169,7 +181,7 @@ def main() -> int:
     report = {
         "execution_summary": execution_summary, "semantic_summary": semantic_summary,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "source": args.source, "mode": "execute" if args.execute else "dry_run",
+        "source": args.source, "mode": "replay" if args.replay else "execute" if args.execute else "dry_run",
         "summary": summary, "results": results,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
