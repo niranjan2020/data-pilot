@@ -55,3 +55,23 @@ def test_unverifiable_comparison_cannot_bypass_fail_closed_policy():
         {"code": "filter_verification_unavailable", "status": "skipped"},
     ])
     assert decision.recoverable is False
+
+
+@pytest.mark.parametrize("extra", [
+    "AND status = 'A'",
+    "AND status IN ('A')",
+    "AND status != 'B'",
+    "AND 'B' = status",
+])
+def test_extra_predicate_cannot_eliminate_required_cohort(extra):
+    sql = (
+        "SELECT status, COUNT(*) FROM public.items "
+        "WHERE status IN ('A', 'B') " + extra + " GROUP BY status"
+    )
+    checks = assess_query_correctness(
+        affected_tables=["public.items"], governed_tables=["public.items"],
+        sql=sql,
+        comparison_cohorts=[{"column_name": "status", "values": ["A", "B"]}],
+        aggregation_grain=["status"],
+    )
+    assert any(c["code"] == "comparison_contract_violation" for c in checks)
