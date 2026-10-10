@@ -462,20 +462,26 @@ def _filter_checks(
                 matched = True
                 break
 
-        # SQLGlot parses PostgreSQL @>/ANY/&& into dialect-specific AST
-        # nodes. Check the predicate operator, governed column and literal
-        # together; unrelated occurrences of the literal do not count.
-        if not matched and operator == "=" and str(item.get("data_type") or "").casefold() in ("array", "text[]"):
+        # Array membership must be a guaranteed outer WHERE conjunct.
+        # Inspect each conjunct separately: a textual match anywhere in the
+        # query could otherwise accept SELECT, HAVING, NOT or OR predicates.
+        array_type = str(item.get("data_type") or "").casefold()
+        if not matched and operator == "=" and (
+            array_type == "array" or array_type.endswith("[]")
+        ):
             import re
-            rendered = sql  # Preserve PostgreSQL @>, && and ANY syntax before AST normalization
-            col = r'(?:"?[a-z_][a-z0-9_]*"?\.)?"?' + re.escape(column_name) + r'"?'
+            col = r'(?:"?[a-z_][a-z0-9_]*"?\\.)?"?' + re.escape(column_name) + r'"?'
             val = re.escape(expected_value)
             patterns = (
-                col + r"\s*@>\s*ARRAY\s*\[\s*'" + val + r"'\s*\]",
-                r"'" + val + r"'\s*=\s*ANY\s*\(\s*" + col + r"\s*\)",
-                col + r"\s*&&\s*ARRAY\s*\[\s*'" + val + r"'\s*\]",
+                col + r"\\s*@>\\s*ARRAY\\s*\\[\\s*'" + val + r"'\\s*\\]",
+                r"'" + val + r"'\\s*=\\s*ANY\\s*\\(\\s*" + col + r"\\s*\\)",
+                col + r"\\s*&&\\s*ARRAY\\s*\\[\\s*'" + val + r"'\\s*\\]",
             )
-            matched = any(re.search(pattern, rendered, re.I) for pattern in patterns)
+            matched = any(
+                re.fullmatch(pattern, predicate.sql(dialect="postgres").strip(), re.I)
+                for predicate in conjuncts
+                for pattern in patterns
+            )
 
         if matched:
             checks.append({
