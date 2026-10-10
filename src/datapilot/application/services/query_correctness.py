@@ -1487,8 +1487,12 @@ def _array_and_period_grain_checks(sql: str, *, dialect: str) -> list[dict[str, 
         group = select.args.get("group")
         if group is None:
             continue
-        if any(isinstance(node, exp.Unnest)
-               for expression in group.expressions for node in expression.walk()):
+        # SQLGlot represents PostgreSQL UNNEST as different expression classes
+        # across versions (e.g. Explode rather than Unnest). Check the
+        # normalized GROUP BY expression text, never the whole SQL statement.
+        import re
+        if any(re.search(r"\\bUNNEST\\s*\\(", expression.sql(dialect=sqlglot_dialect(dialect)), re.I)
+               for expression in group.expressions):
             checks.append({
                 "code": "array_expansion_grouping_violation",
                 "status": "failed", "severity": "error",
