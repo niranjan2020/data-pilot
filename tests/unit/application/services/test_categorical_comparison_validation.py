@@ -600,3 +600,29 @@ def test_published_ownership_category_requires_exact_canonical_filter(question, 
         QueryOrchestrator._validate_explicit_categorical_comparison(
             question, "SELECT COUNT(*) FROM astra.vessel_snapshot", entities,
         )
+
+
+@pytest.mark.parametrize('data_type', ['integer', 'int4', 'bigint', 'numeric', 'date', 'timestamp'])
+def test_numeric_and_temporal_between_not_treated_as_categorical(data_type):
+    entities = [{'name': 'Events', 'table_name': 'events', 'attributes': [{
+        'column_name': 'event_year', 'data_type': data_type,
+        'value_mappings': [{'canonical_value': '2020'}, {'canonical_value': '2021'}],
+    }]}]
+    QueryOrchestrator._validate_explicit_categorical_comparison(
+        'Show events between 2020 and 2021',
+        'SELECT COUNT(*) FROM events WHERE event_year BETWEEN 2020 AND 2021',
+        entities,
+    )
+
+
+def test_textual_categorical_comparison_remains_governed():
+    entities = [{'name': 'Events', 'table_name': 'events', 'attributes': [{
+        'column_name': 'period_label', 'data_type': 'text',
+        'value_mappings': [{'canonical_value': '2020'}, {'canonical_value': '2021'}],
+    }]}]
+    with pytest.raises(SQLValidationError):
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            'Compare 2020 versus 2021',
+            'SELECT COUNT(*) FROM events',
+            entities,
+        )
