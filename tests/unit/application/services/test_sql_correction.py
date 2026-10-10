@@ -65,3 +65,27 @@ def test_no_failure_is_not_recoverable():
     decision = classify_sql_correction()
     assert decision.recoverable is False
     assert decision.category == "none"
+
+
+def test_bounded_regeneration_eligible_for_governed_shape_failures():
+    # Eligibility never authorizes execution: corrected SQL must pass the
+    # same dataset, relationship, categorical and correctness gates.
+    for code in (
+        "relationship_publication_violation",
+        "dataset_selection_violation",
+        "array_expansion_grouping_violation",
+        "categorical_comparison_filter_violation",
+    ):
+        decision = classify_sql_correction(
+            correctness_checks=[{"code": code, "status": "failed"}]
+        )
+        assert decision.recoverable is True
+        assert decision.feedback[0]["code"] == code
+
+
+def test_governance_unavailable_still_blocks_bounded_regeneration():
+    decision = classify_sql_correction(correctness_checks=[
+        {"code": "dataset_selection_violation", "status": "failed"},
+        {"code": "relationship_verification_unavailable", "status": "skipped"},
+    ])
+    assert decision.recoverable is False
