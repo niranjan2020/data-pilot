@@ -13,6 +13,7 @@ from datapilot.application.services.time_semantics import resolve_time_semantics
 from datapilot.application.services.result_presentation import plan_result_presentation
 from datapilot.application.services.result_summary import summarize_result
 from datapilot.application.services.query_correctness import assess_query_correctness
+from datapilot.application.services.categorical_intent import is_unquoted_connective_code
 from datapilot.application.services.sql_correction import classify_sql_correction
 from datapilot.application.services.execution_recovery import classify_execution_error
 from datapilot.application.services.query_explanation import build_query_explanation
@@ -1973,18 +1974,7 @@ class QueryOrchestrator:
                         phrase = tokens(str(term))
                         if not canonical or not phrase:
                             continue
-                        # A short code can also be a natural-language connector.
-                        # Require quotation for such bare codes; descriptive
-                        # published synonyms remain eligible without quotes.
-                        if len(phrase) == 1 and phrase[0] in {
-                            "to", "in", "on", "at", "by", "as", "or", "and",
-                            "for", "of", "from", "with",
-                        } and not re.search(
-                            r"(?<!\w)[\x27\x22\u2018\u2019\u201c\u201d]"
-                            + re.escape(str(term).strip())
-                            + r"[\x27\x22\u2018\u2019\u201c\u201d](?!\w)",
-                            question, re.I,
-                        ):
+                        if is_unquoted_connective_code(question, str(term)):
                             continue
                         for i in range(len(words) - len(phrase) + 1):
                             if all(equivalent(a, b) for a, b in zip(words[i:i + len(phrase)], phrase)):
