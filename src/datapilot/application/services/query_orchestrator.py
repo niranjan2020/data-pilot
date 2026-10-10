@@ -650,6 +650,14 @@ class QueryOrchestrator:
             required_filters=governed_filters,
             required_relationships=self._required_relationships(governed_context),
             time_plan=time_interpretation,
+            comparison_cohorts=[
+                {"column_name": item["column_name"], "values": item["values"]}
+                for item in governed_filters
+                if str(item.get("operator", "")).upper() == "IN"
+                and isinstance(item.get("values"), (list, tuple))
+                and len(item["values"]) >= 2
+            ],
+            aggregation_grain=governed_grouping_columns,
         )
         generation_context = {
             "semantic_intent_contract": semantic_contract.as_dict(),
@@ -715,6 +723,8 @@ class QueryOrchestrator:
             "selected_categorical_attribute": semantic_contract.categorical_attribute,
             "required_relationships": list(semantic_contract.relationships),
             "required_time_plan": semantic_contract.time_plan,
+            "comparison_cohorts": list(semantic_contract.comparison_cohorts),
+            "aggregation_grain": list(semantic_contract.aggregation_grain),
             "data_source_name": request.source_name,
         }
         async def recover_execution_error(
@@ -840,6 +850,8 @@ class QueryOrchestrator:
         selected_categorical_attribute: Optional[dict[str, Any]] = None,
         required_relationships: Optional[list[dict[str, Any]]] = None,
         required_time_plan: Optional[dict[str, Any]] = None,
+        comparison_cohorts: Optional[list[dict[str, Any]]] = None,
+        aggregation_grain: Optional[list[str]] = None,
         data_source_name: Optional[str] = None,
     ) -> QueryResponse:
         validation = await self._validator.validate(
@@ -1074,6 +1086,8 @@ class QueryOrchestrator:
             required_filters=required_filters or [],
             required_relationships=required_relationships or [],
             required_time_plan=required_time_plan,
+            comparison_cohorts=comparison_cohorts or [],
+            aggregation_grain=aggregation_grain or [],
             trusted_published_relationships=trusted_published_relationships,
             dialect=self._database.dialect,
         )
