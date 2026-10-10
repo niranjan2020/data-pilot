@@ -416,7 +416,7 @@ def _filter_checks(
         # together; unrelated occurrences of the literal do not count.
         if not matched and operator == "=" and str(item.get("data_type") or "").casefold() in ("array", "text[]"):
             import re
-            rendered = tree.sql(dialect=sqlglot_dialect(dialect))
+            rendered = sql  # Preserve PostgreSQL @>, && and ANY syntax before AST normalization
             col = r'(?:"?[a-z_][a-z0-9_]*"?\.)?"?' + re.escape(column_name) + r'"?'
             val = re.escape(expected_value)
             patterns = (
