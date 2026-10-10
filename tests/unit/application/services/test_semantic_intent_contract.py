@@ -58,4 +58,19 @@ def test_empty_contract_has_predictable_json_safe_shape():
     assert contract.as_dict() == {
         "metrics": [], "dimensions": [], "filters": [],
         "relationships": [], "time_plan": None, "categorical_attribute": None,
+        "comparison_cohorts": [], "aggregation_grain": [],
     }
+
+
+def test_comparison_cohorts_and_grain_are_independent_of_sql():
+    cohorts = [{"column_name": "status", "values": ["A", "B"]}]
+    contract = SemanticIntentContract.from_governed_context(
+        {}, grouping_columns=["region"], required_filters=[],
+        required_relationships=[], time_plan=None,
+        comparison_cohorts=cohorts, aggregation_grain=["status", "region"],
+    )
+    cohorts[0]["values"].append("C")
+    assert contract.as_dict()["comparison_cohorts"] == [
+        {"column_name": "status", "values": ["A", "B"]}
+    ]
+    assert contract.as_dict()["aggregation_grain"] == ["status", "region"]
