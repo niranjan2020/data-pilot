@@ -1471,7 +1471,7 @@ class QueryOrchestrator:
         import sqlglot
         from sqlglot import exp
 
-        if not re.search(r"\\b(?:non[- ]empty|not empty|populated|at least one)\\b", question, re.I):
+        if not re.search(r"\b(?:non[- ]empty|not empty|populated|at least one)\b", question, re.I):
             return
         ast = sqlglot.parse_one(sql, read="postgres")
         for entity in entities:
@@ -1481,7 +1481,7 @@ class QueryOrchestrator:
                     continue
                 terms = [attribute.get("name"), *(attribute.get("synonyms") or [])]
                 if not any(
-                    re.search(r"(?<!\\w)" + re.escape(str(term).strip()) + r"(?!\\w)", question, re.I)
+                    re.search(r"(?<!\w)" + re.escape(str(term).strip()) + r"(?!\w)", question, re.I)
                     for term in terms if str(term or "").strip()
                 ):
                     continue
