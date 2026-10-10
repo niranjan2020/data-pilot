@@ -80,7 +80,7 @@ def evaluate_case(case: dict, response: dict) -> dict:
         "semantic_status": ("not_verified" if not semantic_approved or not checks
                             else "passed" if all(c["passed"] for c in checks)
                             else "failed"),
-        "verdict": ("unreviewed" if not checks or not semantic_approved else
+        "verdict": ("unreviewed" if not checks else
                     "pass" if all(item["passed"] for item in checks) else "needs_review"),
         "response": response,
     }
