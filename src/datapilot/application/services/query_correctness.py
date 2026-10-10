@@ -248,7 +248,17 @@ def _explicit_grouping_grain_checks(
         for expression in tree.args['group'].expressions
         for column in expression.find_all(exp.Column)
     }
-    extra = sorted(actual - expected)
+    # An explicitly named additional dimension can be part of a comparison
+    # even when the semantic planner supplied only one grouping column.
+    # Do not reject it solely because the planner omitted that dimension.
+    extra_in_question = {
+        column for column in actual - expected
+        if re.search(r"(?<![a-z0-9])" + re.escape(column.replace("_", " ")) + r"(?![a-z0-9])",
+                     question.casefold())
+        or re.search(r"(?<![a-z0-9])" + re.escape(column) + r"(?![a-z0-9])",
+                     question.casefold())
+    }
+    extra = sorted(actual - expected - extra_in_question)
     if not extra:
         return []
     return [{
