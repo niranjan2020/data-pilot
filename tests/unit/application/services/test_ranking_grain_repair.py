@@ -99,3 +99,25 @@ def test_top_n_metric_preserves_ranked_entity():
         "Show top 10 products by distinct sales count filtered to red colour",
         entities, metrics=[]
     ) == ["Name"]
+
+
+def test_top_n_filter_selection_does_not_override_ranked_entity():
+    entities = [{"name": "Operator", "synonyms": ["operators"],
+                 "display_column": "operator",
+                 "attributes": [{"name": "Ownership status", "column_name": "ownership_status"}]}]
+    question = ("Show the top 10 operators by distinct vessel count for vessels built "
+                "after 2015, in the container segment, with ownership status owned or time-chartered.")
+    assert QueryOrchestrator._required_grouping_columns(
+        question, entities, selected_attribute={"column_name": "ownership_status"},
+        metrics=[],
+    ) == ["operator"]
+
+
+def test_top_n_explicit_dimension_with_selected_attribute():
+    entities = [{"name": "Product", "display_column": "Name",
+                 "attributes": [{"name": "Color", "column_name": "Color",
+                                 "synonyms": ["colour"]}]}]
+    assert QueryOrchestrator._required_grouping_columns(
+        "Show top 10 products by product colour", entities,
+        selected_attribute={"column_name": "Color"}, metrics=[],
+    ) == ["Color"]
