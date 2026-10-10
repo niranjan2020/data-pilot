@@ -1943,21 +1943,22 @@ def _contract_comparison_checks(
         # separate conditional aggregates yield one column per cohort. Neither
         # a mere SELECT literal nor one combined CASE aggregate is sufficient.
         separate = independent_aggregate_cohorts(tree, column=column, values=values)
-        if values.issubset({v for v in separate}) and column not in grouped:
-            # Outer WHERE must not exclude requested cohort values.
+        conditional_cohorts = values.issubset(separate) and column not in grouped
+        if conditional_cohorts:
+            # A restrictive outer WHERE can silently eliminate a cohort.
             if where is not None:
                 allowed = allowed_values(where.this, column)
                 if allowed is not None and not values.issubset(allowed):
                     missing.append(column)
-            continue
-        if column not in grouped:
-            missing.append(column)
-        if where is None:
-            missing.append(column)
-            continue
-        allowed = allowed_values(where.this, column)
-        if allowed is None or not values.issubset(allowed):
-            missing.append(column)
+        else:
+            if column not in grouped:
+                missing.append(column)
+            if where is None:
+                missing.append(column)
+                continue
+            allowed = allowed_values(where.this, column)
+            if allowed is None or not values.issubset(allowed):
+                missing.append(column)
         # Exclusion predicates are checked separately; they may appear in
         # conjuncts alongside a valid IN, or within nested Boolean branches.
         for excluded in where.find_all(exp.NEQ):
