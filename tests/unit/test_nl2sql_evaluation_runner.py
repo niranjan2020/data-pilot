@@ -11,8 +11,8 @@ SPEC.loader.exec_module(runner)
 
 def test_benchmark_manifest_has_38_unique_slots():
     cases = json.loads((ROOT / "evaluations" / "astra_38_template.json").read_text(encoding="utf-8"))
-    assert len(cases) == 39  # 39 original slots, including one duplicated question
-    assert len({case["id"] for case in cases}) == 39
+    assert len(cases) == 38  # provisional slots pending original question import
+    assert len({case["id"] for case in cases}) == 38
     assert all(not case["question"] and case["expect"] is None for case in cases)
 
 
