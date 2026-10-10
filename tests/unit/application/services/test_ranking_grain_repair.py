@@ -78,3 +78,24 @@ def test_ranked_entity_grain_excludes_filter_only_dimension(entity, column, filt
         question, entities, metrics=[]
     )
     assert resolved == [column]
+
+
+@pytest.mark.parametrize("question", [
+    "Show top 10 products by product colour",
+    "Show top 10 products by colour",
+])
+def test_top_n_explicit_dimension_overrides_ranked_entity(question):
+    entities = [{"name": "Product", "display_column": "Name",
+                 "attributes": [{"name": "Color", "column_name": "Color",
+                                 "synonyms": ["colour", "product colour"]}]}]
+    assert QueryOrchestrator._required_grouping_columns(question, entities, metrics=[]) == ["Color"]
+
+
+def test_top_n_metric_preserves_ranked_entity():
+    entities = [{"name": "Product", "display_column": "Name",
+                 "attributes": [{"name": "Color", "column_name": "Color",
+                                 "synonyms": ["colour"]}]}]
+    assert QueryOrchestrator._required_grouping_columns(
+        "Show top 10 products by distinct sales count filtered to red colour",
+        entities, metrics=[]
+    ) == ["Name"]
