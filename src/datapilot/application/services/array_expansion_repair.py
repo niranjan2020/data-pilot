@@ -25,21 +25,28 @@ def repair_grouped_array_expansion(sql: str, checks: list[dict], *, dialect: str
         if len(list(tree.find_all(exp.Table))) != 1 or tree.args.get("group") is None:
             return None
         group = tree.args["group"]
-        offending = [
-            g for g in group.expressions
-            if re.search(r"\bUNNEST\s*\(", g.sql(dialect=dialect), re.I)
-        ]
-        if len(offending) != 1:
-            return None
-        target = offending[0]
-        target_sql = target.sql(dialect=dialect)
-        if not re.fullmatch(r"UNNEST\s*\(\s*(?:[\w\"]+\.)?[\w\"]+\s*\)", target_sql, re.I):
-            return None
-        projections = [
-            p for p in tree.expressions
-            if (p.this if isinstance(p, exp.Alias) else p).sql(dialect=dialect) == target_sql
-        ]
+        # Resolve only a unique projected UNNEST with one physical array column.
+        projections = [(i, p, p.this if isinstance(p, exp.Alias) else p)
+                       for i, p in enumerate(tree.expressions, 1)
+                       if isinstance(p.this if isinstance(p, exp.Alias) else p, exp.Unnest)]
         if len(projections) != 1:
+            return None
+        index, projection, unnest = projections[0]
+        if len(unnest.expressions) != 1 or not isinstance(unnest.expressions[0], exp.Column):
+            return None
+        target_sql = unnest.sql(dialect=dialect)
+        matches = []
+        for item in group.expressions:
+            if item.sql(dialect=dialect) == target_sql:
+                matches.append(item)
+            elif isinstance(item, exp.Column) and not item.table and isinstance(projection, exp.Alias) and item.name.casefold() == projection.alias.casefold():
+                matches.append(item)
+            elif isinstance(item, exp.Literal) and item.is_int and int(item.this) == index:
+                matches.append(item)
+        if len(matches) != 1:
+            return None
+        target = matches[0]
+        if any(isinstance(item, exp.Unnest) and item is not target for item in group.expressions):
             return None
         # Reparse the lateral relation instead of manipulating raw SQL tokens.
         from_clause = tree.args.get("from_")
@@ -59,7 +66,6 @@ def repair_grouped_array_expansion(sql: str, checks: list[dict], *, dialect: str
             replacement.copy() if g is target else g.copy()
             for g in group.expressions
         ])
-        projection = projections[0]
         if isinstance(projection, exp.Alias):
             projection.set("this", replacement.copy())
         else:
