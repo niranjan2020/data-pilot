@@ -341,6 +341,34 @@ def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> lis
     missing = sorted(cohort_columns - grouped)
     if not cohort_columns:
         return []
+    # An additional conjunct can silently eliminate a requested cohort
+    # even when the original IN list and GROUP BY look correct.
+    restricted: set[str] = set()
+    for predicate in conjuncts:
+        for column_name, values in cohort_values.items():
+            column = getattr(predicate, "this", None)
+            if not isinstance(column, exp.Column) or _normalise(column.name) != column_name:
+                continue
+            if isinstance(predicate, exp.EQ) and isinstance(predicate.expression, exp.Literal):
+                if str(predicate.expression.this).casefold() not in values or len(values) > 1:
+                    restricted.add(column_name)
+            elif isinstance(predicate, exp.In) and all(
+                isinstance(value, exp.Literal) for value in predicate.expressions
+            ):
+                observed = {str(value.this).casefold() for value in predicate.expressions}
+                if not values.issubset(observed):
+                    restricted.add(column_name)
+            elif isinstance(predicate, (exp.NEQ, exp.Not)):
+                restricted.add(column_name)
+    if restricted:
+        return [{
+            "code": "comparison_dimension_violation",
+            "status": "failed",
+            "severity": "error",
+            "cohort_columns": sorted(cohort_columns),
+            "missing_columns": sorted(restricted),
+            "message": "Additional predicates restrict or contradict requested comparison cohorts.",
+        }]
     # Conditional aggregates preserve cohorts only when they explicitly
     # discriminate at least two distinct values from the same column.
     if missing:
