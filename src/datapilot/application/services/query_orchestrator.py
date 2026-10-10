@@ -1587,6 +1587,8 @@ class QueryOrchestrator:
                         published.setdefault(canonical.casefold(), set()).add(canonical)
                 if not published:
                     continue
+                observed = set()
+                array_filter_seen = False
                 for predicate in statement.find_all(exp.Expression):
                     # Only inspect expressions that actually compare this array
                     # column with an ARRAY[...] literal, not unrelated projections.
@@ -1607,11 +1609,13 @@ class QueryOrchestrator:
                         for child in predicate.iter_expressions()
                     ):
                         continue
+                    array_filter_seen = True
                     for array in arrays:
                         for literal in array.expressions:
                             if not isinstance(literal, exp.Literal) or not literal.is_string:
                                 continue
                             value = str(literal.this)
+                            observed.add(value)
                             allowed = published.get(value.casefold())
                             if allowed and value not in allowed:
                                 raise SQLValidationError(
@@ -1624,6 +1628,26 @@ class QueryOrchestrator:
                                         "message": "Array membership literal must match the exact published canonical value.",
                                     }]},
                                 )
+                # Only assert completeness when generated SQL already uses
+                # literal-array filtering. A query that expands arrays with
+                # UNNEST or groups by element requires a different grain-aware
+                # validation contract.
+                if array_filter_seen:
+                    missing = sorted(
+                        canonical for values in published.values()
+                        for canonical in values if canonical not in observed
+                    )
+                    if missing:
+                        raise SQLValidationError(
+                            "Generated SQL omitted requested governed array categories",
+                            details={"checks": [{
+                                "code": "categorical_array_filter_violation",
+                                "status": "failed", "severity": "error",
+                                "column_name": attribute.get("column_name"),
+                                "missing_canonical_values": missing,
+                                "message": "Array filtering must include every requested published category.",
+                            }]},
+                        )
 
     @staticmethod
     def _validate_explicit_categorical_comparison(
