@@ -1563,12 +1563,17 @@ class QueryOrchestrator:
                     # that it contains elements (e.g. labels = '{}' or
                     # CARDINALITY(labels) = 0). Accept only positive cardinality
                     # checks; other expressions require separate semantic proof.
+                    # Only a standalone positive conjunct proves the filter.
+                    # A substring match inside OR / NOT / a nested SELECT
+                    # can incorrectly authorize empty arrays.
+                    cardinality_pattern = (
+                        rf'(?:CARDINALITY|ARRAY_LENGTH)\s*\(\s*{column_pattern}'
+                        rf'(?:\s*,\s*1)?\s*\)\s*>\s*0'
+                    )
                     positive_cardinality = any(
-                        re.search(
-                            rf"\b(?:CARDINALITY|ARRAY_LENGTH)\s*\(\s*{column_pattern}"
-                            rf"(?:\s*,\s*1)?\s*\)\s*>\s*0\b",
-                            predicate.sql(dialect="postgres"), re.I,
-                        )
+                        re.fullmatch(
+                            cardinality_pattern, predicate.sql(dialect='postgres').strip(), re.I,
+                        ) is not None
                         for predicate in clauses
                     )
                     if not positive_cardinality:
