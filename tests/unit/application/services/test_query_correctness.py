@@ -893,3 +893,19 @@ def test_evaluation_replay_uses_stored_responses_without_api_calls(tmp_path):
     report = json.loads(output.read_text(encoding="utf-8"))
     assert report["mode"] == "replay"
     assert report["summary"]["pass"] == 2
+
+
+@pytest.mark.parametrize("sql,expected", [
+    ("SELECT a.id FROM public.orders AS a", []),
+    ("SELECT x.id FROM (SELECT a.id FROM public.orders AS a) AS x", []),
+    ("SELECT a.id FROM (SELECT a.id FROM public.orders AS a) AS x", ["a"]),
+    ("WITH totals AS (SELECT a.id FROM public.orders AS a) SELECT t.id FROM totals AS t", []),
+    ("WITH totals AS (SELECT a.id FROM public.orders AS a) SELECT a.id FROM totals AS t", ["a"]),
+    ("SELECT c.id FROM public.customers AS c WHERE EXISTS (SELECT 1 FROM public.orders AS o WHERE o.customer_id = c.id)", []),
+    ("SELECT c.id FROM public.customers AS c WHERE EXISTS (SELECT 1 FROM public.orders AS o WHERE z.customer_id = c.id)", ["z"]),
+])
+def test_lexical_qualifier_validation(sql, expected):
+    import sqlglot
+    from datapilot.application.services.query_orchestrator import _invalid_qualified_columns
+    ast = sqlglot.parse_one(sql, read="postgres")
+    assert sorted({col.table for col in _invalid_qualified_columns(ast)}) == expected
