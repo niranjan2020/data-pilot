@@ -20,8 +20,13 @@ def repair_missing_comparison_groups(
         return None
 
     failures = [c for c in checks if c.get("status") == "failed"]
+    # Never rewrite a query with a separately detected contract violation.
+    # In particular, adding a GROUP BY cannot recover a lost cohort after
+    # a WHERE predicate has already restricted the requested population.
     if len(failures) != 1 or failures[0].get("code") != "comparison_dimension_violation":
         return reject('nonexclusive_comparison_failure')
+    if failures[0].get("cohort_columns") and not failures[0].get("missing_columns"):
+        return reject('comparison_cohort_restriction')
     missing = failures[0].get("missing_columns")
     if not isinstance(missing, list) or not missing or any(
         not isinstance(name, str) or not name.isidentifier() for name in missing
