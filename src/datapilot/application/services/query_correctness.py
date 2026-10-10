@@ -219,6 +219,47 @@ def _ranking_grain_checks(sql: str, *, question: str, required_grouping_columns:
     }]
 
 
+def _explicit_grouping_grain_checks(
+    sql: str, *, question: str, required_grouping_columns: Iterable[str], dialect: str,
+) -> list[dict[str, Any]]:
+    """Reject extra grouping columns for a resolved, explicitly requested grain."""
+    import re
+
+    expected = {
+        _normalise(str(column)).rsplit('.', 1)[-1]
+        for column in required_grouping_columns if str(column).strip()
+    }
+    if not expected or not re.search(r'\b(?:grouped|group|breakdown|broken down)\s+by\b', question, re.I):
+        return []
+    # Multi-dimensional user requests require an explicit semantic grain plan;
+    # avoid interpreting additional dimensions from natural language alone.
+    if re.search(r'\b(?:and|then)\s+(?:by|per)\b', question, re.I):
+        return []
+    try:
+        tree = parse_one(sql, read=sqlglot_dialect(dialect))
+    except Exception:
+        return []
+    if not isinstance(tree, exp.Select) or tree.args.get('group') is None:
+        return []
+    if any(isinstance(node, (exp.Join, exp.Subquery, exp.Union, exp.With)) for node in tree.walk()):
+        return []
+    actual = {
+        _normalise(column.name)
+        for expression in tree.args['group'].expressions
+        for column in expression.find_all(exp.Column)
+    }
+    extra = sorted(actual - expected)
+    if not extra:
+        return []
+    return [{
+        'code': 'explicit_grouping_grain_violation',
+        'status': 'failed', 'severity': 'error',
+        'required_columns': sorted(expected),
+        'actual_grouping_columns': sorted(actual),
+        'extra_columns': extra,
+        'message': 'SQL groups by columns beyond the explicitly resolved grouping grain.',
+    }]
+
 def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> list[dict[str, Any]]:
     """Fail closed when a requested comparison collapses SQL-filtered cohorts.
 
@@ -1568,6 +1609,9 @@ def assess_query_correctness(
         sql, question=question, required_grouping_columns=required_grouping_columns, dialect=dialect,
     ) if sql else []
     filter_checks = _filter_checks(sql, required_filters=required_filters, dialect=dialect) if sql else []
+    explicit_grain_checks = _explicit_grouping_grain_checks(
+        sql, question=question, required_grouping_columns=required_grouping_columns, dialect=dialect,
+    ) if sql else []
     comparison_checks = _comparison_grouping_checks(sql, question=question, dialect=dialect) if sql else []
     required_relationships = list(required_relationships)
     # Only the orchestrator may supply this trusted, DB-backed grant set.
