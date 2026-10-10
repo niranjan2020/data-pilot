@@ -121,3 +121,27 @@ def test_top_n_explicit_dimension_with_selected_attribute():
         "Show top 10 products by product colour", entities,
         selected_attribute={"column_name": "Color"}, metrics=[],
     ) == ["Color"]
+
+
+def test_top_n_ranked_attribute_does_not_take_filter_attribute_as_grouping():
+    entities = [{"name": "Vessel", "display_column": "vessel_name",
+                 "attributes": [
+                     {"name": "Operator", "column_name": "operator", "synonyms": ["operators"]},
+                     {"name": "Ownership Status", "column_name": "ownership_status",
+                      "synonyms": ["ownership"]},
+                     {"name": "Vessel Segment", "column_name": "vessel_segment"},
+                 ]}]
+    question = ("Show the top 10 operators by distinct vessel count for vessels built after 2015, "
+                "in the container segment, with ownership status owned or time-chartered.")
+    assert QueryOrchestrator._required_grouping_columns(
+        question, entities, selected_attribute={"column_name": "ownership_status"}, metrics=[]
+    ) == ["operator"]
+
+
+def test_top_n_unknown_ranked_entity_does_not_infer_grain_from_filter():
+    entities = [{"name": "Vessel", "display_column": "vessel_name",
+                 "attributes": [{"name": "Ownership Status", "column_name": "ownership_status"}]}]
+    assert QueryOrchestrator._required_grouping_columns(
+        "Show top 10 operators by vessel count with ownership status owned",
+        entities, selected_attribute={"column_name": "ownership_status"}, metrics=[]
+    ) == []
