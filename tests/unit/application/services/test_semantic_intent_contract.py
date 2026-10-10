@@ -74,3 +74,31 @@ def test_comparison_cohorts_and_grain_are_independent_of_sql():
         {"column_name": "status", "values": ["A", "B"]}
     ]
     assert contract.as_dict()["aggregation_grain"] == ["status", "region"]
+
+
+def test_published_comparison_cohorts_are_resolved_without_sql():
+    from datapilot.application.services.semantic_intent_contract import resolve_published_comparison_cohorts
+    entities = [{"attributes": [{
+        "column_name": "status",
+        "value_mappings": [
+            {"canonical_value": "O", "synonyms": ["owned"]},
+            {"canonical_value": "T", "synonyms": ["chartered"]},
+        ],
+    }]}]
+    assert resolve_published_comparison_cohorts(
+        "Compare owned versus chartered", entities,
+    ) == [{"column_name": "status", "values": ["O", "T"]}]
+
+
+def test_non_comparison_does_not_invent_cohorts():
+    from datapilot.application.services.semantic_intent_contract import resolve_published_comparison_cohorts
+    entities = [{"attributes": [{
+        "column_name": "status",
+        "value_mappings": [
+            {"canonical_value": "O", "synonyms": ["owned"]},
+            {"canonical_value": "T", "synonyms": ["chartered"]},
+        ],
+    }]}]
+    assert resolve_published_comparison_cohorts(
+        "Show owned and chartered combined total", entities,
+    ) == []
