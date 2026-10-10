@@ -2551,6 +2551,11 @@ class QueryOrchestrator:
         elliptical = re.search(r"\\btop\\s+\\d+\\s+by\\b", normalized)
         if elliptical:
             preceding = normalized[:elliptical.start()]
+            # In "Which customers have overdue invoices?", invoices are
+            # objects of the predicate, not the ranked subject.
+            subject = re.search(r"\\bwhich\\s+(.+?)\\s+(?:have|has|are|were|manage|manages)\\b", preceding)
+            if subject:
+                preceding = subject.group(1)
             candidates = []
             for entity in entities:
                 dimensions = [
