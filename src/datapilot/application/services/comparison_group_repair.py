@@ -45,9 +45,17 @@ def repair_missing_comparison_groups(
     tables = list(tree.find_all(exp.Table))
     if len(tables) != 1:
         return reject('not_single_source')
+    guaranteed_predicates = []
+    pending = [where.this]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, exp.And):
+            pending.extend([node.this, node.expression])
+        elif isinstance(node, exp.In):
+            guaranteed_predicates.append(node)
     for name in missing:
         candidates = []
-        for predicate in where.find_all(exp.In):
+        for predicate in guaranteed_predicates:
             operand = predicate.this
             if isinstance(operand, exp.Lower):
                 operand = operand.this
