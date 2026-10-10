@@ -2170,6 +2170,8 @@ class QueryOrchestrator:
         check = missing[0]
         column = str(check.get("column") or "")
         value = check.get("expected_value")
+        if check.get("data_type") in ("array", "text[]") or str(check.get("data_type") or "").endswith("[]"):
+            return None
         if not column or value is None or check.get("operator") != "=":
             return None
         try:
@@ -2275,10 +2277,12 @@ class QueryOrchestrator:
         # equality requirements; comparisons remain governed by the existing
         # multi-value SQL validator.
         published_values = []
+        published_types: dict[str, str] = {}
         for entity in entities:
             for attribute in entity.get("attributes") or []:
                 column = str(attribute.get("column_name") or "").strip()
                 data_type = str(attribute.get("data_type") or "").casefold()
+                published_types[column.casefold()] = data_type
                 if data_type in {"date", "timestamp", "integer", "int", "bigint", "numeric"}:
                     continue
                 for mapping in attribute.get("value_mappings") or []:
@@ -2301,6 +2305,8 @@ class QueryOrchestrator:
                 continue
             if any(entry["column_name"].casefold() == column.casefold() for entry in required):
                 continue
+            if published_types.get(column.casefold(), "").endswith("[]") or "array" in published_types.get(column.casefold(), ""):
+                continue  # Array membership must be validated by its dedicated semantic guard.
             add(column, column, "=", item["value"])
 
         normalized_tokens = re.findall(r"[a-z0-9]+", question.casefold())
