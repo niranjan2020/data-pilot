@@ -2457,6 +2457,37 @@ class QueryOrchestrator:
         """Resolve explicit grouping to the most specific governed dimension."""
         normalized = " ".join(re.findall(r"[a-z0-9]+", question.casefold()))
 
+        # Resolve an elliptical ranking such as "Which suppliers have late
+        # orders? Show the top 10 by order count" from its preceding subject.
+        elliptical = re.search(r"\btop\s+\d+\s+by\b", normalized)
+        if elliptical:
+            preceding = normalized[:elliptical.start()]
+            # In "Which customers have overdue invoices?", invoices are
+            # objects of the predicate, not the ranked subject.
+            subject = re.search(r"\bwhich\s+(.+?)\s+(?:have|has|are|were|manage|manages)\b", preceding)
+            if subject:
+                preceding = subject.group(1)
+            candidates = []
+            for entity in entities:
+                dimensions = [
+                    (entity.get("display_column") or entity.get("key_column"),
+                     [entity.get("name"), *(entity.get("synonyms") or [])])
+                ] + [
+                    (attribute.get("column_name"),
+                     [attribute.get("name"), *(attribute.get("synonyms") or [])])
+                    for attribute in entity.get("attributes") or []
+                ]
+                for column, terms in dimensions:
+                    for term in terms:
+                        phrase = " ".join(re.findall(r"[a-z0-9]+", str(term or "").casefold()))
+                        if column and phrase and re.search(rf"\b{re.escape(phrase)}(?:s)?\b", preceding):
+                            candidates.append((len(phrase.split()), str(column)))
+            if candidates:
+                best = max(score for score, _ in candidates)
+                columns = {column for score, column in candidates if score == best}
+                if len(columns) == 1:
+                    return list(columns)
+
         # A selected attribute can be a filter-only dimension. Do not let
         # its presence override the grain of an explicit top-N ranking.
         is_top_ranking = bool(re.search(r"\btop\s+\d+\b", normalized))
@@ -2545,37 +2576,6 @@ class QueryOrchestrator:
                 return list(dict.fromkeys(
                     column for score, column in entity_candidates if score == best
                 ))
-
-        # Resolve an elliptical ranking such as "Which suppliers have late
-        # orders? Show the top 10 by order count" from its preceding subject.
-        elliptical = re.search(r"\\btop\\s+\\d+\\s+by\\b", normalized)
-        if elliptical:
-            preceding = normalized[:elliptical.start()]
-            # In "Which customers have overdue invoices?", invoices are
-            # objects of the predicate, not the ranked subject.
-            subject = re.search(r"\\bwhich\\s+(.+?)\\s+(?:have|has|are|were|manage|manages)\\b", preceding)
-            if subject:
-                preceding = subject.group(1)
-            candidates = []
-            for entity in entities:
-                dimensions = [
-                    (entity.get("display_column") or entity.get("key_column"),
-                     [entity.get("name"), *(entity.get("synonyms") or [])])
-                ] + [
-                    (attribute.get("column_name"),
-                     [attribute.get("name"), *(attribute.get("synonyms") or [])])
-                    for attribute in entity.get("attributes") or []
-                ]
-                for column, terms in dimensions:
-                    for term in terms:
-                        phrase = " ".join(re.findall(r"[a-z0-9]+", str(term or "").casefold()))
-                        if column and phrase and re.search(rf"\\b{re.escape(phrase)}(?:s)?\\b", preceding):
-                            candidates.append((len(phrase.split()), str(column)))
-            if candidates:
-                best = max(score for score, _ in candidates)
-                columns = {column for score, column in candidates if score == best}
-                if len(columns) == 1:
-                    return list(columns)
 
         # A ranked entity defines the grain even when the metric is not
         # published under the exact wording used in the question. Restrict
