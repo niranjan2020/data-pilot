@@ -71,6 +71,27 @@ def _invalid_qualified_columns(statement: Any) -> list[Any]:
     return invalid
 
 
+
+def _repaired_sql_scope_safe(sql: str, *, dialect: str, allowed_tables: Any) -> bool:
+    """Reapply alias and physical-dataset constraints after SQL repair."""
+    try:
+        from sqlglot import exp, parse_one
+        tree = parse_one(sql, read=sqlglot_dialect(dialect))
+        if tree is None or _invalid_qualified_columns(tree):
+            return False
+        if allowed_tables is not None:
+            physical = {
+                f"{table.db}.{table.name}".casefold()
+                for table in tree.find_all(exp.Table)
+                if table.db and table.name
+            }
+            if not physical or physical - allowed_tables:
+                return False
+        return True
+    except Exception:
+        return False
+
+
 class QueryOrchestrator:
     """Execute the core query workflow independently of any LLM vendor."""
 
@@ -1158,8 +1179,8 @@ class QueryOrchestrator:
             )
             if candidate is None:
                 candidate = repair_ranking_grain(
-                executable_sql, correctness_checks, dialect=self._database.dialect,
-            )
+                    executable_sql, correctness_checks, dialect=self._database.dialect,
+                )
             if candidate is None:
                 candidate = repair_missing_comparison_groups(
                     executable_sql, correctness_checks, dialect=self._database.dialect,
@@ -1177,7 +1198,13 @@ class QueryOrchestrator:
                 )
                 if not repaired_validation.is_valid:
                     logger.warning('comparison_group_repair candidate_validation_failed')
-                if repaired_validation.is_valid:
+                if repaired_validation.is_valid and not _repaired_sql_scope_safe(
+                    repaired_validation.sanitized_sql or candidate,
+                    dialect=self._database.dialect,
+                    allowed_tables=allowed_tables,
+                ):
+                    logger.warning("sql_repair_scope_validation_failed")
+                elif repaired_validation.is_valid:
                     repaired_sql = repaired_validation.sanitized_sql or candidate
                     repaired_checks = assess_query_correctness(
                         affected_tables=repaired_validation.affected_tables,
