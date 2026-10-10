@@ -990,6 +990,8 @@ class QueryOrchestrator:
                 # Reuse the exact grants checked against the SQL AST.
                 trusted_published_relationships = list(authorization.verified_grants)
 
+        self._validate_nonempty_array_filters(question, executable_sql, governed_entities or [])
+
         # Enforce resolved published categorical values for both single-value
         # requests and explicit comparisons. Grouping by a categorical column
         # alone does not constrain the requested categories.
@@ -1455,6 +1457,76 @@ class QueryOrchestrator:
                 if tokens.intersection(location_terms):
                     add(entity, attribute)
         return candidates if len(candidates) > 1 else []
+
+    @staticmethod
+    def _validate_nonempty_array_filters(
+        question: str, sql: str, entities: list[dict[str, Any]],
+    ) -> None:
+        """Fail closed when an explicitly requested populated array is tested only for NULL.
+
+        Attribute names and array types come from published semantic metadata.
+        This intentionally does not guess that domain words such as 'capable'
+        imply nonempty array semantics.
+        """
+        import sqlglot
+        from sqlglot import exp
+
+        if not re.search(r"\\b(?:non[- ]empty|not empty|populated|at least one)\\b", question, re.I):
+            return
+        ast = sqlglot.parse_one(sql, read="postgres")
+        for entity in entities:
+            for attribute in entity.get("attributes") or []:
+                data_type = str(attribute.get("data_type") or "").casefold()
+                if not (data_type.endswith("[]") or "array" in data_type):
+                    continue
+                terms = [attribute.get("name"), *(attribute.get("synonyms") or [])]
+                if not any(
+                    re.search(r"(?<!\\w)" + re.escape(str(term).strip()) + r"(?!\\w)", question, re.I)
+                    for term in terms if str(term or "").strip()
+                ):
+                    continue
+                column_name = str(attribute.get("column_name") or "").casefold()
+                for select in ast.find_all(exp.Select):
+                    where = select.args.get("where")
+                    if where is None:
+                        continue
+                    # Restrict to positive AND conjuncts. An OR, negation, or
+                    # nested query cannot establish the nonempty guarantee.
+                    def conjuncts(node):
+                        if isinstance(node, exp.Paren):
+                            return conjuncts(node.this)
+                        if isinstance(node, exp.And):
+                            return conjuncts(node.this) + conjuncts(node.expression)
+                        return [node]
+                    clauses = conjuncts(where.this)
+                    null_only = any(
+                        isinstance(predicate, exp.Not)
+                        and isinstance(predicate.this, exp.Is)
+                        and isinstance(predicate.this.this, exp.Column)
+                        and predicate.this.this.name.casefold() == column_name
+                        and isinstance(predicate.this.expression, exp.Null)
+                        for predicate in clauses
+                    )
+                    if not null_only:
+                        continue
+                    # Cardinality > 0, array_length > 0, or a positive
+                    # element-membership predicate may establish population.
+                    # Fail closed if the generated SQL uses only IS NOT NULL.
+                    others = [
+                        predicate for predicate in clauses
+                        if any(c.name.casefold() == column_name for c in predicate.find_all(exp.Column))
+                        and not (isinstance(predicate, exp.Not) and isinstance(predicate.this, exp.Is))
+                    ]
+                    if not others:
+                        raise SQLValidationError(
+                            "Generated SQL does not enforce nonempty array semantics",
+                            details={"checks": [{
+                                "code": "nonempty_array_filter_violation",
+                                "status": "failed", "severity": "error",
+                                "column_name": attribute.get("column_name"),
+                                "message": "IS NOT NULL includes empty arrays; require a positive cardinality or governed membership condition.",
+                            }]},
+                        )
 
     @staticmethod
     def _validate_explicit_categorical_comparison(
