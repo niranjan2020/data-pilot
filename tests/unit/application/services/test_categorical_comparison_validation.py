@@ -626,3 +626,43 @@ def test_textual_categorical_comparison_remains_governed():
             'SELECT COUNT(*) FROM events',
             entities,
         )
+
+
+# Production-path regression: connector tokens must not become category codes.
+@pytest.mark.parametrize("question", [
+    "Show assets built from 2015 to 2025",
+    "Compare assets from 2020 to 2026",
+    "Show assets between 2015 to 2025",
+    "Count assets from 2018 to 2020 by ownership status",
+])
+def test_date_range_to_does_not_require_ownership_code(question):
+    QueryOrchestrator._validate_explicit_categorical_comparison(
+        question,
+        "SELECT COUNT(*) FROM assets",
+        ENTITIES,
+    )
+
+
+@pytest.mark.parametrize("question", [
+    "Show assets with ownership status 'TO'",
+    "Show owned but chartered assets",
+])
+def test_explicit_to_category_requires_sql_filter(question):
+    with pytest.raises(SQLValidationError):
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            question,
+            "SELECT COUNT(*) FROM assets",
+            ENTITIES,
+        )
+
+
+@pytest.mark.parametrize("question", [
+    "Show assets with ownership status 'TO'",
+    "Show owned but chartered assets",
+])
+def test_explicit_to_category_accepts_correct_sql_filter(question):
+    QueryOrchestrator._validate_explicit_categorical_comparison(
+        question,
+        "SELECT COUNT(*) FROM assets WHERE ownership_status = 'TO'",
+        ENTITIES,
+    )
