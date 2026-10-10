@@ -1772,84 +1772,115 @@ def _array_and_period_grain_checks(sql: str, *, dialect: str) -> list[dict[str, 
     return checks
 
 
-def _contract_comparison_checks(sql: str, *, cohorts: Iterable[dict[str, Any]], grain: Iterable[str], dialect: str) -> list[dict[str, Any]]:
-    """Fail closed when SQL does not preserve explicitly resolved cohorts."""
+def _contract_comparison_checks(
+    sql: str, *, cohorts: Iterable[dict[str, Any]], grain: Iterable[str], dialect: str
+) -> list[dict[str, Any]]:
+    """Verify trusted comparison requirements without inferring intent from SQL.
+
+    Conservative by design: when the validator cannot prove that every
+    requested cohort survives WHERE, it rejects the query for regeneration.
+    """
     required = list(cohorts)
-    required_grain = [str(column) for column in grain if str(column).strip()]
+    required_grain = [str(c) for c in grain if str(c).strip()]
     if not required and not required_grain:
         return []
+    failure = lambda missing, message: [{
+        "code": "comparison_contract_violation", "status": "failed",
+        "severity": "error", "missing_columns": sorted(set(missing)),
+        "message": message,
+    }]
     try:
         tree = parse_one(sql, read=sqlglot_dialect(dialect))
     except Exception:
-        tree = None
+        return failure([], "SQL cannot be parsed against the semantic contract.")
     if not isinstance(tree, exp.Select):
-        return [{"code": "comparison_contract_violation", "status": "failed", "severity": "error",
-                 "message": "Comparison SQL could not be inspected as SELECT."}]
-    group = tree.args.get("group")
-    grouped = {_normalise(col.name) for expr in (group.expressions if group else [])
-               for col in expr.find_all(exp.Column)}
-    where = tree.args.get("where")
-    pending = [where.this] if where else []
-    conjuncts = []
-    while pending:
-        node = pending.pop()
+        return failure([], "Comparison and grain contract requires an inspectable SELECT.")
+
+    def column_name(node):
+        return _normalise(node.name) if isinstance(node, exp.Column) else None
+
+    def literal_value(node):
+        return str(node.this) if isinstance(node, exp.Literal) else None
+
+    def allowed_values(node, column):
+        """Return possible canonical values; None means not provably bounded."""
+        if isinstance(node, exp.Paren):
+            return allowed_values(node.this, column)
         if isinstance(node, exp.And):
-            pending.extend([node.this, node.expression])
-        else:
-            conjuncts.append(node)
-    missing = []
-    # An additional conjunct can eliminate a cohort even when IN and GROUP BY
-    # are present. Reject rather than approve a misleading comparison.
-    def constrained_values(predicate, column):
-        if isinstance(predicate, exp.EQ):
-            pairs = ((predicate.this, predicate.expression),
-                     (predicate.expression, predicate.this))
-            for operand, literal in pairs:
-                if isinstance(operand, exp.Column) and _normalise(operand.name) == column and isinstance(literal, exp.Literal):
-                    return {str(literal.this)}
-        if isinstance(predicate, exp.In) and isinstance(predicate.this, exp.Column):
-            if _normalise(predicate.this.name) == column and all(isinstance(v, exp.Literal) for v in predicate.expressions):
-                return {str(v.this) for v in predicate.expressions}
+            left = allowed_values(node.this, column)
+            right = allowed_values(node.expression, column)
+            if left is None:
+                return right
+            if right is None:
+                return left
+            return left & right
+        if isinstance(node, exp.Or):
+            left = allowed_values(node.this, column)
+            right = allowed_values(node.expression, column)
+            return left | right if left is not None and right is not None else None
+        if isinstance(node, exp.EQ):
+            for operand, value in ((node.this, node.expression), (node.expression, node.this)):
+                if column_name(operand) == column and literal_value(value) is not None:
+                    return {literal_value(value)}
+        if isinstance(node, exp.In) and column_name(node.this) == column:
+            values = [literal_value(v) for v in node.expressions]
+            return set(values) if values and all(v is not None for v in values) else None
         return None
 
+    group = tree.args.get("group")
+    grouped = {
+        column_name(column)
+        for expression in (group.expressions if group else [])
+        for column in expression.find_all(exp.Column)
+    }
+    # A bare GROUP BY column is itself an expression and find_all may omit
+    # its root; include that root explicitly.
+    grouped.update(
+        column_name(expression)
+        for expression in (group.expressions if group else [])
+        if isinstance(expression, exp.Column)
+    )
+    grouped.discard(None)
+    missing = []
+    where = tree.args.get("where")
     for cohort in required:
         column = _normalise(cohort.get("column_name", "")).rsplit(".", 1)[-1]
         values = {str(v) for v in cohort.get("values", [])}
         if not column or len(values) < 2:
             continue
-        present = any(
-            isinstance(p, exp.In)
-            and isinstance(p.this, exp.Column)
-            and _normalise(p.this.name) == column
-            and len(p.expressions) >= len(values)
-            and all(isinstance(v, exp.Literal) for v in p.expressions)
-            and values.issubset({str(v.this) for v in p.expressions})
-            for p in conjuncts
-        )
-        if not present or column not in grouped:
+        if column not in grouped:
             missing.append(column)
-        for predicate in conjuncts:
-            allowed = constrained_values(predicate, column)
-            if allowed is not None and not values.issubset(allowed):
-                missing.append(column)
-            if isinstance(predicate, exp.NEQ):
-                for operand, literal in ((predicate.this, predicate.expression), (predicate.expression, predicate.this)):
-                    if (isinstance(operand, exp.Column)
-                            and _normalise(operand.name) == column
-                            and isinstance(literal, exp.Literal)
-                            and str(literal.this) in values):
-                        missing.append(column)
-    if any(isinstance(a, exp.AggFunc) for a in tree.find_all(exp.AggFunc)):
+        if where is None:
+            missing.append(column)
+            continue
+        allowed = allowed_values(where.this, column)
+        # Every requested value must be possible, and the WHERE predicate
+        # must establish a finite, verifiable cohort set.
+        if allowed is None or not values.issubset(allowed):
+            missing.append(column)
+        # Exclusion predicates are checked separately; they may appear in
+        # conjuncts alongside a valid IN, or within nested Boolean branches.
+        for excluded in where.find_all(exp.NEQ):
+            for operand, value in ((excluded.this, excluded.expression), (excluded.expression, excluded.this)):
+                if column_name(operand) == column and literal_value(value) in values:
+                    missing.append(column)
+        for excluded in where.find_all(exp.Not):
+            if isinstance(excluded.this, exp.In) and column_name(excluded.this.this) == column:
+                if values.intersection({literal_value(v) for v in excluded.this.expressions}):
+                    missing.append(column)
+
+    has_aggregate = any(True for _ in tree.find_all(exp.AggFunc))
+    if has_aggregate:
         missing.extend(
             _normalise(c).rsplit(".", 1)[-1] for c in required_grain
             if _normalise(c).rsplit(".", 1)[-1] not in grouped
         )
     if missing:
-        return [{"code": "comparison_contract_violation", "status": "failed",
-                 "severity": "error", "missing_columns": sorted(set(missing)),
-                 "message": "Generated SQL does not preserve comparison cohorts and aggregation grain."}]
-    return [{"code": "comparison_contract_alignment", "status": "passed",
-             "severity": "info", "message": "Comparison cohorts and aggregation grain are preserved."}]
+        return failure(missing, "SQL does not preserve required comparison cohorts or aggregation grain.")
+    return [{
+        "code": "comparison_contract_alignment", "status": "passed",
+        "severity": "info", "message": "Required cohorts and aggregation grain are preserved.",
+    }]
 
 
 def assess_query_correctness(
