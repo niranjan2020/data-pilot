@@ -92,3 +92,24 @@ def test_explicit_aggregation_grain_without_comparison_cohorts(sql, expected):
     matches = [c for c in checks if c["code"].startswith("comparison_contract_")]
     assert len(matches) == 1
     assert matches[0]["status"] == expected
+
+
+@pytest.mark.parametrize("where_clause,expected", [
+    ("status IN ('A', 'B') AND status = 'A'", "failed"),
+    ("status IN ('A', 'B') AND (status = 'A' OR status = 'B')", "passed"),
+    ("status IN ('A', 'B') AND (status = 'A' OR region = 'EU')", "passed"),
+    ("(status = 'A' OR status = 'B')", "passed"),
+    ("status = 'A' OR region = 'EU'", "failed"),
+    ("status IN ('A', 'B') AND NOT status IN ('B')", "failed"),
+    ("status IN ('A', 'B') AND status <> 'B'", "failed"),
+])
+def test_nested_boolean_comparison_contract(where_clause, expected):
+    checks = assess_query_correctness(
+        affected_tables=["public.items"], governed_tables=["public.items"],
+        sql=f"SELECT status, COUNT(*) FROM public.items WHERE {where_clause} GROUP BY status",
+        comparison_cohorts=[{"column_name": "status", "values": ["A", "B"]}],
+        aggregation_grain=["status"],
+    )
+    matches = [c for c in checks if c["code"].startswith("comparison_contract_")]
+    assert len(matches) == 1
+    assert matches[0]["status"] == expected
