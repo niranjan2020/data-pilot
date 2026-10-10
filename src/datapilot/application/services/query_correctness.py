@@ -567,7 +567,14 @@ def _filter_checks(
                 isinstance(predicate.this, exp.Lower)
                 or isinstance(predicate.expression, exp.Lower)
             )
-            if lowered_operand and (actual is None or actual != actual.casefold()):
+            if lowered_operand and (
+                operator not in ("=", "!=", "<>")
+                or actual is None
+                or actual != actual.casefold()
+            ):
+                # LOWER is only a defensible transformation for categorical
+                # equality/inequality. It cannot establish a governed ordered
+                # comparison (e.g. lexical string order is not original order).
                 continue
             if actual is not None and (
                 actual == expected_value
