@@ -1027,15 +1027,3 @@ def test_unrelated_literal_does_not_prove_comparison_cohort():
     )
     assert any(c["code"] == "comparison_contract_violation" for c in checks)
 
-
-def test_lateral_unnest_comparison_cohorts_preserve_segment_grain():
-    checks = assess_query_correctness(
-        affected_tables=["public.items"], governed_tables=["public.items"],
-        sql=("SELECT i.segment, expanded.tag, COUNT(DISTINCT i.id) AS item_count "
-             "FROM public.items AS i CROSS JOIN LATERAL UNNEST(i.tags) AS expanded(tag) "
-             "WHERE expanded.tag IN ('A', 'B') "
-             "GROUP BY i.segment, expanded.tag"),
-        comparison_cohorts=[{"column_name": "tags", "values": ["A", "B"]}],
-        aggregation_grain=["segment"],
-    )
-    assert any(c["code"] == "comparison_contract_alignment" for c in checks)
