@@ -926,3 +926,21 @@ def test_scope_qualifiers_across_ctes_joins_and_correlations(sql, expected):
     parsed = sqlglot.parse_one(sql, read="postgres")
     actual = sorted({col.table for col in _invalid_qualified_columns(parsed)})
     assert actual == expected
+
+
+def test_ranked_subject_uses_real_schema_column_not_filter_only_dimension():
+    from types import SimpleNamespace
+    from datapilot.application.services.query_orchestrator import QueryOrchestrator
+    schema = SimpleNamespace(tables=[SimpleNamespace(columns=[
+        SimpleNamespace(name="managing_owner"),
+        SimpleNamespace(name="vessel_name"),
+        SimpleNamespace(name="alternative_fuel_type"),
+    ])])
+    questions = [
+        "Which managing owners manage vessels built after 2020? Show the top 10 by vessel count.",
+        "Show the top 10 managing owners by alternative-fuel-capable vessel count.",
+    ]
+    for question in questions:
+        assert QueryOrchestrator._required_grouping_columns(
+            question, [], schema=schema,
+        ) == ["managing_owner"]
