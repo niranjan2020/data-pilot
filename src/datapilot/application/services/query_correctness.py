@@ -358,8 +358,13 @@ def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> lis
                 observed = {str(value.this).casefold() for value in predicate.expressions}
                 if not values.issubset(observed):
                     restricted.add(column_name)
-            elif isinstance(predicate, (exp.NEQ, exp.Not)):
+            elif isinstance(predicate, exp.NEQ):
                 restricted.add(column_name)
+            elif isinstance(predicate, exp.Not):
+                negated = predicate.this
+                if isinstance(negated, exp.In) and isinstance(negated.this, exp.Column):
+                    if _normalise(negated.this.name) == column_name:
+                        restricted.add(column_name)
     if restricted:
         return [{
             "code": "comparison_dimension_violation",
