@@ -327,6 +327,22 @@ def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> lis
     missing = sorted(cohort_columns - grouped)
     if not cohort_columns:
         return []
+    # Separate conditional aggregates can preserve the requested cohorts
+    # without grouping by the discriminator. Do not flag that valid shape.
+    if missing:
+        preserved = set()
+        for aggregate in tree.find_all(exp.AggFunc):
+            if aggregate.find_ancestor(exp.Select) is not tree:
+                continue
+            for case in aggregate.find_all(exp.Case):
+                for branch in case.args.get("ifs") or []:
+                    for column in branch.find_all(exp.Column):
+                        preserved.add(_normalise(column.name))
+            parent = aggregate.parent
+            if isinstance(parent, exp.Filter):
+                for column in parent.find_all(exp.Column):
+                    preserved.add(_normalise(column.name))
+        missing = sorted(set(missing) - preserved)
     return [{
         "code": "comparison_dimension_violation" if missing else "comparison_dimension_alignment",
         "status": "failed" if missing else "passed",
