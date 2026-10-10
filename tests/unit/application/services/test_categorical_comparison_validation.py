@@ -832,7 +832,7 @@ def test_array_comparison_repair_removes_redundant_scalar_in():
     repaired = QueryOrchestrator._repair_explicit_categorical_comparison(sql, captured.value)
     assert repaired is not None
     assert "i.active" in repaired.lower()
-    assert "tags IN" not in repaired.upper()
+    assert "TAGS IN" not in repaired.upper()
     QueryOrchestrator._validate_explicit_categorical_comparison(
         "Compare alpha capable and beta capable item counts by category",
         repaired, ARRAY_ENTITIES,
