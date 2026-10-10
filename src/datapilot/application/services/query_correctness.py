@@ -1837,6 +1837,10 @@ def independent_aggregate_cohorts(tree: exp.Select, *, column: str, values: Iter
         return str(node.this).casefold() if isinstance(node, exp.Literal) and node.is_string else None
     def codes(node):
         node = unwrap(node)
+        # SQLGlot FILTER(WHERE ...) stores a Where expression rather
+        # than the bare predicate. Unwrap it for cohort validation.
+        if isinstance(node, exp.Where):
+            return codes(node.this)
         if isinstance(node, (exp.And, exp.Or)):
             return codes(node.this) | codes(node.expression)
         if isinstance(node, exp.EQ):
