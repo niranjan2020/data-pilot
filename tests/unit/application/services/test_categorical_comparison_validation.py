@@ -760,3 +760,80 @@ def test_comparison_rejects_nonconjunctive_or_noncanonical_array_values(where):
             "How many inventory items have both LNG and methanol?",
             "SELECT COUNT(*) FROM public.inventory WHERE " + where, FUEL_ENTITIES
         )
+
+
+# Regression cases reproduced from generic PostgreSQL array comparisons.
+ARRAY_ENTITIES = [{
+    "name": "Items", "schema_name": "public", "table_name": "items",
+    "attributes": [{
+        "column_name": "tags", "data_type": "text[]",
+        "value_mappings": [
+            {"canonical_value": "Alpha", "synonyms": ["alpha capable"]},
+            {"canonical_value": "Beta", "synonyms": ["beta capable"]},
+        ],
+    }],
+}]
+
+
+def test_array_comparison_accepts_independent_filtered_aggregates():
+    sql = (
+        "SELECT i.category, "
+        "COUNT(DISTINCT i.id) FILTER (WHERE 'Alpha' = ANY(i.tags)) AS alpha_count, "
+        "COUNT(DISTINCT i.id) FILTER (WHERE 'Beta' = ANY(i.tags)) AS beta_count "
+        "FROM public.items AS i GROUP BY i.category"
+    )
+    QueryOrchestrator._validate_explicit_categorical_comparison(
+        "Compare alpha capable and beta capable item counts by category",
+        sql, ARRAY_ENTITIES,
+    )
+
+
+def test_array_comparison_accepts_expanded_cohorts():
+    sql = (
+        "SELECT i.category, t.tag, COUNT(DISTINCT i.id) "
+        "FROM public.items AS i, UNNEST(i.tags) AS t(tag) "
+        "WHERE t.tag IN ('Alpha', 'Beta') "
+        "GROUP BY i.category, t.tag"
+    )
+    QueryOrchestrator._validate_explicit_categorical_comparison(
+        "Compare alpha capable and beta capable item counts by category",
+        sql, ARRAY_ENTITIES,
+    )
+
+
+def test_array_comparison_rejects_unrelated_expansion():
+    sql = (
+        "SELECT i.category, t.tag, COUNT(DISTINCT i.id) "
+        "FROM public.items AS i, UNNEST(i.other_tags) AS t(tag) "
+        "WHERE t.tag IN ('Alpha', 'Beta') "
+        "GROUP BY i.category, t.tag"
+    )
+    with pytest.raises(SQLValidationError):
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            "Compare alpha capable and beta capable item counts by category",
+            sql, ARRAY_ENTITIES,
+        )
+
+
+def test_array_comparison_repair_removes_redundant_scalar_in():
+    sql = (
+        "SELECT i.category, "
+        "COUNT(DISTINCT i.id) FILTER (WHERE 'Alpha' = ANY(i.tags)) AS alpha_count, "
+        "COUNT(DISTINCT i.id) FILTER (WHERE 'Beta' = ANY(i.tags)) AS beta_count "
+        "FROM public.items AS i "
+        "WHERE i.active = TRUE AND i.tags IN ('Alpha', 'Beta') "
+        "GROUP BY i.category"
+    )
+    with pytest.raises(SQLValidationError) as captured:
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            "Compare alpha capable and beta capable item counts by category",
+            sql, ARRAY_ENTITIES,
+        )
+    repaired = QueryOrchestrator._repair_explicit_categorical_comparison(sql, captured.value)
+    assert repaired is not None
+    assert "i.active" in repaired.lower()
+    assert "tags IN" not in repaired.upper()
+    QueryOrchestrator._validate_explicit_categorical_comparison(
+        "Compare alpha capable and beta capable item counts by category",
+        repaired, ARRAY_ENTITIES,
+    )
