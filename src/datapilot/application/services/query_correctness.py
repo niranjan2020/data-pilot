@@ -1961,15 +1961,16 @@ def _contract_comparison_checks(
                 missing.append(column)
         # Exclusion predicates are checked separately; they may appear in
         # conjuncts alongside a valid IN, or within nested Boolean branches.
-        for excluded in where.find_all(exp.NEQ):
-            for operand, value in ((excluded.this, excluded.expression), (excluded.expression, excluded.this)):
-                if column_name(operand) == column and literal_value(value) in values:
-                    missing.append(column)
-        for excluded in where.find_all(exp.Not):
-            if isinstance(excluded.this, exp.In) and column_name(excluded.this.this) == column:
-                if values.intersection({literal_value(v) for v in excluded.this.expressions}):
-                    missing.append(column)
-
+        if where is not None:
+            for excluded in where.find_all(exp.NEQ):
+                for operand, value in ((excluded.this, excluded.expression), (excluded.expression, excluded.this)):
+                    if column_name(operand) == column and literal_value(value) in values:
+                        missing.append(column)
+            for excluded in where.find_all(exp.Not):
+                if isinstance(excluded.this, exp.In) and column_name(excluded.this.this) == column:
+                    if values.intersection({literal_value(v) for v in excluded.this.expressions}):
+                        missing.append(column)
+    
     has_aggregate = any(True for _ in tree.find_all(exp.AggFunc))
     if has_aggregate:
         missing.extend(
