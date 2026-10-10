@@ -1036,7 +1036,7 @@ class QueryOrchestrator:
             )
         except SQLValidationError as comparison_error:
             repaired_sql = self._repair_explicit_categorical_comparison(
-                executable_sql, comparison_error,
+                executable_sql, comparison_error, dialect=self._database.dialect,
             )
             if repaired_sql is None:
                 raise
@@ -2114,7 +2114,9 @@ class QueryOrchestrator:
                     )
 
     @staticmethod
-    def _repair_explicit_categorical_comparison(sql: str, error: SQLValidationError) -> Optional[str]:
+    def _repair_explicit_categorical_comparison(
+        sql: str, error: SQLValidationError, *, dialect: str = "postgresql",
+    ) -> Optional[str]:
         """Narrowly repair an omitted governed categorical filter, never arbitrary SQL."""
         import sqlglot
         from sqlglot import exp
@@ -2127,7 +2129,7 @@ class QueryOrchestrator:
         if not column or not values or len({str(v).casefold() for v in values}) != len(values):
             return None
         try:
-            statements = sqlglot.parse(sql, read="postgres")
+            statements = sqlglot.parse(sql, read=sqlglot_dialect(dialect))
             if len(statements) != 1 or not isinstance(statements[0], exp.Select):
                 return None
             ast = statements[0]
@@ -2149,7 +2151,7 @@ class QueryOrchestrator:
                 expressions=[exp.Literal.string(str(v)) for v in values],
             )
             ast.set("where", exp.Where(this=exp.and_(where.this.copy(), predicate) if where else predicate))
-            return ast.sql(dialect="postgres")
+            return ast.sql(dialect=sqlglot_dialect(dialect))
         except (ValueError, TypeError, sqlglot.errors.ParseError):
             return None
 
@@ -2175,7 +2177,7 @@ class QueryOrchestrator:
         if not column or value is None or check.get("operator") != "=":
             return None
         try:
-            parsed = sqlglot.parse(sql, read="postgres")
+            parsed = sqlglot.parse(sql, read=sqlglot_dialect(dialect))
             if len(parsed) != 1 or not isinstance(parsed[0], exp.Select):
                 return None
             tree = parsed[0]
@@ -2203,7 +2205,7 @@ class QueryOrchestrator:
             tree.set("where", exp.Where(
                 this=exp.and_(where.this.copy(), predicate) if where else predicate,
             ))
-            return tree.sql(dialect="postgres")
+            return tree.sql(dialect=sqlglot_dialect(dialect))
         except (ValueError, TypeError, sqlglot.errors.ParseError):
             return None
 
