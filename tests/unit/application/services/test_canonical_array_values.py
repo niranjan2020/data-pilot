@@ -108,3 +108,62 @@ def test_repair_rejects_or_predicates():
     with pytest.raises(SQLValidationError) as captured:
         validate("Find items with alpha tag", original)
     assert QueryOrchestrator._repair_canonical_array_literal(original, captured.value) is None
+
+
+@pytest.mark.parametrize('bad_sql', [
+    "SELECT id FROM public.items WHERE tags @> ARRAY['alpha'] OR id = 2",
+    "SELECT id FROM public.items WHERE NOT (tags @> ARRAY['alpha'])",
+    "SELECT i.id FROM public.items i JOIN public.other o ON i.id = o.id WHERE i.tags @> ARRAY['alpha']",
+    "SELECT id FROM public.items WHERE tags @> ARRAY['alpha'] UNION SELECT id FROM public.items",
+    "WITH filtered AS (SELECT id FROM public.items WHERE tags @> ARRAY['alpha']) SELECT id FROM filtered",
+    "SELECT id FROM public.items WHERE tags @> ARRAY['alpha'] AND tags @> ARRAY['ALPHA']",
+])
+def test_case_repair_fails_closed_on_complex_or_ambiguous_sql(bad_sql):
+    from datapilot.core.exceptions import SQLValidationError
+    error = SQLValidationError(
+        'Generated SQL uses a noncanonical governed array value',
+        details={'checks': [{
+            'code': 'canonical_array_value_violation',
+            'column_name': 'tags', 'canonical_values': ['Alpha'],
+        }]},
+    )
+    assert QueryOrchestrator._repair_canonical_array_literal(bad_sql, error) is None
+
+
+@pytest.mark.parametrize('sql', [
+    "SELECT id FROM public.items WHERE tags @> ARRAY['Alpha']",
+    "SELECT id FROM public.items WHERE tags @> ARRAY['Gamma']",
+])
+def test_case_repair_never_changes_already_correct_or_unmapped_values(sql):
+    from datapilot.core.exceptions import SQLValidationError
+    error = SQLValidationError(
+        'canonical mismatch', details={'checks': [{
+            'code': 'canonical_array_value_violation',
+            'column_name': 'tags', 'canonical_values': ['Alpha'],
+        }]},
+    )
+    assert QueryOrchestrator._repair_canonical_array_literal(sql, error) is None
+
+
+def test_case_repair_does_not_rewrite_multi_element_array():
+    from datapilot.core.exceptions import SQLValidationError
+    sql = "SELECT id FROM public.items WHERE tags @> ARRAY['alpha', 'Beta']"
+    error = SQLValidationError(
+        'canonical mismatch', details={'checks': [{
+            'code': 'canonical_array_value_violation',
+            'column_name': 'tags', 'canonical_values': ['Alpha'],
+        }]},
+    )
+    assert QueryOrchestrator._repair_canonical_array_literal(sql, error) is None
+
+
+def test_case_repair_requires_published_canonical_value():
+    from datapilot.core.exceptions import SQLValidationError
+    sql = "SELECT id FROM public.items WHERE tags @> ARRAY['alpha']"
+    error = SQLValidationError(
+        'canonical mismatch', details={'checks': [{
+            'code': 'canonical_array_value_violation',
+            'column_name': 'tags', 'canonical_values': ['Alpha', 'ALPHA'],
+        }]},
+    )
+    assert QueryOrchestrator._repair_canonical_array_literal(sql, error) is None
