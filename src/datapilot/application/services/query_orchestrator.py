@@ -908,15 +908,32 @@ class QueryOrchestrator:
             # resolve to a table alias or physical table name in the statement.
             # Reject the LLM's astra."id" when FROM astra.vessels.
             physical_tables = list(statements[0].find_all(exp.Table))
-            valid_qualifiers = {
-                (table.alias_or_name or "").casefold()
-                for table in physical_tables
-            }
-            valid_qualifiers.update(table.name.casefold() for table in physical_tables)
-            invalid_columns = [
-                column for column in statements[0].find_all(exp.Column)
-                if column.table and column.table.casefold() not in valid_qualifiers
-            ]
+            # Qualifiers are local to each SELECT scope. A table alias used
+            # inside a CTE or subquery cannot authorize an unrelated outer
+            # SELECT reference. Correlated references may use parent aliases.
+            from sqlglot.optimizer.scope import traverse_scope
+
+            invalid_columns = []
+            scopes = list(traverse_scope(statements[0]))
+            for scope in scopes:
+                visible = set()
+                current = scope
+                while current is not None:
+                    visible.update(str(name).casefold() for name in current.sources)
+                    current = current.parent
+                for column in scope.columns:
+                    if column.table and column.table.casefold() not in visible:
+                        invalid_columns.append(column)
+            # Keep a conservative fallback for statements without SELECT scopes.
+            if not scopes:
+                valid_qualifiers = {
+                    (table.alias_or_name or "").casefold()
+                    for table in physical_tables
+                }
+                invalid_columns = [
+                    column for column in statements[0].find_all(exp.Column)
+                    if column.table and column.table.casefold() not in valid_qualifiers
+                ]
             # The generator sometimes uses the schema as a column qualifier:
             # astra."id" FROM astra.vessels. This is repairable only for a
             # single physical table in the same schema, with no other tables
