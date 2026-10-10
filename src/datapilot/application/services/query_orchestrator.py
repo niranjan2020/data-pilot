@@ -626,6 +626,7 @@ class QueryOrchestrator:
             governed_context.get("entities", []),
             selected_attribute=governed_context.get("resolved_attribute_selection"),
             metrics=governed_context.get("metrics", []),
+            schema=schema,
         )
         if governed_filters:
             governed_context["resolved_filters"] = governed_filters
@@ -2513,9 +2514,41 @@ class QueryOrchestrator:
         *,
         selected_attribute: Optional[dict[str, Any]] = None,
         metrics: Optional[list[dict[str, Any]]] = None,
+        schema: Optional[SchemaMetadata] = None,
     ) -> list[str]:
         """Resolve explicit grouping to the most specific governed dimension."""
         normalized = " ".join(re.findall(r"[a-z0-9]+", question.casefold()))
+
+        # Rank the subject, not the metric or a filter-only attribute. When
+        # the published entity omits an attribute, resolve an exact humanized
+        # column name from the inspected physical schema; never invent one.
+        ranked_subject = None
+        ranked = re.search(r"\\btop\\s+\\d+\\s+(.+?)\\s+by\\b", normalized)
+        if ranked:
+            ranked_subject = ranked.group(1)
+        elif re.search(r"\\btop\\s+\\d+\\s+by\\b", normalized):
+            subject = re.search(
+                r"\\bwhich\\s+(.+?)\\s+(?:have|has|are|were|manage|manages)\\b",
+                normalized,
+            )
+            if subject:
+                ranked_subject = subject.group(1)
+        if ranked_subject and schema is not None:
+            matches = []
+            for table in getattr(schema, "tables", []) or []:
+                for column in getattr(table, "columns", []) or []:
+                    name = str(getattr(column, "name", "") or "")
+                    phrase = " ".join(re.findall(r"[a-z0-9]+", name.casefold()))
+                    if not phrase:
+                        continue
+                    singular = re.sub(r"\\b([a-z]+)s\\b", r"\\1", ranked_subject)
+                    if re.search(rf"\\b{re.escape(phrase)}\\b", singular):
+                        matches.append((len(phrase.split()), name))
+            if matches:
+                longest = max(length for length, _ in matches)
+                selected = {name for length, name in matches if length == longest}
+                if len(selected) == 1:
+                    return list(selected)
 
         # Resolve an elliptical ranking such as "Which suppliers have late
         # orders? Show the top 10 by order count" from its preceding subject.
