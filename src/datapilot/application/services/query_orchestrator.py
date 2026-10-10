@@ -1516,15 +1516,19 @@ class QueryOrchestrator:
                     # Cardinality > 0, array_length > 0, or a positive
                     # element-membership predicate may establish population.
                     # Fail closed if the generated SQL uses only IS NOT NULL.
-                    others = [
-                        predicate for predicate in clauses
-                        if any(c.name.casefold() == column_name for c in predicate.find_all(exp.Column))
-                        and not re.fullmatch(
-                            rf'{column_pattern}\s+IS\s+NOT\s+NULL',
-                            predicate.sql(dialect="postgres").strip(), re.I,
+                    # A second reference to the array is not necessarily proof
+                    # that it contains elements (e.g. labels = '{}' or
+                    # CARDINALITY(labels) = 0). Accept only positive cardinality
+                    # checks; other expressions require separate semantic proof.
+                    positive_cardinality = any(
+                        re.search(
+                            rf"\\b(?:CARDINALITY|ARRAY_LENGTH)\\s*\\(\\s*{column_pattern}"
+                            rf"(?:\\s*,\\s*1)?\\s*\\)\\s*>\\s*0\\b",
+                            predicate.sql(dialect="postgres"), re.I,
                         )
-                    ]
-                    if not others:
+                        for predicate in clauses
+                    )
+                    if not positive_cardinality:
                         raise SQLValidationError(
                             "Generated SQL does not enforce nonempty array semantics",
                             details={"checks": [{
