@@ -520,7 +520,12 @@ def _filter_checks(
 
         matched = False
         for predicate in conjuncts:
-            if not isinstance(predicate, node_type):
+            inverse_nodes = {
+                ">": exp.LT, ">=": exp.LTE,
+                "<": exp.GT, "<=": exp.GTE,
+            }
+            allowed_types = (node_type, inverse_nodes[operator]) if operator in inverse_nodes else (node_type,)
+            if not isinstance(predicate, allowed_types):
                 continue
             # A column appearing *inside* an arbitrary expression does not
             # establish the governed predicate. For example,
@@ -535,6 +540,8 @@ def _filter_checks(
                 return None
 
             if governed_operand(predicate.this) == column_name:
+                if not isinstance(predicate, node_type):
+                    continue
                 actual = literal_value(predicate.expression)
             elif governed_operand(predicate.expression) == column_name:
                 # SQL comparisons are directional. A governed "age > 10"
