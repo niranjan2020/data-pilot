@@ -1953,6 +1953,26 @@ class QueryOrchestrator:
                     column for score, column in entity_candidates if score == best
                 ))
 
+        # A ranked entity defines the grain even when the metric is not
+        # published under the exact wording used in the question. Restrict
+        # matching to the entity phrase before "by" so subsequent filter
+        # clauses cannot accidentally become grouping dimensions.
+        ranking = re.search(r"\\btop\\s+\\d+\\s+(.+?)\\s+by\\b", normalized)
+        if ranking:
+            ranked_phrase = ranking.group(1)
+            candidates = []
+            for entity in entities:
+                column = str(entity.get("display_column") or entity.get("key_column") or "").strip()
+                if not column:
+                    continue
+                for term in [entity.get("name"), *(entity.get("synonyms") or [])]:
+                    phrase = " ".join(re.findall(r"[a-z0-9]+", str(term or "").casefold()))
+                    if phrase and re.search(rf"\\b{re.escape(phrase)}(?:s)?\\b", ranked_phrase):
+                        candidates.append((len(phrase.split()), column))
+            if candidates:
+                best = max(score for score, _ in candidates)
+                return list(dict.fromkeys(column for score, column in candidates if score == best))
+
         attribute_matches: list[tuple[int, str]] = []
         entity_matches: list[tuple[int, str]] = []
 
