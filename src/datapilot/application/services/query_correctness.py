@@ -353,7 +353,11 @@ def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> lis
                 predicates.extend(branch.this for branch in case.args.get("ifs") or [])
             parent = aggregate.parent
             if isinstance(parent, exp.Filter):
-                predicates.append(parent.args.get("expression"))
+                filter_predicate = parent.args.get("expression")
+                # SQLGlot represents FILTER (WHERE x = y) as a Where node.
+                if isinstance(filter_predicate, exp.Where):
+                    filter_predicate = filter_predicate.this
+                predicates.append(filter_predicate)
             for predicate in predicates:
                 if predicate is None:
                     continue
