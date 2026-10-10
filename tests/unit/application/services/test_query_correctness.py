@@ -859,3 +859,37 @@ def test_array_expansion_allows_lateral_unnest_grouped_by_element():
         and check["status"] == "failed"
         for check in checks
     )
+
+
+def test_evaluation_replay_uses_stored_responses_without_api_calls(tmp_path):
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    cases = tmp_path / "cases.json"
+    previous = tmp_path / "previous.json"
+    output = tmp_path / "replayed.json"
+    cases.write_text(json.dumps([
+        {"id": "A", "question": "Count records",
+         "expect": {"sql_contains": ["COUNT(*)"]}},
+        {"id": "B", "question": "Show records",
+         "expect": {"sql_contains": ["FROM public.records"]}},
+    ]), encoding="utf-8")
+    previous.write_text(json.dumps({"results": [
+        {"id": "A", "response": {"status": "completed",
+                                "sql": "SELECT COUNT(*) FROM public.records"}},
+        {"id": "B", "response": {"status": "completed",
+                                "sql": "SELECT * FROM public.records"}},
+    ]}), encoding="utf-8")
+    root = Path(__file__).resolve().parents[4]
+    completed = subprocess.run([
+        sys.executable, str(root / "scripts" / "run_nl2sql_evaluation.py"),
+        "--cases", str(cases), "--source", "offline",
+        "--base-url", "http://127.0.0.1:1",
+        "--replay", str(previous), "--output", str(output),
+    ], capture_output=True, text=True, timeout=10)
+    assert completed.returncode == 0, completed.stderr
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["mode"] == "replay"
+    assert report["summary"]["pass"] == 2
