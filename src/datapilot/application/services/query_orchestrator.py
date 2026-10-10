@@ -13,6 +13,7 @@ from datapilot.application.services.time_semantics import resolve_time_semantics
 from datapilot.application.services.result_presentation import plan_result_presentation
 from datapilot.application.services.result_summary import summarize_result
 from datapilot.application.services.query_correctness import assess_query_correctness, sqlglot_dialect
+from datapilot.application.services.semantic_intent_contract import SemanticIntentContract
 from datapilot.application.services.categorical_intent import is_unquoted_connective_code, resolve_categorical_intent
 from datapilot.application.services.sql_correction import classify_sql_correction
 from datapilot.application.services.execution_recovery import classify_execution_error
@@ -643,7 +644,15 @@ class QueryOrchestrator:
                     message="The time reference matches more than one governed date/time role.",
                 ))
             governed_context["resolved_time_filter"] = time_interpretation
+        semantic_contract = SemanticIntentContract.from_governed_context(
+            governed_context,
+            grouping_columns=governed_grouping_columns,
+            required_filters=governed_filters,
+            required_relationships=self._required_relationships(governed_context),
+            time_plan=time_interpretation,
+        )
         generation_context = {
+            "semantic_intent_contract": semantic_contract.as_dict(),
             "governed_semantic_context": governed_context,
             "retrieved_semantic_context": retrieved_context,
             "semantic_catalog": catalog.model_dump(mode="json"),
@@ -699,13 +708,13 @@ class QueryOrchestrator:
             "trace": trace,
             "execute": not request.dry_run,
             "governed_tables": trace.physical_tables,
-            "governed_metrics": governed_context.get("metrics", []),
-            "required_grouping_columns": governed_grouping_columns,
-            "required_filters": governed_filters,
+            "governed_metrics": list(semantic_contract.metrics),
+            "required_grouping_columns": list(semantic_contract.dimensions),
+            "required_filters": list(semantic_contract.filters),
             "governed_entities": governed_context.get("entities", []),
-            "selected_categorical_attribute": governed_context.get("resolved_attribute_selection"),
-            "required_relationships": self._required_relationships(governed_context),
-            "required_time_plan": time_interpretation,
+            "selected_categorical_attribute": semantic_contract.categorical_attribute,
+            "required_relationships": list(semantic_contract.relationships),
+            "required_time_plan": semantic_contract.time_plan,
             "data_source_name": request.source_name,
         }
         async def recover_execution_error(
