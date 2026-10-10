@@ -1939,14 +1939,23 @@ def _contract_comparison_checks(
         values = {str(v) for v in cohort.get("values", [])}
         if not column or len(values) < 2:
             continue
+        # A grouped categorical column yields rows by cohort. Alternatively,
+        # separate conditional aggregates yield one column per cohort. Neither
+        # a mere SELECT literal nor one combined CASE aggregate is sufficient.
+        separate = independent_aggregate_cohorts(tree, column=column, values=values)
+        if values.issubset({v for v in separate}) and column not in grouped:
+            # Outer WHERE must not exclude requested cohort values.
+            if where is not None:
+                allowed = allowed_values(where.this, column)
+                if allowed is not None and not values.issubset(allowed):
+                    missing.append(column)
+            continue
         if column not in grouped:
             missing.append(column)
         if where is None:
             missing.append(column)
             continue
         allowed = allowed_values(where.this, column)
-        # Every requested value must be possible, and the WHERE predicate
-        # must establish a finite, verifiable cohort set.
         if allowed is None or not values.issubset(allowed):
             missing.append(column)
         # Exclusion predicates are checked separately; they may appear in
