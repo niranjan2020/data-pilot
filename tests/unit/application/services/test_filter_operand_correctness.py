@@ -101,3 +101,30 @@ def test_reversed_comparison_cannot_be_hidden_in_expression_or_or(predicate):
         required_filters=[{"column_name": "age", "operator": ">", "value": "10"}],
     )
     assert any(c["code"] == "filter_violation" for c in result)
+
+
+@pytest.mark.parametrize("predicate,expected,status", [
+    ("status = 'O'", "O", "passed"),
+    ("status = 'o'", "O", "failed"),
+    ("LOWER(status) = 'o'", "O", "passed"),
+    ("LOWER(status) = 'O'", "O", "failed"),
+    ("LOWER(status) = 'active'", "active", "passed"),
+    ("LOWER(status) = 'ACTIVE'", "active", "failed"),
+    ("status = 'Active'", "active", "failed"),
+    ("status = 'active'", "active", "passed"),
+])
+def test_canonical_filter_value_respects_sql_case_semantics(predicate, expected, status):
+    result = assess_query_correctness(
+        affected_tables=["public.records"],
+        governed_tables=["public.records"],
+        sql="SELECT * FROM public.records WHERE " + predicate,
+        required_filters=[{
+            "column_name": "status",
+            "operator": "=",
+            "value": expected,
+            "data_type": "text",
+        }],
+    )
+    actual = [c for c in result if c["code"] in ("filter_alignment", "filter_violation")]
+    assert len(actual) == 1
+    assert actual[0]["status"] == status
