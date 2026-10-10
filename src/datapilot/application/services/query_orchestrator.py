@@ -2397,6 +2397,46 @@ class QueryOrchestrator:
             tables = list(ast.find_all(exp.Table))
             if len(tables) != 1:
                 return None
+            # A scalar IN over an array is invalid SQL. When independent
+            # aggregate FILTER predicates already prove every cohort, remove
+            # ONLY that redundant invalid conjunct. Never invent comparison
+            # predicates or alter an existing valid membership condition.
+            from datapilot.application.services.query_correctness import independent_aggregate_cohorts
+            where = ast.args.get("where")
+            if where is not None:
+                def flatten_and(node):
+                    if isinstance(node, exp.And):
+                        return flatten_and(node.this) + flatten_and(node.expression)
+                    return [node]
+                parts = flatten_and(where.this)
+                invalid = []
+                for part in parts:
+                    predicate = part.this if isinstance(part, exp.Paren) else part
+                    if not isinstance(predicate, exp.In):
+                        continue
+                    lhs = predicate.this
+                    if not isinstance(lhs, exp.Column) or lhs.name.casefold() != column.casefold():
+                        continue
+                    literals = [str(v.this).casefold() for v in predicate.expressions
+                                if isinstance(v, exp.Literal) and v.is_string]
+                    if len(literals) != len(predicate.expressions) or set(literals) != {str(v).casefold() for v in values}:
+                        continue
+                    invalid.append(part)
+                if len(invalid) == 1:
+                    covered = independent_aggregate_cohorts(
+                        ast, column=column, values=values,
+                        allowed_qualifiers={tables[0].alias_or_name.casefold()},
+                    )
+                    if {str(v).casefold() for v in values}.issubset(covered):
+                        retained = [part.copy() for part in parts if part is not invalid[0]]
+                        if retained:
+                            predicate = retained[0]
+                            for other in retained[1:]:
+                                predicate = exp.and_(predicate, other)
+                            ast.set("where", exp.Where(this=predicate))
+                        else:
+                            ast.set("where", None)
+                        return ast.sql(dialect=sqlglot_dialect(dialect))
             # Do not rewrite an existing constraint, even if incomplete: its
             # semantics may be deliberate or more complex than a simple IN.
             where = ast.args.get("where")
