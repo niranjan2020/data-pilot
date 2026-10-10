@@ -145,3 +145,46 @@ def test_top_n_unknown_ranked_entity_does_not_infer_grain_from_filter():
         "Show top 10 operators by vessel count with ownership status owned",
         entities, selected_attribute={"column_name": "ownership_status"}, metrics=[]
     ) == []
+
+
+@pytest.mark.parametrize("question", [
+    "Show top 10 managing owners by vessel count",
+    "Show the top 5 managing owners by distinct vessel count with LNG fuel",
+])
+def test_maritime_ranked_attribute_uses_managing_owner_grain(question):
+    entities = [{
+        "name": "Vessel",
+        "display_column": "vessel_name",
+        "attributes": [
+            {"name": "Managing Owner", "column_name": "managing_owner",
+             "synonyms": ["managing owners"]},
+            {"name": "Alternative Fuel Type", "column_name": "alternative_fuel_type",
+             "synonyms": ["fuel"]},
+        ],
+    }]
+    assert QueryOrchestrator._required_grouping_columns(
+        question, entities,
+        selected_attribute={"column_name": "alternative_fuel_type"},
+        metrics=[],
+    ) == ["managing_owner"]
+
+
+def test_maritime_ranking_rejects_fuel_grouping_instead_of_owner():
+    from datapilot.application.services.query_correctness import assess_query_correctness
+
+    checks = assess_query_correctness(
+        affected_tables=["public.vessels"],
+        governed_tables=["public.vessels"],
+        sql=(
+            "SELECT alternative_fuel_type, COUNT(*) AS vessel_count "
+            "FROM public.vessels GROUP BY alternative_fuel_type "
+            "ORDER BY vessel_count DESC LIMIT 10"
+        ),
+        question="Show top 10 managing owners by vessel count",
+        required_grouping_columns=["managing_owner"],
+    )
+    assert any(
+        c["status"] == "failed"
+        and c["code"] in {"grouping_dimension_violation", "ranking_grain_violation"}
+        for c in checks
+    )
