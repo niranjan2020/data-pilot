@@ -2205,8 +2205,15 @@ class QueryOrchestrator:
                         unnest = node if isinstance(node, exp.Unnest) else node.find(exp.Unnest)
                         if unnest is None:
                             continue
+                        # Comma-style FROM UNNEST is parsed as a table-valued
+                        # source in some SQLGlot versions. Its alias may be
+                        # attached to the enclosing Table/Join rather than
+                        # the Unnest expression itself.
+                        enclosing = node.parent
                         aliases = [
                             node.args.get("alias"),
+                            enclosing.args.get("alias") if enclosing is not None else None,
+
                             unnest.args.get("alias"),
                             node.parent.args.get("alias") if isinstance(node.parent, exp.Lateral) else None,
                         ]
