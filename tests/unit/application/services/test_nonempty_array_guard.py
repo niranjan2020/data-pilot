@@ -227,3 +227,27 @@ def test_governed_phrase_end_to_end_validator_contract():
             'Show label enabled items',
             'SELECT id FROM public.items WHERE labels IS NOT NULL', entities,
         )
+
+
+def test_admin_semantic_attribute_request_accepts_nonempty_metadata():
+    from datapilot.api.routes.semantic import AttributeRequest
+    model = AttributeRequest(name='Labels', column_name='labels', data_type='text[]',
+                             nonempty_intent_phrases=['label enabled'])
+    assert model.model_dump()['data_type'] == 'text[]'
+    assert model.model_dump()['nonempty_intent_phrases'] == ['label enabled']
+
+
+def test_admin_semantic_attribute_request_backward_compatible_defaults():
+    from datapilot.api.routes.semantic import AttributeRequest
+    model = AttributeRequest(name='Labels', column_name='labels')
+    assert model.data_type is None
+    assert model.nonempty_intent_phrases == []
+
+
+def test_admin_ui_exposes_and_submits_nonempty_metadata():
+    from pathlib import Path
+    ui = Path(__file__).resolve().parents[4] / 'ui' / 'src' / 'App.tsx'
+    source = ui.read_text(encoding='utf-8')
+    assert 'Non-empty intent phrases (one per line)' in source
+    assert 'data_type:a.data_type||null' in source
+    assert 'nonempty_intent_phrases:a.nonempty_intent_phrases.split' in source
