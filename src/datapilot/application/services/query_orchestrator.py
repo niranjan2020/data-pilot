@@ -2577,12 +2577,12 @@ class QueryOrchestrator:
         # the published entity omits an attribute, resolve an exact humanized
         # column name from the inspected physical schema; never invent one.
         ranked_subject = None
-        ranked = re.search(r"\\btop\\s+\\d+\\s+(.+?)\\s+by\\b", normalized)
+        ranked = re.search(r"\btop\s+\d+\s+(.+?)\s+by\b", normalized)
         if ranked:
             ranked_subject = ranked.group(1)
-        elif re.search(r"\\btop\\s+\\d+\\s+by\\b", normalized):
+        elif re.search(r"\btop\s+\d+\s+by\b", normalized):
             subject = re.search(
-                r"\\bwhich\\s+(.+?)\\s+(?:have|has|are|were|manage|manages)\\b",
+                r"\bwhich\s+(.+?)\s+(?:have|has|are|were|manage|manages)\b",
                 normalized,
             )
             if subject:
