@@ -991,3 +991,38 @@ def test_comparison_grain_still_rejects_unrelated_grouping():
     )
     assert any(c.get("code") == "comparison_contract_violation"
                and c.get("status") == "failed" for c in checks)
+
+
+def test_independent_array_case_cohorts_preserve_comparison_contract():
+    checks = assess_query_correctness(
+        affected_tables=["public.items"], governed_tables=["public.items"],
+        sql=("SELECT segment, COUNT(DISTINCT CASE WHEN 'A' = ANY(tags) THEN id END) AS a_count, "
+             "COUNT(DISTINCT CASE WHEN 'B' = ANY(tags) THEN id END) AS b_count "
+             "FROM public.items GROUP BY segment"),
+        comparison_cohorts=[{"column_name": "tags", "values": ["A", "B"]}],
+        aggregation_grain=["segment"],
+    )
+    assert any(c["code"] == "comparison_contract_alignment" for c in checks)
+
+
+def test_missing_independent_array_cohort_fails_closed():
+    checks = assess_query_correctness(
+        affected_tables=["public.items"], governed_tables=["public.items"],
+        sql=("SELECT segment, COUNT(DISTINCT CASE WHEN 'A' = ANY(tags) THEN id END) AS a_count "
+             "FROM public.items GROUP BY segment"),
+        comparison_cohorts=[{"column_name": "tags", "values": ["A", "B"]}],
+        aggregation_grain=["segment"],
+    )
+    assert any(c["code"] == "comparison_contract_violation" for c in checks)
+
+
+def test_unrelated_literal_does_not_prove_comparison_cohort():
+    checks = assess_query_correctness(
+        affected_tables=["public.items"], governed_tables=["public.items"],
+        sql=("SELECT segment, COUNT(DISTINCT CASE WHEN 'A' = ANY(tags) THEN id END) AS a_count, "
+             "COUNT(DISTINCT CASE WHEN 'B' = ANY(other_tags) THEN id END) AS b_count "
+             "FROM public.items GROUP BY segment"),
+        comparison_cohorts=[{"column_name": "tags", "values": ["A", "B"]}],
+        aggregation_grain=["segment"],
+    )
+    assert any(c["code"] == "comparison_contract_violation" for c in checks)
