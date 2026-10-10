@@ -2546,6 +2546,32 @@ class QueryOrchestrator:
                     column for score, column in entity_candidates if score == best
                 ))
 
+        # Resolve an elliptical ranking such as "Which suppliers have late
+        # orders? Show the top 10 by order count" from its preceding subject.
+        elliptical = re.search(r"\\btop\\s+\\d+\\s+by\\b", normalized)
+        if elliptical:
+            preceding = normalized[:elliptical.start()]
+            candidates = []
+            for entity in entities:
+                dimensions = [
+                    (entity.get("display_column") or entity.get("key_column"),
+                     [entity.get("name"), *(entity.get("synonyms") or [])])
+                ] + [
+                    (attribute.get("column_name"),
+                     [attribute.get("name"), *(attribute.get("synonyms") or [])])
+                    for attribute in entity.get("attributes") or []
+                ]
+                for column, terms in dimensions:
+                    for term in terms:
+                        phrase = " ".join(re.findall(r"[a-z0-9]+", str(term or "").casefold()))
+                        if column and phrase and re.search(rf"\\b{re.escape(phrase)}(?:s)?\\b", preceding):
+                            candidates.append((len(phrase.split()), str(column)))
+            if candidates:
+                best = max(score for score, _ in candidates)
+                columns = {column for score, column in candidates if score == best}
+                if len(columns) == 1:
+                    return list(columns)
+
         # A ranked entity defines the grain even when the metric is not
         # published under the exact wording used in the question. Restrict
         # matching to the entity phrase before "by" so subsequent filter
