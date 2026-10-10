@@ -361,7 +361,7 @@ def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> lis
                     filter_predicate = filter_predicate.this
                 predicates.append(filter_predicate)
             discriminators: set[tuple[str, str]] = set()
-            valid = bool(predicates)
+            valid = len(predicates) == 1
             for predicate in predicates:
                 if not isinstance(predicate, exp.EQ):
                     valid = False
