@@ -1957,7 +1957,7 @@ class QueryOrchestrator:
         # published under the exact wording used in the question. Restrict
         # matching to the entity phrase before "by" so subsequent filter
         # clauses cannot accidentally become grouping dimensions.
-        ranking = re.search(r"\\btop\\s+\\d+\\s+(.+?)\\s+by\\b", normalized)
+        ranking = re.search(r"\btop\s+\d+\s+(.+?)\s+by\b", normalized)
         if ranking:
             ranked_phrase = ranking.group(1)
             candidates = []
@@ -1967,7 +1967,7 @@ class QueryOrchestrator:
                     continue
                 for term in [entity.get("name"), *(entity.get("synonyms") or [])]:
                     phrase = " ".join(re.findall(r"[a-z0-9]+", str(term or "").casefold()))
-                    if phrase and re.search(rf"\\b{re.escape(phrase)}(?:s)?\\b", ranked_phrase):
+                    if phrase and re.search(rf"\b{re.escape(phrase)}(?:s)?\b", ranked_phrase):
                         candidates.append((len(phrase.split()), column))
             if candidates:
                 best = max(score for score, _ in candidates)
