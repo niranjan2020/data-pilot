@@ -991,6 +991,7 @@ class QueryOrchestrator:
                 trusted_published_relationships = list(authorization.verified_grants)
 
         self._validate_nonempty_array_filters(question, executable_sql, governed_entities or [])
+        self._validate_canonical_array_literals(question, executable_sql, governed_entities or [])
 
         # Enforce resolved published categorical values for both single-value
         # requests and explicit comparisons. Grouping by a categorical column
@@ -1538,6 +1539,91 @@ class QueryOrchestrator:
                                 "message": "IS NOT NULL includes empty arrays; require a positive cardinality or governed membership condition.",
                             }]},
                         )
+
+    @staticmethod
+    def _validate_canonical_array_literals(
+        question: str, sql: str, entities: list[dict[str, Any]],
+    ) -> None:
+        """Reject noncanonical string array literals for requested published values.
+
+        The semantic mapping is authoritative; SQL literal matching for PostgreSQL
+        array membership is case-sensitive. No business vocabulary is embedded.
+        """
+        import sqlglot
+        from sqlglot import exp
+
+        statement = sqlglot.parse_one(sql, read="postgres")
+        question_words = re.findall(r"[a-z0-9]+", question.casefold())
+
+        def mentions(term: str) -> bool:
+            phrase = re.findall(r"[a-z0-9]+", str(term).casefold())
+            return bool(phrase) and any(
+                question_words[i:i + len(phrase)] == phrase
+                for i in range(len(question_words) - len(phrase) + 1)
+            )
+
+        for entity in entities:
+            table_name = str(entity.get("table_name") or "").casefold()
+            schema_name = str(entity.get("schema_name") or "").casefold()
+            if table_name and not any(
+                table.name.casefold() == table_name
+                and (not schema_name or (table.db or "").casefold() == schema_name)
+                for table in statement.find_all(exp.Table)
+            ):
+                continue
+            for attribute in entity.get("attributes") or []:
+                data_type = str(attribute.get("data_type") or "").casefold()
+                if not (data_type.endswith("[]") or "array" in data_type):
+                    continue
+                column_name = str(attribute.get("column_name") or "").casefold()
+                if not column_name:
+                    continue
+                published = {}
+                for mapping in attribute.get("value_mappings") or []:
+                    canonical = str(mapping.get("canonical_value") or "")
+                    if not canonical:
+                        continue
+                    if any(mentions(term) for term in [canonical, *(mapping.get("synonyms") or [])]):
+                        published.setdefault(canonical.casefold(), set()).add(canonical)
+                if not published:
+                    continue
+                for predicate in statement.find_all(exp.Expression):
+                    # Only inspect expressions that actually compare this array
+                    # column with an ARRAY[...] literal, not unrelated projections.
+                    arrays = list(predicate.find_all(exp.Array))
+                    if not arrays or not any(
+                        isinstance(col, exp.Column) and col.name.casefold() == column_name
+                        for col in predicate.find_all(exp.Column)
+                    ):
+                        continue
+                    # Restrict to the smallest expression enclosing both array
+                    # column and literal, so an outer SELECT does not accidentally
+                    # mix unrelated predicates.
+                    if any(
+                        isinstance(child, exp.Expression)
+                        and child is not predicate
+                        and list(child.find_all(exp.Array))
+                        and any(c.name.casefold() == column_name for c in child.find_all(exp.Column))
+                        for child in predicate.iter_expressions()
+                    ):
+                        continue
+                    for array in arrays:
+                        for literal in array.expressions:
+                            if not isinstance(literal, exp.Literal) or not literal.is_string:
+                                continue
+                            value = str(literal.this)
+                            allowed = published.get(value.casefold())
+                            if allowed and value not in allowed:
+                                raise SQLValidationError(
+                                    "Generated SQL uses a noncanonical governed array value",
+                                    details={"checks": [{
+                                        "code": "canonical_array_value_violation",
+                                        "status": "failed", "severity": "error",
+                                        "column_name": attribute.get("column_name"),
+                                        "canonical_values": sorted(allowed),
+                                        "message": "Array membership literal must match the exact published canonical value.",
+                                    }]},
+                                )
 
     @staticmethod
     def _validate_explicit_categorical_comparison(
