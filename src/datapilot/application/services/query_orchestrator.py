@@ -1095,6 +1095,10 @@ class QueryOrchestrator:
                 candidate = repair_missing_comparison_groups(
                     executable_sql, correctness_checks, dialect=self._database.dialect,
                 )
+            if candidate is None and len(blocking_correctness) == 1:
+                candidate = self._repair_missing_governed_filter(
+                    executable_sql, blocking_correctness, dialect=self._database.dialect,
+                )
             if candidate is None:
                 logger.warning('comparison_group_repair no_candidate failed_codes=%s', [c.get('code') for c in blocking_correctness])
             if candidate is not None:
@@ -2146,6 +2150,58 @@ class QueryOrchestrator:
             )
             ast.set("where", exp.Where(this=exp.and_(where.this.copy(), predicate) if where else predicate))
             return ast.sql(dialect="postgres")
+        except (ValueError, TypeError, sqlglot.errors.ParseError):
+            return None
+
+    @staticmethod
+    def _repair_missing_governed_filter(
+        sql: str, checks: list[dict[str, Any]], *, dialect: str = "postgresql",
+    ) -> Optional[str]:
+        """Safely add one missing canonical equality filter to simple SQL only.
+
+        Never modify existing predicates on the governed column or complex
+        queries. All candidates must pass SQL validation and correctness again.
+        """
+        import sqlglot
+        from sqlglot import exp
+        missing = [c for c in checks if c.get("code") == "filter_violation"]
+        if len(missing) != 1:
+            return None
+        check = missing[0]
+        column = str(check.get("column") or "")
+        value = check.get("expected_value")
+        if not column or value is None or check.get("operator") != "=":
+            return None
+        try:
+            parsed = sqlglot.parse(sql, read="postgres")
+            if len(parsed) != 1 or not isinstance(parsed[0], exp.Select):
+                return None
+            tree = parsed[0]
+            if any(isinstance(node, (exp.Join, exp.Subquery, exp.CTE, exp.Union, exp.SetOperation))
+                   for node in tree.walk()):
+                return None
+            tables = list(tree.find_all(exp.Table))
+            if len(tables) != 1:
+                return None
+            where = tree.args.get("where")
+            if where is not None and any(
+                node.name.casefold() == column.casefold()
+                for node in where.find_all(exp.Column)
+            ):
+                return None
+            # An absent column in a selected table is not grounds to invent
+            # a predicate. Require the column to occur elsewhere in the SQL.
+            if not any(node.name.casefold() == column.casefold()
+                       for node in tree.find_all(exp.Column)):
+                return None
+            predicate = exp.EQ(
+                this=exp.column(column, table=tables[0].alias_or_name),
+                expression=exp.Literal.string(str(value)),
+            )
+            tree.set("where", exp.Where(
+                this=exp.and_(where.this.copy(), predicate) if where else predicate,
+            ))
+            return tree.sql(dialect="postgres")
         except (ValueError, TypeError, sqlglot.errors.ParseError):
             return None
 
