@@ -24,9 +24,9 @@ def test_status_and_sql_constraints_pass():
     assert result["verdict"] == "pass"
 
 
-def test_execution_without_expectations_needs_review():
+def test_execution_without_expectations_remains_unreviewed():
     result = runner.evaluate_case({"id": "x", "question": "q"}, {"status": "completed", "sql": "SELECT 1"})
-    assert result["verdict"] == "needs_review"
+    assert result["verdict"] == "unreviewed"
 
 
 def test_failed_sql_expectation_needs_review():
@@ -45,3 +45,23 @@ def test_expected_error_code_matches_details():
     case = {"id": "x", "question": "q", "expect": {"error_code": "metric_missing"}}
     response = {"details": {"checks": [{"code": "metric_missing"}]}}
     assert runner.evaluate_case(case, response)["verdict"] == "pass"
+
+
+def test_unreviewed_case_keeps_reference_sql_without_approving_it():
+    case = {"id": "case-1", "question": "Show records",
+            "reference_sql": "SELECT * FROM records", "expect": {},
+            "duplicate_of": "case-0"}
+    result = runner.evaluate_case(case, {"status": "completed", "sql": "SELECT id FROM records"})
+    assert result["verdict"] == "unreviewed"
+    assert result["reference_sql"] == "SELECT * FROM records"
+    assert result["duplicate_of"] == "case-0"
+    assert result["sql"] == "SELECT id FROM records"
+
+
+def test_error_response_preserved_for_diagnostics():
+    case = {"id": "case-2", "question": "Show records", "expect": {}}
+    response = {"status": "http_error", "http_status": 422,
+                "details": {"detail": {"error": "SQLValidationError"}}}
+    result = runner.evaluate_case(case, response)
+    assert result["verdict"] == "unreviewed"
+    assert result["response"]["http_status"] == 422
