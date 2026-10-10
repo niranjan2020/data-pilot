@@ -559,7 +559,23 @@ def _filter_checks(
             else:
                 continue
 
-            if actual is not None and actual.casefold() == expected_value.casefold():
+            # LOWER(column) changes the comparison domain. In particular,
+            # LOWER(status) = 'O' cannot match a stored 'O' value, and a
+            # case-folded string comparison would incorrectly approve it.
+            # The SQL literal must already be lowercase for this expression.
+            lowered_operand = (
+                isinstance(predicate.this, exp.Lower)
+                or isinstance(predicate.expression, exp.Lower)
+            )
+            if lowered_operand and (actual is None or actual != actual.casefold()):
+                continue
+            if actual is not None and (
+                actual == expected_value
+                or (
+                    lowered_operand
+                    and actual == expected_value.casefold()
+                )
+            ):
                 matched = True
                 break
 
