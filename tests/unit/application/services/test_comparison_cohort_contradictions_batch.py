@@ -51,3 +51,12 @@ def test_comparison_without_extra_conjunct_remains_valid():
 
 def test_ungrouped_comparison_still_fails():
     assert verdict("SELECT region, COUNT(*) FROM public.items WHERE status IN ('O','T') GROUP BY region") == "failed"
+
+
+@pytest.mark.parametrize("extra", [
+    "NOT (status IN ('O'))",
+    "NOT (status IN ('T'))",
+    "NOT (status IN ('O','T'))",
+])
+def test_negated_cohort_predicates_are_rejected(extra):
+    assert verdict(PREFIX + " AND " + extra + SUFFIX) == "failed"
