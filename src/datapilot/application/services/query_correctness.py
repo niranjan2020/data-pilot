@@ -1476,6 +1476,49 @@ def _time_checks(
 
     return checks
 
+def _array_and_period_grain_checks(sql: str, *, dialect: str) -> list[dict[str, Any]]:
+    """Fail closed on invalid array grouping and split conditional comparisons."""
+    try:
+        statement = parse_one(sql, read=sqlglot_dialect(dialect))
+    except Exception:
+        return []
+    checks: list[dict[str, Any]] = []
+    for select in statement.find_all(exp.Select):
+        group = select.args.get("group")
+        if group is None:
+            continue
+        if any(isinstance(node, exp.Unnest)
+               for expression in group.expressions for node in expression.walk()):
+            checks.append({
+                "code": "array_expansion_grouping_violation",
+                "status": "failed", "severity": "error",
+                "message": "Expand UNNEST in FROM/LATERAL before grouping.",
+            })
+        conditional_columns: set[str] = set()
+        for aggregate in select.find_all(exp.AggFunc):
+            if aggregate.find_ancestor(exp.Select) is not select:
+                continue
+            for case in aggregate.find_all(exp.Case):
+                for branch in case.args.get("ifs") or []:
+                    predicate = branch.this
+                    if isinstance(predicate, exp.EQ):
+                        for side in (predicate.this, predicate.expression):
+                            if isinstance(side, exp.Column):
+                                conditional_columns.add(side.sql(dialect=sqlglot_dialect(dialect)).casefold())
+        grouped = {
+            node.sql(dialect=sqlglot_dialect(dialect)).casefold()
+            for expression in group.expressions for node in expression.walk()
+            if isinstance(node, exp.Column)
+        }
+        if conditional_columns & grouped:
+            checks.append({
+                "code": "conditional_comparison_grain_violation",
+                "status": "failed", "severity": "error",
+                "message": "A conditional aggregate discriminator is also grouped, splitting comparison rows.",
+            })
+    return checks
+
+
 def assess_query_correctness(
     *,
     affected_tables: Iterable[str],
@@ -1576,7 +1619,7 @@ def assess_query_correctness(
                 })
     fanout_checks = _fanout_checks(sql, governed_metrics=governed_metrics, required_relationships=required_relationships, dialect=dialect) if sql else []
     time_checks = _time_checks(sql, required_time_plan=required_time_plan, dialect=dialect) if sql else []
-    semantic_checks = metric_checks + grouping_checks + ranking_grain_checks + comparison_checks + filter_checks + relationship_checks + publication_checks + join_policy_checks + fanout_checks + time_checks
+    semantic_checks = metric_checks + grouping_checks + ranking_grain_checks + comparison_checks + filter_checks + relationship_checks + publication_checks + join_policy_checks + fanout_checks + time_checks + (_array_and_period_grain_checks(sql, dialect=dialect) if sql else [])
 
     if not governed:
         return semantic_checks + [{
