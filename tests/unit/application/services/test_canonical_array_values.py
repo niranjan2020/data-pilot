@@ -1,0 +1,58 @@
+"""Canonical PostgreSQL array literal validation from governed metadata."""
+import pytest
+
+from datapilot.application.services.query_orchestrator import QueryOrchestrator
+from datapilot.core.exceptions import SQLValidationError
+
+
+ENTITIES = [{
+    "name": "Items", "schema_name": "public", "table_name": "items",
+    "attributes": [{
+        "name": "Tags", "column_name": "tags", "data_type": "text[]",
+        "value_mappings": [
+            {"canonical_value": "Alpha", "synonyms": ["alpha tag"]},
+            {"canonical_value": "Beta", "synonyms": ["beta tag"]},
+        ],
+    }],
+}]
+
+
+def validate(question, sql, entities=ENTITIES):
+    QueryOrchestrator._validate_canonical_array_literals(question, sql, entities)
+
+
+def test_rejects_wrong_case_for_published_array_element():
+    with pytest.raises(SQLValidationError, match="noncanonical"):
+        validate(
+            "Find items with alpha tag",
+            "SELECT id FROM public.items WHERE tags @> ARRAY['alpha']",
+        )
+
+
+def test_accepts_exact_canonical_array_element():
+    validate(
+        "Find items with alpha tag",
+        "SELECT id FROM public.items WHERE tags @> ARRAY['Alpha']",
+    )
+
+
+def test_ignores_unrelated_unpublished_array_elements():
+    validate(
+        "Find items with gamma tag",
+        "SELECT id FROM public.items WHERE tags @> ARRAY['gamma']",
+    )
+
+
+def test_ignores_unrelated_table():
+    validate(
+        "Find items with alpha tag",
+        "SELECT id FROM public.other WHERE tags @> ARRAY['alpha']",
+    )
+
+
+def test_rejects_case_mismatch_in_multi_value_array():
+    with pytest.raises(SQLValidationError, match="noncanonical"):
+        validate(
+            "Find items with alpha tag and beta tag",
+            "SELECT id FROM public.items WHERE tags @> ARRAY['Alpha', 'beta']",
+        )
