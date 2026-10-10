@@ -309,7 +309,19 @@ def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> lis
     where = tree.args.get("where")
     if where is None:
         return []
-    for predicate in where.find_all(exp.In):
+    # A comparison cohort must be guaranteed by an outer WHERE conjunct.
+    # An IN expression inside OR/NOT does not establish a stable cohort.
+    conjuncts = []
+    pending = [where.this]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, exp.And):
+            pending.extend([node.this, node.expression])
+        else:
+            conjuncts.append(node)
+    for predicate in conjuncts:
+        if not isinstance(predicate, exp.In) or predicate.args.get("not"):
+            continue
         cohort_column = predicate.this
         if isinstance(cohort_column, exp.Lower):
             cohort_column = cohort_column.this
