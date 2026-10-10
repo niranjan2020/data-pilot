@@ -2261,37 +2261,15 @@ class QueryOrchestrator:
                     ]
                     if len(same_column_predicates) != 1:
                         constrained.clear()
-                # Independent conditional aggregates preserve distinct cohorts
-                # without restricting the outer WHERE. Inspect CASE *conditions*
-                # only: literals in THEN/ELSE are not cohort evidence.
+                # Separate CASE/FILTER aggregates may preserve comparison cohorts
+                # without a WHERE restriction. Require governed column binding
+                # and independently provable canonical values.
                 if not constrained and len(matched) >= 2 and isinstance(ast, exp.Select):
-                    covered = set()
-                    for aggregate in ast.find_all(exp.AggFunc):
-                        if aggregate.find_ancestor(exp.Select) is not ast:
-                            continue
-                        aggregate_codes = set()
-                        for case in aggregate.find_all(exp.Case):
-                            for branch in case.args.get("ifs") or []:
-                                predicate = branch.this
-                                if not any(correct_column(c) for c in predicate.find_all(exp.Column)):
-                                    continue
-                                for equality in predicate.find_all(exp.EQ):
-                                    for literal, membership in (
-                                        (equality.this, equality.expression),
-                                        (equality.expression, equality.this),
-                                    ):
-                                        if not (isinstance(literal, exp.Literal) and literal.is_string
-                                                and isinstance(membership, exp.Any)):
-                                            continue
-                                        operand = membership.this
-                                        if isinstance(operand, exp.Paren):
-                                            operand = operand.this
-                                        if correct_column(operand) and str(literal.this) in matched:
-                                            aggregate_codes.add(str(literal.this).casefold())
-                        # Multiple cohorts within one aggregate are not
-                        # evidence of separate requested comparison results.
-                        if len(aggregate_codes) == 1:
-                            covered.update(aggregate_codes)
+                    from datapilot.application.services.query_correctness import independent_aggregate_cohorts
+                    covered = independent_aggregate_cohorts(
+                        ast, column=column_name, values=matched,
+                        allowed_qualifiers=valid_qualifiers,
+                    )
                     if {v.casefold() for v in matched}.issubset(covered):
                         constrained.update(covered)
                 # AND-combined positive ANY predicates require every listed
