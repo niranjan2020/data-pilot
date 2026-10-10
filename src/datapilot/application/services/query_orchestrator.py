@@ -1980,9 +1980,9 @@ class QueryOrchestrator:
                             "to", "in", "on", "at", "by", "as", "or", "and",
                             "for", "of", "from", "with",
                         } and not re.search(
-                            r"(?<!\\w)[\\x27\\x22\\u2018\\u2019\\u201c\\u201d]"
+                            r"(?<!\w)[\x27\x22\u2018\u2019\u201c\u201d]"
                             + re.escape(str(term).strip())
-                            + r"[\\x27\\x22\\u2018\\u2019\\u201c\\u201d](?!\\w)",
+                            + r"[\x27\x22\u2018\u2019\u201c\u201d](?!\w)",
                             question, re.I,
                         ):
                             continue
