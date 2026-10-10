@@ -161,6 +161,32 @@ def _grouping_checks(
             for column in expression.find_all(exp.Column):
                 actual.add(_normalise(column.name))
 
+    # GROUP BY may reference a SELECT alias or ordinal. Resolve it to
+    # underlying physical columns only when the projection is unambiguous.
+    # This also handles a lateral-expanded array whose SELECT alias is the
+    # user-facing dimension, without treating the alias as a physical column.
+    if group is not None:
+        for expression in group.expressions:
+            selected = None
+            if isinstance(expression, exp.Literal) and expression.is_int:
+                position = int(expression.this)
+                if 1 <= position <= len(tree.expressions):
+                    selected = tree.expressions[position - 1]
+            elif isinstance(expression, exp.Column) and not expression.table:
+                aliases = [
+                    projection for projection in tree.expressions
+                    if isinstance(projection, exp.Alias)
+                    and _normalise(projection.alias) == _normalise(expression.name)
+                ]
+                if len(aliases) == 1:
+                    selected = aliases[0]
+            if selected is not None:
+                inner = selected.this if isinstance(selected, exp.Alias) else selected
+                if not any(isinstance(node, exp.AggFunc) for node in inner.walk()):
+                    actual.update(_normalise(c.name) for c in inner.find_all(exp.Column))
+                    if isinstance(inner, exp.Column):
+                        actual.add(_normalise(inner.name))
+
     missing = sorted(required - actual)
     if missing:
         return [{
