@@ -1015,7 +1015,13 @@ class QueryOrchestrator:
                         "status": "failed",
                         "severity": "error",
                         "message": "Query references unselected or unqualified datasets: "
-                                   + ", ".join(unauthorized + sorted(unqualified) or ["no datasets selected"]),
+                                   + ", ".join(unauthorized + sorted(unqualified) or ["no datasets selected"])
+                                   + ". Allowed physical datasets: "
+                                   + ", ".join(sorted(allowed_tables))
+                                   + ". Use fully schema-qualified physical tables; do not invent or substitute tables.",
+                            "unexpected_tables": unauthorized,
+                            "unqualified_tables": sorted(unqualified),
+                            "allowed_tables": sorted(allowed_tables),
                     }]},
                 )
 
@@ -1082,7 +1088,9 @@ class QueryOrchestrator:
                         details={"checks": [{
                             "code": "relationship_publication_violation",
                             "status": "failed", "severity": "error",
-                            "message": "; ".join(authorization.reasons),
+                            "message": "; ".join(authorization.reasons)
+                                       + ". Rewrite using a single governed physical dataset if the question can be answered without a relationship; otherwise only use a currently published relationship.",
+                            "required_relationships": required_relationships or [],
                         }]},
                     )
                 # Reuse the exact grants checked against the SQL AST.
