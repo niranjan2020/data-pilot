@@ -2261,10 +2261,9 @@ class QueryOrchestrator:
                     ]
                     if len(same_column_predicates) != 1:
                         constrained.clear()
-                # Distinct conditional aggregates can preserve comparison
-                # cohorts without a global WHERE restriction. Each requested
-                # canonical value must appear in its own aggregate's CASE,
-                # associated with the governed column.
+                # Independent conditional aggregates preserve distinct cohorts
+                # without restricting the outer WHERE. Inspect CASE *conditions*
+                # only: literals in THEN/ELSE are not cohort evidence.
                 if not constrained and len(matched) >= 2 and isinstance(ast, exp.Select):
                     covered = set()
                     for aggregate in ast.find_all(exp.AggFunc):
@@ -2272,15 +2271,25 @@ class QueryOrchestrator:
                             continue
                         aggregate_codes = set()
                         for case in aggregate.find_all(exp.Case):
-                            if not any(correct_column(c) for c in case.find_all(exp.Column)):
-                                continue
-                            literals = {
-                                str(v.this) for v in case.find_all(exp.Literal) if v.is_string
-                            }
-                            aggregate_codes.update(
-                                value.casefold() for value in matched if value in literals
-                            )
-                        # Each aggregate must isolate exactly one cohort.
+                            for branch in case.args.get("ifs") or []:
+                                predicate = branch.this
+                                if not any(correct_column(c) for c in predicate.find_all(exp.Column)):
+                                    continue
+                                for equality in predicate.find_all(exp.EQ):
+                                    for literal, membership in (
+                                        (equality.this, equality.expression),
+                                        (equality.expression, equality.this),
+                                    ):
+                                        if not (isinstance(literal, exp.Literal) and literal.is_string
+                                                and isinstance(membership, exp.Any)):
+                                            continue
+                                        operand = membership.this
+                                        if isinstance(operand, exp.Paren):
+                                            operand = operand.this
+                                        if correct_column(operand) and str(literal.this) in matched:
+                                            aggregate_codes.add(str(literal.this).casefold())
+                        # Multiple cohorts within one aggregate are not
+                        # evidence of separate requested comparison results.
                         if len(aggregate_codes) == 1:
                             covered.update(aggregate_codes)
                     if {v.casefold() for v in matched}.issubset(covered):
