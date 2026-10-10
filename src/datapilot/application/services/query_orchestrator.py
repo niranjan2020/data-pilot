@@ -1138,34 +1138,42 @@ class QueryOrchestrator:
             executable_sql = candidate_sql
             validation = repaired_validation
 
-        # Enforce resolved published categorical values for both single-value
-        # requests and explicit comparisons. Grouping by a categorical column
-        # alone does not constrain the requested categories.
+        # Preserve the exact rejected SQL on every categorical validation
+        # failure, including failed repair and second-pass validation.
+        # The evaluation harness can then distinguish model errors from
+        # incorrect validator assumptions without weakening fail-closed rules.
         try:
-            self._validate_explicit_categorical_comparison(
-                question, executable_sql, governed_entities or [],
-                selected_attribute=selected_categorical_attribute,
-                dialect=self._database.dialect,
-            )
+            try:
+                self._validate_explicit_categorical_comparison(
+                    question, executable_sql, governed_entities or [],
+                    selected_attribute=selected_categorical_attribute,
+                    dialect=self._database.dialect,
+                )
+            except SQLValidationError as comparison_error:
+                repaired_sql = self._repair_explicit_categorical_comparison(
+                    executable_sql, comparison_error, dialect=self._database.dialect,
+                )
+                if repaired_sql is None:
+                    raise
+                repaired_validation = await self._validator.validate(
+                    repaired_sql, dialect=self._database.dialect,
+                    enforce_read_only=True,
+                )
+                if not repaired_validation.is_valid:
+                    raise comparison_error
+                executable_sql = repaired_validation.sanitized_sql or repaired_sql
+                validation = repaired_validation
+                self._validate_explicit_categorical_comparison(
+                    question, executable_sql, governed_entities or [],
+                    selected_attribute=selected_categorical_attribute,
+                    dialect=self._database.dialect,
+                )
         except SQLValidationError as comparison_error:
-            repaired_sql = self._repair_explicit_categorical_comparison(
-                executable_sql, comparison_error, dialect=self._database.dialect,
-            )
-            if repaired_sql is None:
-                raise
-            repaired_validation = await self._validator.validate(
-                repaired_sql, dialect=self._database.dialect,
-                enforce_read_only=True,
-            )
-            if not repaired_validation.is_valid:
-                raise comparison_error
-            executable_sql = repaired_validation.sanitized_sql or repaired_sql
-            validation = repaired_validation
-            self._validate_explicit_categorical_comparison(
-                question, executable_sql, governed_entities or [],
-                selected_attribute=selected_categorical_attribute,
-                dialect=self._database.dialect,
-            )
+            details = dict(getattr(comparison_error, "details", None) or {})
+            details["generated_sql"] = executable_sql
+            raise SQLValidationError(
+                str(comparison_error), details=details,
+            ) from comparison_error
 
         correctness_checks = assess_query_correctness(
             affected_tables=validation.affected_tables,
