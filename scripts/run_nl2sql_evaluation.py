@@ -6,6 +6,7 @@ never treats a successful SQL execution as proof of semantic correctness.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
 from datetime import datetime, timezone
@@ -52,8 +53,11 @@ def evaluate_case(case: dict, response: dict) -> dict:
         checks.append({"check": "trace_field", "passed": expected["trace_field"] in trace})
     return {
         "id": case["id"], "question": case["question"],
+        "reference_sql": case.get("reference_sql"),
+        "duplicate_of": case.get("duplicate_of"),
         "status": status, "sql": sql, "checks": checks,
-        "verdict": "pass" if checks and all(item["passed"] for item in checks) else "needs_review",
+        "verdict": ("unreviewed" if not checks else
+                    "pass" if all(item["passed"] for item in checks) else "needs_review"),
         "response": response,
     }
 
@@ -86,7 +90,14 @@ def main() -> int:
     parser.add_argument("--timeout", type=int, default=120)
     parser.add_argument("--execute", action="store_true", help="Execute read-only queries (default: dry run)")
     args = parser.parse_args()
-    cases = json.loads(args.cases.read_text(encoding="utf-8"))
+    if args.cases.suffix.lower() == '.csv':
+        with args.cases.open(encoding='utf-8-sig', newline='') as stream:
+            cases = list(csv.DictReader(stream))
+        for case in cases:
+            raw = case.get('expect') or ''
+            case['expect'] = json.loads(raw) if raw.strip() else {}
+    else:
+        cases = json.loads(args.cases.read_text(encoding='utf-8-sig'))
     if not isinstance(cases, list):
         parser.error("Case file must be a JSON array")
     ids = [case["id"] for case in cases]
@@ -94,7 +105,7 @@ def main() -> int:
         parser.error("Case IDs must be unique")
     results = []
     for case in cases:
-        if not case.get("question") or not case.get("expect"):
+        if not case.get("question"):
             results.append({"id": case["id"], "verdict": "not_configured", "question": case.get("question")})
             continue
         try:
@@ -103,7 +114,7 @@ def main() -> int:
         except (URLError, TimeoutError, OSError) as exc:
             results.append({"id": case["id"], "verdict": "transport_error", "error_type": type(exc).__name__})
     summary = {key: sum(x["verdict"] == key for x in results)
-               for key in ("pass", "needs_review", "not_configured", "transport_error")}
+               for key in ("pass", "needs_review", "unreviewed", "not_configured", "transport_error")}
     report = {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "source": args.source, "mode": "execute" if args.execute else "dry_run",
@@ -113,7 +124,7 @@ def main() -> int:
     args.output.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
     print(json.dumps(summary))
     print("Report:", args.output)
-    return 1 if summary["needs_review"] or summary["transport_error"] or summary["not_configured"] else 0
+    return 1 if summary["needs_review"] or summary["transport_error"] or summary["not_configured"] or summary["unreviewed"] else 0
 
 
 if __name__ == "__main__":
