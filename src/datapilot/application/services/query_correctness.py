@@ -337,7 +337,11 @@ def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> lis
             for value in values
         )):
             cohort_columns.add(_normalise(cohort_column.name))
-            cohort_values.setdefault(_normalise(cohort_column.name), set()).update(values)
+            key = _normalise(cohort_column.name)
+            if key in cohort_values:
+                cohort_values[key].intersection_update(values)
+            else:
+                cohort_values[key] = set(values)
     missing = sorted(cohort_columns - grouped)
     if not cohort_columns:
         return []
@@ -362,6 +366,8 @@ def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> lis
                 restricted.add(column_name)
             elif isinstance(predicate, exp.Not):
                 negated = predicate.this
+                while isinstance(negated, exp.Paren):
+                    negated = negated.this
                 if isinstance(negated, exp.In) and isinstance(negated.this, exp.Column):
                     if _normalise(negated.this.name) == column_name:
                         restricted.add(column_name)
