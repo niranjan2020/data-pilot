@@ -56,3 +56,25 @@ def test_rejects_case_mismatch_in_multi_value_array():
             "Find items with alpha tag and beta tag",
             "SELECT id FROM public.items WHERE tags @> ARRAY['Alpha', 'beta']",
         )
+
+
+def test_rejects_missing_second_requested_canonical_array_value():
+    with pytest.raises(SQLValidationError, match="omitted requested"):
+        validate(
+            "Find items with alpha tag and beta tag",
+            "SELECT id FROM public.items WHERE tags @> ARRAY['Alpha']",
+        )
+
+
+def test_accepts_all_requested_array_values():
+    validate(
+        "Find items with alpha tag and beta tag",
+        "SELECT id FROM public.items WHERE tags @> ARRAY['Alpha', 'Beta']",
+    )
+
+
+def test_does_not_require_literal_array_filter_for_unnest_grouping():
+    validate(
+        "Show counts for alpha tag and beta tag",
+        "SELECT tag, COUNT(*) FROM public.items CROSS JOIN LATERAL UNNEST(tags) AS tag GROUP BY tag",
+    )
