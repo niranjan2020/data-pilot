@@ -944,3 +944,28 @@ def test_ranked_subject_uses_real_schema_column_not_filter_only_dimension():
         assert QueryOrchestrator._required_grouping_columns(
             question, [], schema=schema,
         ) == ["managing_owner"]
+
+
+@pytest.mark.parametrize("grouping", ["fuel_label", "1"])
+def test_grouping_alias_or_ordinal_resolves_to_physical_array_dimension(grouping):
+    checks = assess_query_correctness(
+        affected_tables=["public.inventory"],
+        governed_tables=["public.inventory"],
+        sql=(
+            "SELECT UNNEST(i.fuel_types) AS fuel_label, COUNT(*) "
+            "FROM public.inventory AS i "
+            f"GROUP BY {grouping}"
+        ),
+        required_grouping_columns=["fuel_types"],
+    )
+    assert not any(c["code"] == "grouping_dimension_violation" for c in checks)
+
+
+def test_aggregate_alias_cannot_satisfy_governed_grouping():
+    checks = assess_query_correctness(
+        affected_tables=["public.inventory"],
+        governed_tables=["public.inventory"],
+        sql="SELECT COUNT(i.fuel_types) AS fuel_label FROM public.inventory AS i GROUP BY fuel_label",
+        required_grouping_columns=["fuel_types"],
+    )
+    assert any(c["code"] == "grouping_dimension_violation" for c in checks)
