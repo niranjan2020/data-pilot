@@ -3,7 +3,7 @@ import importlib.util
 import json
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("evaluation_runner", ROOT / "scripts" / "run_nl2sql_evaluation.py")
 runner = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(runner)
