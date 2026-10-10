@@ -666,3 +666,50 @@ def test_explicit_to_category_accepts_correct_sql_filter(question):
         "SELECT COUNT(*) FROM assets WHERE ownership_status = 'TO'",
         ENTITIES,
     )
+
+
+@pytest.mark.parametrize(("question", "predicate"), [
+    ("Count LNG-capable assets", "alternative_fuel_type @> ARRAY['LNG']"),
+    ("Count LNG-capable assets", "'LNG' = ANY(alternative_fuel_type)"),
+    ("Count LNG-capable assets", "alternative_fuel_type && ARRAY['LNG', 'Methanol']"),
+    ("Count assets with both LNG and methanol", "alternative_fuel_type @> ARRAY['LNG', 'Methanol']"),
+])
+def test_governed_array_categories_accept_postgres_membership(question, predicate):
+    entities = [{
+        "name": "Assets", "schema_name": "public", "table_name": "assets",
+        "attributes": [{
+            "name": "Alternative Fuel Type", "column_name": "alternative_fuel_type",
+            "data_type": "text[]",
+            "value_mappings": [
+                {"canonical_value": "LNG", "synonyms": ["lng-capable"]},
+                {"canonical_value": "Methanol", "synonyms": ["methanol"]},
+            ],
+        }],
+    }]
+    sql = f"SELECT COUNT(*) FROM public.assets WHERE {predicate}"
+    QueryOrchestrator._validate_explicit_categorical_comparison(question, sql, entities)
+
+
+@pytest.mark.parametrize("predicate", [
+    "alternative_fuel_type && ARRAY['LNG', 'Methanol']",
+    "'LNG' = ANY(alternative_fuel_type)",
+    "alternative_fuel_type @> ARRAY['LNG']",
+])
+def test_governed_array_both_categories_rejects_any_of_filter(predicate):
+    entities = [{
+        "name": "Assets", "schema_name": "public", "table_name": "assets",
+        "attributes": [{
+            "name": "Alternative Fuel Type", "column_name": "alternative_fuel_type",
+            "data_type": "text[]",
+            "value_mappings": [
+                {"canonical_value": "LNG", "synonyms": ["lng"]},
+                {"canonical_value": "Methanol", "synonyms": ["methanol"]},
+            ],
+        }],
+    }]
+    with pytest.raises(SQLValidationError):
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            "Count assets with both LNG and methanol",
+            f"SELECT COUNT(*) FROM public.assets WHERE {predicate}",
+            entities,
+        )
