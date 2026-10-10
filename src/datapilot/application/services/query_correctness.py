@@ -426,8 +426,24 @@ def _filter_checks(
             })
             continue
 
+        # Only outer WHERE conjunctions guarantee a required filter.
+        # A matching literal in SELECT, JOIN, HAVING, nested SQL, NOT, or
+        # an OR branch is not sufficient to constrain every returned row.
+        outer_where = tree.args.get("where") if isinstance(tree, exp.Select) else None
+        conjuncts = []
+        if outer_where is not None:
+            pending = [outer_where.this]
+            while pending:
+                current = pending.pop()
+                if isinstance(current, exp.And):
+                    pending.extend([current.this, current.expression])
+                else:
+                    conjuncts.append(current)
+
         matched = False
-        for predicate in tree.find_all(node_type):
+        for predicate in conjuncts:
+            if not isinstance(predicate, node_type):
+                continue
             left_columns = {
                 _normalise(column.name) for column in predicate.this.find_all(exp.Column)
             } if predicate.this is not None else set()
