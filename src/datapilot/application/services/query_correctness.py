@@ -1689,6 +1689,28 @@ def assess_query_correctness(
             "message": "No governed physical-table boundary was available for scope verification.",
         }]
 
+    # Resolve physical references from the SQL AST, not only the validator's
+    # affected-table list: the latter can include local CTE names.
+    # A CTE never grants access to an ungoverned underlying physical table.
+    if sql:
+        try:
+            statement = parse_one(sql, read=sqlglot_dialect(dialect))
+            cte_names = {
+                _normalise(cte.alias_or_name)
+                for cte in statement.find_all(exp.CTE)
+                if cte.alias_or_name
+            }
+            physical = []
+            for table in statement.find_all(exp.Table):
+                name = _normalise(table.name)
+                if not table.db and not table.catalog and name in cte_names:
+                    continue
+                physical.append(table.sql(dialect=sqlglot_dialect(dialect)))
+            affected = physical
+        except Exception:
+            # Fail closed: never discard references when parsing is unavailable.
+            pass
+
     unexpected = [
         table for table in affected
         if not _within_governed_scope(table, governed, dialect=dialect)
