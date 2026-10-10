@@ -922,15 +922,17 @@ class QueryOrchestrator:
                 }
                 # CTE references are query-local relations, not physical
                 # datasets. Keep rejecting every other unqualified table.
-                cte_names = {
-                    cte.alias_or_name.casefold()
-                    for cte in statements[0].find_all(exp.CTE)
-                    if cte.alias_or_name
-                }
-                unqualified = {
-                    table.name for table in statements[0].find_all(exp.Table)
-                    if not table.db and table.name.casefold() not in cte_names
-                }
+                from sqlglot.optimizer.scope import traverse_scope
+                unqualified = set()
+                for scope in traverse_scope(statements[0]):
+                    for _alias, (node, source) in scope.selected_sources.items():
+                        if isinstance(node, exp.Table) and not node.db:
+                            if isinstance(source, exp.Table):
+                                unqualified.add(node.name)
+                    selected_nodes = {id(node) for node, _ in scope.selected_sources.values()}
+                    for node in scope.tables:
+                        if not node.db and id(node) not in selected_nodes:
+                            unqualified.add(node.name)
             except Exception as exc:
                 raise SQLValidationError(
                     "Unable to verify selected datasets in generated SQL",
