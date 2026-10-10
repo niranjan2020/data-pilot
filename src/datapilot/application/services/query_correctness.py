@@ -1502,13 +1502,25 @@ def _array_and_period_grain_checks(sql: str, *, dialect: str) -> list[dict[str, 
         for aggregate in select.find_all(exp.AggFunc):
             if aggregate.find_ancestor(exp.Select) is not select:
                 continue
+            # Conditional counts and sums may express their discriminator
+            # through CASE WHEN, aggregate FILTER (WHERE ...), or IN (...).
+            predicates = []
             for case in aggregate.find_all(exp.Case):
-                for branch in case.args.get("ifs") or []:
-                    predicate = branch.this
-                    if isinstance(predicate, exp.EQ):
-                        for side in (predicate.this, predicate.expression):
-                            if isinstance(side, exp.Column):
-                                conditional_columns.add(side.sql(dialect=sqlglot_dialect(dialect)).casefold())
+                predicates.extend(branch.this for branch in case.args.get('ifs') or [])
+            # FILTER is normally the parent of its aggregate in SQLGlot.
+            parent = aggregate.parent
+            if isinstance(parent, exp.Filter):
+                predicates.append(parent.args.get('expression'))
+            for predicate in predicates:
+                if predicate is None:
+                    continue
+                for node in predicate.walk():
+                    if isinstance(node, (exp.EQ, exp.In, exp.Between)):
+                        target = node.this
+                        if isinstance(target, exp.Column):
+                            conditional_columns.add(
+                                target.sql(dialect=sqlglot_dialect(dialect)).casefold()
+                            )
         grouped = {
             node.sql(dialect=sqlglot_dialect(dialect)).casefold()
             for expression in group.expressions for node in expression.walk()
