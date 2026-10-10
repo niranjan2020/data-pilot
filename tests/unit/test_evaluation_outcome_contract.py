@@ -3,7 +3,7 @@ from pathlib import Path
 import runpy
 
 evaluate_case = runpy.run_path(
-    str(Path(__file__).resolve().parents[3] / "scripts" / "run_nl2sql_evaluation.py")
+    str(Path(__file__).resolve().parents[2] / "scripts" / "run_nl2sql_evaluation.py")
 )["evaluate_case"]
 
 
