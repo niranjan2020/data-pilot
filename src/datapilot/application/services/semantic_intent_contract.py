@@ -19,6 +19,8 @@ class SemanticIntentContract:
     relationships: tuple[dict[str, Any], ...]
     time_plan: dict[str, Any] | None
     categorical_attribute: dict[str, Any] | None
+    comparison_cohorts: tuple[dict[str, Any], ...] = ()
+    aggregation_grain: tuple[str, ...] = ()
 
     @classmethod
     def from_governed_context(
@@ -29,6 +31,8 @@ class SemanticIntentContract:
         required_filters: Sequence[dict[str, Any]],
         required_relationships: Sequence[dict[str, Any]],
         time_plan: dict[str, Any] | None,
+        comparison_cohorts: Sequence[dict[str, Any]] = (),
+        aggregation_grain: Sequence[str] | None = None,
     ) -> "SemanticIntentContract":
         return cls(
             metrics=tuple(deepcopy(context.get("metrics") or ())),
@@ -37,6 +41,8 @@ class SemanticIntentContract:
             relationships=tuple(deepcopy(required_relationships)),
             time_plan=deepcopy(time_plan),
             categorical_attribute=deepcopy(context.get("resolved_attribute_selection")),
+            comparison_cohorts=tuple(deepcopy(comparison_cohorts)),
+            aggregation_grain=tuple(str(v) for v in (aggregation_grain if aggregation_grain is not None else grouping_columns)),
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -48,4 +54,6 @@ class SemanticIntentContract:
             "relationships": list(self.relationships),
             "time_plan": self.time_plan,
             "categorical_attribute": self.categorical_attribute,
+            "comparison_cohorts": list(self.comparison_cohorts),
+            "aggregation_grain": list(self.aggregation_grain),
         })
