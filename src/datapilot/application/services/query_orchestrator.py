@@ -1959,6 +1959,33 @@ class QueryOrchestrator:
         # clauses cannot accidentally become grouping dimensions.
         ranking = re.search(r"\btop\s+\d+\s+(.+?)\s+by\b", normalized)
         if ranking:
+            # A governed dimension immediately after "by" takes precedence
+            # over the ranked entity. For example, "top products by colour"
+            # requests colour grouping, not a product ranking by a metric.
+            by_phrase = normalized[ranking.end():].strip()
+            dimension_matches = []
+            for entity in entities:
+                for attribute in entity.get("attributes") or []:
+                    column = str(attribute.get("column_name") or "").strip()
+                    if not column:
+                        continue
+                    terms = [attribute.get("name"), *(attribute.get("synonyms") or [])]
+                    entity_terms = [entity.get("name"), *(entity.get("synonyms") or [])]
+                    for term in terms:
+                        phrase = " ".join(re.findall(r"[a-z0-9]+", str(term or "").casefold()))
+                        if not phrase:
+                            continue
+                        candidates = [phrase]
+                        for entity_term in entity_terms:
+                            prefix = " ".join(re.findall(r"[a-z0-9]+", str(entity_term or "").casefold()))
+                            if prefix:
+                                candidates.append(prefix + " " + phrase)
+                        if any(by_phrase == candidate or by_phrase.startswith(candidate + " ")
+                               for candidate in candidates):
+                            dimension_matches.append((max(len(x.split()) for x in candidates), column))
+            if dimension_matches:
+                best = max(score for score, _ in dimension_matches)
+                return list(dict.fromkeys(column for score, column in dimension_matches if score == best))
             ranked_phrase = ranking.group(1)
             candidates = []
             for entity in entities:
