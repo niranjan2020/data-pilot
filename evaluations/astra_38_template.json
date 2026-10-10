@@ -114,12 +114,6 @@
     "baseline_issue": "numeric year comparison"
   },
   {
-    "id": "3B-10",
-    "question": "",
-    "expect": null,
-    "baseline_issue": null
-  },
-  {
     "id": "3C-1",
     "question": "",
     "expect": null,
