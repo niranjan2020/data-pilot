@@ -1943,7 +1943,7 @@ def _contract_comparison_checks(
         # separate conditional aggregates yield one column per cohort. Neither
         # a mere SELECT literal nor one combined CASE aggregate is sufficient.
         separate = independent_aggregate_cohorts(tree, column=column, values=values)
-        conditional_cohorts = values.issubset(separate) and column not in grouped
+        conditional_cohorts = {value.casefold() for value in values}.issubset(separate) and column not in grouped
         if conditional_cohorts:
             # A restrictive outer WHERE can silently eliminate a cohort.
             if where is not None:
