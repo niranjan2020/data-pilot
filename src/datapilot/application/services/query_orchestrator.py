@@ -1522,8 +1522,8 @@ class QueryOrchestrator:
                     # checks; other expressions require separate semantic proof.
                     positive_cardinality = any(
                         re.search(
-                            rf"\\b(?:CARDINALITY|ARRAY_LENGTH)\\s*\\(\\s*{column_pattern}"
-                            rf"(?:\\s*,\\s*1)?\\s*\\)\\s*>\\s*0\\b",
+                            rf"\b(?:CARDINALITY|ARRAY_LENGTH)\s*\(\s*{column_pattern}"
+                            rf"(?:\s*,\s*1)?\s*\)\s*>\s*0\b",
                             predicate.sql(dialect="postgres"), re.I,
                         )
                         for predicate in clauses
