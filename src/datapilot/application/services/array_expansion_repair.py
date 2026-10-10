@@ -30,7 +30,7 @@ def repair_grouped_array_expansion(sql: str, checks: list[dict], *, dialect: str
             (i, p, p.this if isinstance(p, exp.Alias) else p)
             for i, p in enumerate(tree.expressions, 1)
             if re.fullmatch(
-                r'UNNEST\\s*\\(\\s*(?:[\\w"]+\\.)?[\\w"]+\\s*\\)',
+                r'UNNEST\s*\(\s*(?:[\w"]+\.)?[\w"]+\s*\)',
                 (p.this if isinstance(p, exp.Alias) else p).sql(dialect=dialect),
                 re.I,
             )
@@ -56,7 +56,7 @@ def repair_grouped_array_expansion(sql: str, checks: list[dict], *, dialect: str
         if len(matches) != 1:
             return None
         target = matches[0]
-        if any(re.search(r"\\bUNNEST\\s*\\(", item.sql(dialect=dialect), re.I) and item is not target for item in group.expressions):
+        if any(re.search(r"\bUNNEST\s*\(", item.sql(dialect=dialect), re.I) and item is not target for item in group.expressions):
             return None
         # Reparse the lateral relation instead of manipulating raw SQL tokens.
         from_clause = tree.args.get("from_")
