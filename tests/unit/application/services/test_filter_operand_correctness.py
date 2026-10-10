@@ -56,3 +56,48 @@ def test_guaranteed_governed_equality_is_accepted(predicate):
 def test_non_equality_expression_masking_is_rejected(predicate):
     result = checks("SELECT * FROM public.records WHERE " + predicate, ">", "inactive")
     assert result and result[0]["code"] == "filter_violation"
+
+
+@pytest.mark.parametrize("operator,predicate,expected", [
+    (">", "10 < age", "passed"),
+    (">=", "10 <= age", "passed"),
+    ("<", "10 > age", "passed"),
+    ("<=", "10 >= age", "passed"),
+    ("!=", "'inactive' != status", "passed"),
+    ("<>", "'inactive' <> status", "passed"),
+    (">", "10 > age", "failed"),
+    (">=", "10 >= age", "failed"),
+    ("<", "10 < age", "failed"),
+    ("<=", "10 <= age", "failed"),
+    (">", "age < 10", "failed"),
+    ("<", "age > 10", "failed"),
+])
+def test_reversed_comparison_preserves_direction(operator, predicate, expected):
+    result = assess_query_correctness(
+        affected_tables=["public.records"],
+        governed_tables=["public.records"],
+        sql="SELECT * FROM public.records WHERE " + predicate,
+        required_filters=[{
+            "column_name": "status" if operator in ("!=", "<>") else "age",
+            "operator": operator,
+            "value": "inactive" if operator in ("!=", "<>") else "10",
+        }],
+    )
+    filter_results = [c for c in result if c["code"] in ("filter_alignment", "filter_violation")]
+    assert len(filter_results) == 1
+    assert filter_results[0]["status"] == expected
+
+
+@pytest.mark.parametrize("predicate", [
+    "10 < COALESCE(age, 0)",
+    "10 < age OR region = 'north'",
+    "NOT (10 < age)",
+])
+def test_reversed_comparison_cannot_be_hidden_in_expression_or_or(predicate):
+    result = assess_query_correctness(
+        affected_tables=["public.records"],
+        governed_tables=["public.records"],
+        sql="SELECT * FROM public.records WHERE " + predicate,
+        required_filters=[{"column_name": "age", "operator": ">", "value": "10"}],
+    )
+    assert any(c["code"] == "filter_violation" for c in result)
