@@ -17,6 +17,12 @@ RECOVERABLE_CORRECTNESS_CODES = frozenset({
     "time_grain_violation",
     "time_comparison_violation",
     "physical_scope_violation",
+    # A single bounded regeneration is allowed; the exact same governed
+    # publication, dataset, array and categorical checks still run afterward.
+    "relationship_publication_violation",
+    "dataset_selection_violation",
+    "array_expansion_grouping_violation",
+    "categorical_comparison_filter_violation",
 })
 
 UNVERIFIABLE_CORRECTNESS_CODES = frozenset({
