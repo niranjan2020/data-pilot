@@ -79,6 +79,15 @@ def evaluate_case(case: dict, response: dict) -> dict:
         error_info = {}
     error_codes = [c.get("code") for c in error_info.get("checks", []) if isinstance(c, dict)]
     semantic_checks = _result_semantic_checks(case, response)
+    reference = str(case.get("reference_sql") or "")
+    reference_status = (
+        "missing" if not reference.strip()
+        else "needs_review" if (
+            not reference.lstrip().casefold().startswith(("select ", "with "))
+            or ("group by unnest(" in reference.casefold())
+        )
+        else "unverified"
+    )
     generation_status = (
         "passed" if status in ("dry_run", "completed")
         else "failed" if status in ("http_error", "rejected")
@@ -137,6 +146,7 @@ def evaluate_case(case: dict, response: dict) -> dict:
         "semantic_checks": semantic_checks,
         "generation_status": generation_status,
         "database_execution_status": database_execution_status,
+        "reference_status": reference_status,
         "verdict": ("unreviewed" if not checks else
                     "pass" if all(item["passed"] for item in checks) else "needs_review"),
         "response": response,
@@ -238,11 +248,14 @@ def main() -> int:
                          for key in ("succeeded", "api_error", "rejected", "not_executed", "other")}
     semantic_summary = {key: sum(x.get("semantic_status") == key for x in results)
                         for key in ("passed", "failed", "not_verified")}
+    reference_summary = {key: sum(x.get("reference_status") == key for x in results)
+                         for key in ("missing", "needs_review", "unverified")}
     generation_summary = {key: sum(x.get("generation_status") == key for x in results)
                           for key in ("passed", "failed", "not_verified")}
     database_execution_summary = {key: sum(x.get("database_execution_status") == key for x in results)
                                   for key in ("passed", "failed", "not_run", "not_verified")}
     report = {
+        "reference_summary": reference_summary,
         "generation_summary": generation_summary,
         "database_execution_summary": database_execution_summary,
         "execution_summary": execution_summary, "semantic_summary": semantic_summary,
@@ -255,6 +268,8 @@ def main() -> int:
     if args.markdown:
         lines = ["# NL-to-SQL evaluation", "", "## Summary", ""]
         lines.extend("- {}: {}".format(k, v) for k, v in summary.items())
+        lines.extend(["", "## Reference SQL quality (not a semantic pass)", ""])
+        lines.extend("- {}: {}".format(k, v) for k, v in reference_summary.items())
         lines.extend(["", "## SQL generation and validation", ""])
         lines.extend("- {}: {}".format(k, v) for k, v in generation_summary.items())
         lines.extend(["", "## Database execution (separate from dry runs)", ""])
