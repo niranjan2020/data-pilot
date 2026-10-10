@@ -1152,7 +1152,12 @@ class QueryOrchestrator:
         if blocking_correctness:
             from datapilot.application.services.comparison_group_repair import repair_missing_comparison_groups
             from datapilot.application.services.ranking_grain_repair import repair_ranking_grain
-            candidate = repair_ranking_grain(
+            from datapilot.application.services.array_expansion_repair import repair_grouped_array_expansion
+            candidate = repair_grouped_array_expansion(
+                executable_sql, correctness_checks, dialect=self._database.dialect,
+            )
+            if candidate is None:
+                candidate = repair_ranking_grain(
                 executable_sql, correctness_checks, dialect=self._database.dialect,
             )
             if candidate is None:
