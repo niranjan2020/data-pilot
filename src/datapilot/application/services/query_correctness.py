@@ -1797,6 +1797,20 @@ def _contract_comparison_checks(sql: str, *, cohorts: Iterable[dict[str, Any]], 
         else:
             conjuncts.append(node)
     missing = []
+    # An additional conjunct can eliminate a cohort even when IN and GROUP BY
+    # are present. Reject rather than approve a misleading comparison.
+    def constrained_values(predicate, column):
+        if isinstance(predicate, exp.EQ):
+            pairs = ((predicate.this, predicate.expression),
+                     (predicate.expression, predicate.this))
+            for operand, literal in pairs:
+                if isinstance(operand, exp.Column) and _normalise(operand.name) == column and isinstance(literal, exp.Literal):
+                    return {str(literal.this)}
+        if isinstance(predicate, exp.In) and isinstance(predicate.this, exp.Column):
+            if _normalise(predicate.this.name) == column and all(isinstance(v, exp.Literal) for v in predicate.expressions):
+                return {str(v.this) for v in predicate.expressions}
+        return None
+
     for cohort in required:
         column = _normalise(cohort.get("column_name", "")).rsplit(".", 1)[-1]
         values = {str(v) for v in cohort.get("values", [])}
@@ -1813,6 +1827,17 @@ def _contract_comparison_checks(sql: str, *, cohorts: Iterable[dict[str, Any]], 
         )
         if not present or column not in grouped:
             missing.append(column)
+        for predicate in conjuncts:
+            allowed = constrained_values(predicate, column)
+            if allowed is not None and not values.issubset(allowed):
+                missing.append(column)
+            if isinstance(predicate, exp.NEQ):
+                for operand, literal in ((predicate.this, predicate.expression), (predicate.expression, predicate.this)):
+                    if (isinstance(operand, exp.Column)
+                            and _normalise(operand.name) == column
+                            and isinstance(literal, exp.Literal)
+                            and str(literal.this) in values):
+                        missing.append(column)
     if any(isinstance(a, exp.AggFunc) for a in tree.find_all(exp.AggFunc)):
         missing.extend(
             _normalise(c).rsplit(".", 1)[-1] for c in grain
