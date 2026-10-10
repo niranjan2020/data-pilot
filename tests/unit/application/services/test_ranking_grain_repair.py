@@ -59,3 +59,22 @@ def test_explicit_breakdown_not_rejected():
         question="top 10 customers grouped by status", required_grouping_columns=["customer"],
     )
     assert not any(c["code"] == "ranking_grain_violation" for c in checks)
+
+
+from datapilot.application.services.query_orchestrator import QueryOrchestrator
+
+
+@pytest.mark.parametrize("entity,column,filter_column", [
+    ("operator", "operator", "ownership_status"),
+    ("customer", "customer_name", "payment_status"),
+    ("product", "product_name", "color"),
+    ("supplier", "supplier_name", "category"),
+])
+def test_ranked_entity_grain_excludes_filter_only_dimension(entity, column, filter_column):
+    question = f"Show the top 10 {entity}s by distinct count with {filter_column} selected"
+    entities = [{"name": entity, "display_column": column,
+                 "attributes": [{"name": filter_column, "column_name": filter_column}]}]
+    resolved = QueryOrchestrator._required_grouping_columns(
+        question, entities, metrics=[]
+    )
+    assert resolved == [column]
