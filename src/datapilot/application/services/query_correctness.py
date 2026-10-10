@@ -470,12 +470,12 @@ def _filter_checks(
             array_type == "array" or array_type.endswith("[]")
         ):
             import re
-            col = r'(?:"?[a-z_][a-z0-9_]*"?\\.)?"?' + re.escape(column_name) + r'"?'
+            col = r'(?:"?[a-z_][a-z0-9_]*"?\.)?"?' + re.escape(column_name) + r'"?'
             val = re.escape(expected_value)
             patterns = (
-                col + r"\\s*@>\\s*ARRAY\\s*\\[\\s*'" + val + r"'\\s*\\]",
-                r"'" + val + r"'\\s*=\\s*ANY\\s*\\(\\s*" + col + r"\\s*\\)",
-                col + r"\\s*&&\\s*ARRAY\\s*\\[\\s*'" + val + r"'\\s*\\]",
+                col + r"\s*@>\s*ARRAY\s*\[\s*'" + val + r"'\s*\]",
+                r"'" + val + r"'\s*=\s*ANY\s*\(\s*" + col + r"\s*\)",
+                col + r"\s*&&\s*ARRAY\s*\[\s*'" + val + r"'\s*\]",
             )
             matched = any(
                 re.fullmatch(pattern, predicate.sql(dialect="postgres").strip(), re.I)
