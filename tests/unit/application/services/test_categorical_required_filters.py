@@ -49,3 +49,17 @@ def test_shared_value_phrase_across_attributes_is_not_assigned_arbitrarily():
         {"column_name": "manager", "value_mappings": [{"canonical_value": "MSC"}]},
     ]}]
     assert QueryOrchestrator._required_filters("Show MSC assets", entities, []) == []
+
+
+def test_published_array_category_does_not_become_scalar_equality():
+    entities = [{"name": "Assets", "attributes": [{
+        "column_name": "fuel_types", "data_type": "text[]",
+        "value_mappings": [{"canonical_value": "LNG", "synonyms": ["liquefied natural gas"]}],
+    }]}]
+    filters = QueryOrchestrator._required_filters("Show LNG assets", entities, [])
+    assert not any(f["column_name"] == "fuel_types" and f["operator"] == "=" for f in filters)
+
+
+def test_published_scalar_category_still_generates_equality():
+    assert any(f["column_name"] == "ownership_status" and f["value"] == "O"
+               for f in _filters("Show owned assets"))
