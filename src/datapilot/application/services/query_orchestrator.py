@@ -12,7 +12,7 @@ from datapilot.application.services.semantic_context import SemanticContextAssem
 from datapilot.application.services.time_semantics import resolve_time_semantics
 from datapilot.application.services.result_presentation import plan_result_presentation
 from datapilot.application.services.result_summary import summarize_result
-from datapilot.application.services.query_correctness import assess_query_correctness
+from datapilot.application.services.query_correctness import assess_query_correctness, sqlglot_dialect
 from datapilot.application.services.categorical_intent import is_unquoted_connective_code, resolve_categorical_intent
 from datapilot.application.services.sql_correction import classify_sql_correction
 from datapilot.application.services.execution_recovery import classify_execution_error
@@ -853,7 +853,7 @@ class QueryOrchestrator:
             import sqlglot
             from sqlglot import exp
             try:
-                statements = sqlglot.parse(validation.sanitized_sql or sql, read="postgres")
+                statements = sqlglot.parse(validation.sanitized_sql or sql, read=sqlglot_dialect(self._database.dialect))
                 if len(statements) != 1 or statements[0] is None:
                     raise ValueError("Expected one SQL statement")
                 actual_tables = {
