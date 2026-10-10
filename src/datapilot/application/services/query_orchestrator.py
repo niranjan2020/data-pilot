@@ -990,7 +990,23 @@ class QueryOrchestrator:
                 # Reuse the exact grants checked against the SQL AST.
                 trusted_published_relationships = list(authorization.verified_grants)
 
-        self._validate_nonempty_array_filters(question, executable_sql, governed_entities or [])
+        try:
+            self._validate_nonempty_array_filters(question, executable_sql, governed_entities or [])
+        except SQLValidationError as nonempty_error:
+            repaired_sql = self._repair_nonempty_array_filter(executable_sql, nonempty_error)
+            if repaired_sql is None:
+                raise
+            repaired_validation = await self._validator.validate(
+                repaired_sql, dialect=self._database.dialect, enforce_read_only=True,
+            )
+            if not repaired_validation.is_valid:
+                raise nonempty_error
+            candidate_sql = repaired_validation.sanitized_sql or repaired_sql
+            self._validate_nonempty_array_filters(
+                question, candidate_sql, governed_entities or [],
+            )
+            executable_sql = candidate_sql
+            validation = repaired_validation
         try:
             self._validate_canonical_array_literals(question, executable_sql, governed_entities or [])
         except SQLValidationError as array_error:
@@ -1586,6 +1602,66 @@ class QueryOrchestrator:
                                 "message": "IS NOT NULL includes empty arrays; require a positive cardinality or governed membership condition.",
                             }]},
                         )
+
+    @staticmethod
+    def _repair_nonempty_array_filter(sql: str, error: SQLValidationError) -> Optional[str]:
+        """Add a governed nonempty-array conjunct to a simple single-table SELECT.
+
+        The metadata-derived column must be present in the physical SQL scope.
+        Refuse joins, nested queries, set operations and complex WHERE expressions.
+        """
+        import sqlglot
+        from sqlglot import exp
+
+        checks = (getattr(error, "details", None) or {}).get("checks") or []
+        matching = [item for item in checks if item.get("code") == "nonempty_array_filter_violation"]
+        if len(matching) != 1:
+            return None
+        column_name = str(matching[0].get("column_name") or "")
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", column_name):
+            return None
+        try:
+            tree = sqlglot.parse_one(sql, read="postgres")
+        except Exception:
+            return None
+        if not isinstance(tree, exp.Select) or any(
+            isinstance(node, (exp.Join, exp.Subquery, exp.Union, exp.With, exp.Exists))
+            for node in tree.walk()
+        ):
+            return None
+        tables = list(tree.find_all(exp.Table))
+        if len(tables) != 1:
+            return None
+        where = tree.args.get("where")
+        if where is not None and any(
+            isinstance(node, (exp.Or, exp.Not, exp.Subquery, exp.Select))
+            for node in where.walk()
+        ):
+            return None
+        # Only repair a column that is already referenced in the SELECT or WHERE.
+        # Do not guess that a governed attribute belongs to an unrelated table.
+        columns = list(tree.find_all(exp.Column))
+        if not any(col.name.casefold() == column_name.casefold() for col in columns):
+            return None
+        table_alias = tables[0].alias_or_name
+        if any(
+            col.name.casefold() == column_name.casefold()
+            and col.table and col.table.casefold() not in (table_alias.casefold(), tables[0].name.casefold())
+            for col in columns
+        ):
+            return None
+        column = exp.column(column_name, table=table_alias if any(
+            col.table and col.name.casefold() == column_name.casefold() for col in columns
+        ) else None)
+        condition = exp.GT(
+            this=exp.Anonymous(this="CARDINALITY", expressions=[column]),
+            expression=exp.Literal.number(0),
+        )
+        if where is None:
+            tree.set("where", exp.Where(this=condition))
+        else:
+            tree.set("where", exp.Where(this=exp.and_(where.this.copy(), condition)))
+        return tree.sql(dialect="postgres")
 
     @staticmethod
     def _repair_canonical_array_literal(sql: str, error: SQLValidationError) -> Optional[str]:
