@@ -1149,6 +1149,8 @@ class QueryOrchestrator:
                         required_filters=required_filters or [],
                         required_relationships=required_relationships or [],
                         required_time_plan=required_time_plan,
+                        comparison_cohorts=comparison_cohorts or [],
+                        aggregation_grain=aggregation_grain or [],
                         trusted_published_relationships=trusted_published_relationships,
                         dialect=self._database.dialect,
                     )
