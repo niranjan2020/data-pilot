@@ -37,6 +37,40 @@ from datapilot.infrastructure.sql.query_policy import SQLQueryPolicyEnforcer
 
 logger = get_logger("datapilot.query")
 
+
+def _invalid_qualified_columns(statement: Any) -> list[Any]:
+    """Find unresolved qualified columns in their lexical SQL scopes.
+
+    CTEs and nested SELECTs have separate namespaces; correlated subqueries
+    can reference outer aliases. No database-specific identifiers are used.
+    """
+    from sqlglot import exp
+    from sqlglot.optimizer.scope import traverse_scope
+
+    scopes = list(traverse_scope(statement))
+    invalid = []
+    for scope in scopes:
+        visible = set()
+        current = scope
+        while current is not None:
+            visible.update(str(name).casefold() for name in current.sources)
+            current = current.parent
+        for column in scope.columns:
+            if column.table and column.table.casefold() not in visible:
+                invalid.append(column)
+    if not scopes:
+        visible = {
+            str(table.alias_or_name).casefold()
+            for table in statement.find_all(exp.Table)
+            if table.alias_or_name
+        }
+        invalid = [
+            column for column in statement.find_all(exp.Column)
+            if column.table and column.table.casefold() not in visible
+        ]
+    return invalid
+
+
 class QueryOrchestrator:
     """Execute the core query workflow independently of any LLM vendor."""
 
@@ -908,32 +942,7 @@ class QueryOrchestrator:
             # resolve to a table alias or physical table name in the statement.
             # Reject the LLM's astra."id" when FROM astra.vessels.
             physical_tables = list(statements[0].find_all(exp.Table))
-            # Qualifiers are local to each SELECT scope. A table alias used
-            # inside a CTE or subquery cannot authorize an unrelated outer
-            # SELECT reference. Correlated references may use parent aliases.
-            from sqlglot.optimizer.scope import traverse_scope
-
-            invalid_columns = []
-            scopes = list(traverse_scope(statements[0]))
-            for scope in scopes:
-                visible = set()
-                current = scope
-                while current is not None:
-                    visible.update(str(name).casefold() for name in current.sources)
-                    current = current.parent
-                for column in scope.columns:
-                    if column.table and column.table.casefold() not in visible:
-                        invalid_columns.append(column)
-            # Keep a conservative fallback for statements without SELECT scopes.
-            if not scopes:
-                valid_qualifiers = {
-                    (table.alias_or_name or "").casefold()
-                    for table in physical_tables
-                }
-                invalid_columns = [
-                    column for column in statements[0].find_all(exp.Column)
-                    if column.table and column.table.casefold() not in valid_qualifiers
-                ]
+            invalid_columns = _invalid_qualified_columns(statements[0])
             # The generator sometimes uses the schema as a column qualifier:
             # astra."id" FROM astra.vessels. This is repairable only for a
             # single physical table in the same schema, with no other tables
