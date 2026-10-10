@@ -130,6 +130,57 @@ def _metric_expression_checks(sql: str, governed_metrics: Iterable[dict[str, Any
 
 
 
+def _grouped_physical_columns(tree: exp.Select) -> set[str]:
+    """Resolve grouped aliases through a single lateral UNNEST column lineage.
+
+    Never infer lineage from unrelated joins or arbitrary expressions.
+    """
+    group = tree.args.get("group")
+    if group is None:
+        return set()
+    result = set()
+    for expression in group.expressions:
+        result.update(_normalise(c.name) for c in expression.find_all(exp.Column))
+        if isinstance(expression, exp.Column):
+            result.add(_normalise(expression.name))
+        # A projection alias or ordinal can point at a physical expression.
+        projection = None
+        if isinstance(expression, exp.Literal) and expression.is_int:
+            index = int(expression.this) - 1
+            if 0 <= index < len(tree.expressions):
+                projection = tree.expressions[index]
+        elif isinstance(expression, exp.Column) and not expression.table:
+            matches = [p for p in tree.expressions if isinstance(p, exp.Alias)
+                       and _normalise(p.alias) == _normalise(expression.name)]
+            if len(matches) == 1:
+                projection = matches[0]
+        if projection is not None:
+            inner = projection.this if isinstance(projection, exp.Alias) else projection
+            if not any(isinstance(n, exp.AggFunc) for n in inner.walk()):
+                result.update(_normalise(c.name) for c in inner.find_all(exp.Column))
+                if isinstance(inner, exp.Column):
+                    result.add(_normalise(inner.name))
+    # Lateral array expansions expose a derived column. Resolve only the
+    # one-to-one UNNEST(array_column) source, never arbitrary joined columns.
+    for join in tree.args.get("joins") or []:
+        if not isinstance(join.this, exp.Lateral):
+            continue
+        lateral = join.this
+        source = lateral.this
+        if source is None or "UNNEST(" not in source.sql(dialect="postgres").upper():
+            continue
+        inputs = list(source.find_all(exp.Column))
+        if len(inputs) != 1:
+            continue
+        alias = lateral.args.get("alias") or join.args.get("alias")
+        if alias is None:
+            continue
+        output_names = [_normalise(c.name) for c in alias.args.get("columns") or []]
+        if len(output_names) == 1 and output_names[0] in result:
+            result.add(_normalise(inputs[0].name))
+    return result
+
+
 def _grouping_checks(
     sql: str,
     *,
@@ -154,38 +205,7 @@ def _grouping_checks(
             "message": "Grouping verification could not parse the validated SQL.",
         }]
 
-    group = tree.args.get("group")
-    actual: set[str] = set()
-    if group is not None:
-        for expression in group.expressions:
-            for column in expression.find_all(exp.Column):
-                actual.add(_normalise(column.name))
-
-    # GROUP BY may reference a SELECT alias or ordinal. Resolve it to
-    # underlying physical columns only when the projection is unambiguous.
-    # This also handles a lateral-expanded array whose SELECT alias is the
-    # user-facing dimension, without treating the alias as a physical column.
-    if group is not None:
-        for expression in group.expressions:
-            selected = None
-            if isinstance(expression, exp.Literal) and expression.is_int:
-                position = int(expression.this)
-                if 1 <= position <= len(tree.expressions):
-                    selected = tree.expressions[position - 1]
-            elif isinstance(expression, exp.Column) and not expression.table:
-                aliases = [
-                    projection for projection in tree.expressions
-                    if isinstance(projection, exp.Alias)
-                    and _normalise(projection.alias) == _normalise(expression.name)
-                ]
-                if len(aliases) == 1:
-                    selected = aliases[0]
-            if selected is not None:
-                inner = selected.this if isinstance(selected, exp.Alias) else selected
-                if not any(isinstance(node, exp.AggFunc) for node in inner.walk()):
-                    actual.update(_normalise(c.name) for c in inner.find_all(exp.Column))
-                    if isinstance(inner, exp.Column):
-                        actual.add(_normalise(inner.name))
+    actual = _grouped_physical_columns(tree)
 
     missing = sorted(required - actual)
     if missing:
@@ -1853,20 +1873,7 @@ def _contract_comparison_checks(
             return set(values) if values and all(v is not None for v in values) else None
         return None
 
-    group = tree.args.get("group")
-    grouped = {
-        column_name(column)
-        for expression in (group.expressions if group else [])
-        for column in expression.find_all(exp.Column)
-    }
-    # A bare GROUP BY column is itself an expression and find_all may omit
-    # its root; include that root explicitly.
-    grouped.update(
-        column_name(expression)
-        for expression in (group.expressions if group else [])
-        if isinstance(expression, exp.Column)
-    )
-    grouped.discard(None)
+    grouped = _grouped_physical_columns(tree)
     missing = []
     where = tree.args.get("where")
     for cohort in required:
