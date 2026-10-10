@@ -1488,7 +1488,15 @@ class QueryOrchestrator:
         import sqlglot
         from sqlglot import exp
 
-        if not re.search(r"\b(?:non[- ]empty|not empty|populated|at least one)\b", question, re.I):
+        explicit_nonempty = bool(re.search(
+            r"\b(?:non[- ]empty|not empty|populated|at least one)\b", question, re.I,
+        ))
+        # Opt-in governed vocabulary: only explicitly published phrases imply
+        # nonempty semantics. No domain terms are inferred from the question.
+        if not explicit_nonempty and not any(
+            attribute.get("nonempty_intent_phrases")
+            for entity in entities for attribute in entity.get("attributes") or []
+        ):
             return
         ast = sqlglot.parse_one(sql, read="postgres")
         for entity in entities:
@@ -1497,10 +1505,17 @@ class QueryOrchestrator:
                 if not (data_type.endswith("[]") or "array" in data_type):
                     continue
                 terms = [attribute.get("name"), *(attribute.get("synonyms") or [])]
-                if not any(
-                    re.search(r"(?<!\w)" + re.escape(str(term).strip()) + r"(?!\w)", question, re.I)
-                    for term in terms if str(term or "").strip()
-                ):
+                def phrase_present(term):
+                    phrase = str(term or "").strip()
+                    return bool(phrase) and bool(re.search(
+                        r"(?<!\w)" + re.escape(phrase) + r"(?!\w)", question, re.I,
+                    ))
+                explicitly_named = explicit_nonempty and any(phrase_present(term) for term in terms)
+                governed_phrase = any(
+                    phrase_present(term)
+                    for term in attribute.get("nonempty_intent_phrases") or []
+                )
+                if not (explicitly_named or governed_phrase):
                     continue
                 column_name = str(attribute.get("column_name") or "").casefold()
                 for select in ast.find_all(exp.Select):
