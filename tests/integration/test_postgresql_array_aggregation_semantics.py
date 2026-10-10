@@ -1,7 +1,6 @@
 """Real PostgreSQL regression cases for governed array and aggregation semantics.
 
-Run with DATAPILOT_TEST_POSTGRES_URL configured. These tests use only temporary
-tables and synthetic, domain-neutral data; they never touch customer schemas.
+Run with DATAPILOT_TEST_POSTGRES_URL configured. These tests use read-only CTE fixtures with synthetic, domain-neutral data; they never touch customer schemas.
 """
 import os
 
@@ -31,7 +30,7 @@ async def test_array_membership_empty_and_distinct_expansion():
         )
         assert count.rows == [[3]]
         both = await db.execute_query(
-            "SELECT COUNT(DISTINCT id) FROM benchmark_items "
+            values + "SELECT COUNT(DISTINCT id) FROM benchmark_items "
             "WHERE tags @> ARRAY['Alpha','Beta']"
         )
         assert both.rows == [[1]]
