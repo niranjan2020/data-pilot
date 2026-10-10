@@ -130,7 +130,7 @@ def _metric_expression_checks(sql: str, governed_metrics: Iterable[dict[str, Any
 
 
 
-def _grouped_physical_columns(tree: exp.Select) -> set[str]:
+def _grouped_physical_columns(tree: exp.Select, *, dialect: str) -> set[str]:
     """Resolve grouped aliases through a single lateral UNNEST column lineage.
 
     Never infer lineage from unrelated joins or arbitrary expressions.
@@ -167,7 +167,7 @@ def _grouped_physical_columns(tree: exp.Select) -> set[str]:
             continue
         lateral = join.this
         source = lateral.this
-        if source is None or "UNNEST(" not in source.sql(dialect="postgres").upper():
+        if source is None or "UNNEST(" not in source.sql(dialect=sqlglot_dialect(dialect)).upper():
             continue
         inputs = list(source.find_all(exp.Column))
         if len(inputs) != 1:
@@ -205,7 +205,7 @@ def _grouping_checks(
             "message": "Grouping verification could not parse the validated SQL.",
         }]
 
-    actual = _grouped_physical_columns(tree)
+    actual = _grouped_physical_columns(tree, dialect=dialect)
 
     missing = sorted(required - actual)
     if missing:
@@ -1873,7 +1873,7 @@ def _contract_comparison_checks(
             return set(values) if values and all(v is not None for v in values) else None
         return None
 
-    grouped = _grouped_physical_columns(tree)
+    grouped = _grouped_physical_columns(tree, dialect=dialect)
     missing = []
     where = tree.args.get("where")
     for cohort in required:
