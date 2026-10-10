@@ -1,86 +1,41 @@
 # Data Pilot Roadmap
 
-## Active delivery plan — 2026-10-10: multi-table and snapshot analytics
+## CURRENT RELEASE GATE — SQL correctness, 49 real-world questions
 
-**Product goal:** prove correct answers to real questions across related tables,
-historical snapshots, and follow-up context. Data Pilot remains database- and
-domain-agnostic. Vessel, fixture, and fixture-option tables are acceptance
-fixtures, **not** hardcoded production concepts.
+**Priority 0: do not redirect development to fixtures, fixture options, or
+snapshot expansion until the user's existing 49-question acceptance suite is
+passing end to end.** Those are subsequent milestones, not discarded work.
 
-**Delivery policy:** build cohesive end-to-end feature slices, commit
-implementation and focused regressions together, use GitHub Actions for the
-full unit suite, and reserve user testing for real questions in Playground.
-A passing SQL AST test does not prove a correct answer. Record generated SQL,
-semantic bindings, result grain, and independently checked expected results.
+**Definition of done:** all 49 questions produce the intended SQL and correct
+results against the user's actual published semantic metadata and database.
+Unit tests, synthetic fixtures, SQL parsing, and CI success are supporting
+evidence, not replacements for this acceptance gate. Do not claim 49/49
+until each real question has been evaluated.
 
-### Milestone 1 — Relationship-aware query planning (NEXT)
+**Batch work rather than test-by-test interruptions:**
+1. Gather the existing 49 questions and expected interpretations/results from
+   existing repo fixtures or the user's supplied suite; avoid asking for them
+   repeatedly. If they are not in the repository or connected context, request
+   the suite once, in one batch.
+2. Run all available offline correctness and CI tests, triage failures into
+   categories, and fix related issues together: categorical mapping/filter
+   alignment, arrays, comparison cohorts, grouping/grain, joins/fan-out,
+   temporal/snapshot correctness, and follow-up context.
+3. Revalidate repaired SQL through the full safety and correctness pipeline.
+   Keep the solution generic across domains and SQL dialects.
+4. Run GitHub Actions for every integrated batch; inspect CI logs directly.
+   Do not ask the user to run individual pytest files.
+5. Run the complete 49-question acceptance suite once per meaningful batch in
+   the actual environment. Report question-level pass/fail and remaining
+   limitations accurately; do not substitute unit-test counts.
 
-- Load and publish physical relationships with join cardinality, optionality,
-  join keys, source/target entities, and approval status.
-- Resolve a question spanning vessel + fixture + fixture option to an explicit
-  relationship path; reject ambiguous paths rather than inventing joins.
-- Select the base fact/grain from the requested metric and dimensions. Protect
-  counts and averages from one-to-many join fan-out.
-- Make join path, chosen grain, rejected alternatives, and SQL visible in the
-  Playground trace.
-- Acceptance: vessel count by fixture status; fixture count by vessel operator;
-  option count by fixture attribute; fixtures without options; independent
-  reference-SQL result comparison.
-
-### Milestone 2 — Snapshot and effective-date semantics
-
-- Distinguish snapshot date/month from business event dates (signed, delivery,
-  expiry, etc.) through published time dimensions.
-- Model snapshot identity, latest available snapshot, as-of date, monthly
-  history, and no-cross-snapshot duplication.
-- Define entity identity across snapshots, snapshot-aligned joins, and explicit
-  cross-period comparison grain; clarify unspecified snapshot interpretation
-  where material.
-- Acceptance: latest snapshot vessel/fixture counts, month-over-month change,
-  as-of fixture status, trend without multiplying repeated snapshots, and
-  fixtures joined to the correct vessel snapshot.
-
-### Milestone 3 — Fixture lifecycle and optional relationships
-
-- Publish fixture-to-vessel and fixture-option-to-fixture relationships, plus
-  effective-status and lifecycle rules from actual source metadata.
-- Preserve parent fixtures with no options when the question requires them;
-  use INNER versus LEFT joins deliberately.
-- Handle multi-option fixtures, duplicates, cancellations, and business-valid
-  status transitions without hardcoded maritime labels.
-- Acceptance: fixture counts by operator/segment; active fixtures with options;
-  fixtures without options; counts of distinct fixtures versus options; latest
-  status as of a chosen date.
-
-### Milestone 4 — Follow-up and comparative analytics
-
-- Preserve selected metric, relationship path, cohort definitions, and snapshot
-  semantics across follow-ups; change only explicitly modified dimensions.
-- Support cross-period and cross-cohort comparisons at consistent grain.
-- Surface clarification when a term could bind to operator, owner, fixture
-  counterparty, or another published attribute.
-- Acceptance: compare operators, restrict to a segment, switch to previous
-  month, and drill into options without silently changing count grain.
-
-### Milestone 5 — Evaluation, OSS onboarding, and release hardening
-
-- Wire real generated predictions to independent golden SQL/result evaluation;
-  never mark missing prediction evidence as passed.
-- Publish sample datasets and a reproducible multi-table snapshot fixture.
-- Test local onboarding, migrations, provider failures, dry-run, tracing,
-  and read-only execution against a real database.
-- SaaS billing, tenancy, and commercial deployment remain a later phase.
-
-### Immediate next implementation slice
-
-**Relationship path + grain contract for a 3-table join**, integrated into
-semantic selection, SQL validation, and trace, with real-question acceptance
-cases. Before writing maritime-specific semantics, inspect the user's actual
-vessel/fixture/option keys, date columns, and published relationship metadata.
-Do not assume foreign keys or status meanings that have not been supplied.
+**Later (not cancelled):** multi-table vessel/fixture/fixture-option joins,
+snapshot-aware analytics, fixture lifecycle, conversational analytics, OSS
+onboarding, and SaaS.
 
 ---
 
+## Subsequent milestones — after the 49-question SQL correctness gate
 
 ## Consolidated offline-to-live evaluation gate — 2026-10-09
 
