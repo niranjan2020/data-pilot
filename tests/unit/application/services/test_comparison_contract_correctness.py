@@ -34,3 +34,24 @@ def test_contract_uses_exact_canonical_values_not_substrings():
         aggregation_grain=["status"],
     )
     assert any(c["code"] == "comparison_contract_violation" for c in checks)
+
+
+def test_comparison_contract_violation_is_eligible_for_one_bounded_regeneration():
+    from datapilot.application.services.sql_correction import classify_sql_correction
+    decision = classify_sql_correction(correctness_checks=[{
+        "code": "comparison_contract_violation",
+        "status": "failed",
+        "severity": "error",
+        "missing_columns": ["status"],
+    }])
+    assert decision.recoverable is True
+    assert decision.feedback[0]["missing_columns"] == ["status"]
+
+
+def test_unverifiable_comparison_cannot_bypass_fail_closed_policy():
+    from datapilot.application.services.sql_correction import classify_sql_correction
+    decision = classify_sql_correction(correctness_checks=[
+        {"code": "comparison_contract_violation", "status": "failed"},
+        {"code": "filter_verification_unavailable", "status": "skipped"},
+    ])
+    assert decision.recoverable is False
