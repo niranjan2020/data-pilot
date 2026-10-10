@@ -558,7 +558,7 @@ def _filter_checks(
                 col + r"\s*&&\s*ARRAY\s*\[\s*'" + val + r"'\s*\]",
             )
             matched = any(
-                re.fullmatch(pattern, predicate.sql(dialect="postgres").strip(), re.I)
+                re.fullmatch(pattern, predicate.sql(dialect=sqlglot_dialect(dialect)).strip(), re.I)
                 for predicate in conjuncts
                 for pattern in patterns
             )
