@@ -338,10 +338,9 @@ def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> lis
         )):
             cohort_columns.add(_normalise(cohort_column.name))
             key = _normalise(cohort_column.name)
-            if key in cohort_values:
-                cohort_values[key].intersection_update(values)
-            else:
-                cohort_values[key] = set(values)
+            # Preserve the first qualifying comparison set as the baseline.
+            # Later IN predicates must be checked against it, not redefine it.
+            cohort_values.setdefault(key, set(values))
     missing = sorted(cohort_columns - grouped)
     if not cohort_columns:
         return []
@@ -349,13 +348,25 @@ def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> lis
     # even when the original IN list and GROUP BY look correct.
     restricted: set[str] = set()
     for predicate in conjuncts:
+        # NOT (column IN (...)) is represented as a Not wrapping a
+        # parenthesized expression; inspect it before column-based guards.
+        if isinstance(predicate, exp.Not):
+            negated = predicate.this
+            while isinstance(negated, exp.Paren):
+                negated = negated.this
+            if isinstance(negated, exp.In):
+                target = negated.this
+                if isinstance(target, exp.Column):
+                    key = _normalise(target.name)
+                    if key in cohort_values:
+                        restricted.add(key)
+            continue
         for column_name, values in cohort_values.items():
             column = getattr(predicate, "this", None)
             if not isinstance(column, exp.Column) or _normalise(column.name) != column_name:
                 continue
             if isinstance(predicate, exp.EQ) and isinstance(predicate.expression, exp.Literal):
-                if str(predicate.expression.this).casefold() not in values or len(values) > 1:
-                    restricted.add(column_name)
+                restricted.add(column_name)
             elif isinstance(predicate, exp.In) and all(
                 isinstance(value, exp.Literal) for value in predicate.expressions
             ):
@@ -364,13 +375,6 @@ def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> lis
                     restricted.add(column_name)
             elif isinstance(predicate, exp.NEQ):
                 restricted.add(column_name)
-            elif isinstance(predicate, exp.Not):
-                negated = predicate.this
-                while isinstance(negated, exp.Paren):
-                    negated = negated.this
-                if isinstance(negated, exp.In) and isinstance(negated.this, exp.Column):
-                    if _normalise(negated.this.name) == column_name:
-                        restricted.add(column_name)
     if restricted:
         return [{
             "code": "comparison_dimension_violation",
