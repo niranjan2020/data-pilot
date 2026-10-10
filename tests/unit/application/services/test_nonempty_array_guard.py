@@ -99,3 +99,63 @@ def test_unrelated_nonempty_attribute_does_not_require_labels_filter():
         'Show items with non-empty descriptions',
         'SELECT id FROM public.items', ENTITIES,
     )
+
+
+@pytest.mark.parametrize('sql', [
+    'SELECT id FROM public.items',
+    'SELECT id FROM public.items WHERE labels IS NOT NULL',
+    'SELECT id FROM public.items WHERE id > 10',
+])
+def test_published_nonempty_phrase_requires_positive_filter(sql):
+    entities = [{'name': 'Items', 'attributes': [{
+        'name': 'Labels', 'column_name': 'labels', 'data_type': 'text[]',
+        'nonempty_intent_phrases': ['label enabled', 'has labels'],
+    }]}]
+    with pytest.raises(SQLValidationError, match='nonempty array'):
+        QueryOrchestrator._validate_nonempty_array_filters(
+            'Show label enabled items', sql, entities,
+        )
+
+
+def test_published_nonempty_phrase_accepts_positive_cardinality():
+    entities = [{'name': 'Items', 'attributes': [{
+        'name': 'Labels', 'column_name': 'labels', 'data_type': 'text[]',
+        'nonempty_intent_phrases': ['label enabled'],
+    }]}]
+    QueryOrchestrator._validate_nonempty_array_filters(
+        'Show label enabled items',
+        'SELECT id FROM public.items WHERE CARDINALITY(labels) > 0',
+        entities,
+    )
+
+
+def test_unpublished_business_phrase_does_not_imply_nonempty():
+    QueryOrchestrator._validate_nonempty_array_filters(
+        'Show label enabled items',
+        'SELECT id FROM public.items WHERE labels IS NOT NULL',
+        ENTITIES,
+    )
+
+
+def test_governed_nonempty_phrase_is_attribute_scoped():
+    entities = [{'name': 'Items', 'attributes': [{
+        'name': 'Labels', 'column_name': 'labels', 'data_type': 'text[]',
+        'nonempty_intent_phrases': ['label enabled'],
+    }]}]
+    QueryOrchestrator._validate_nonempty_array_filters(
+        'Show category enabled items',
+        'SELECT id FROM public.items',
+        entities,
+    )
+
+
+def test_nonarray_attribute_does_not_apply_governed_nonempty_phrase():
+    entities = [{'name': 'Items', 'attributes': [{
+        'name': 'Labels', 'column_name': 'labels', 'data_type': 'text',
+        'nonempty_intent_phrases': ['label enabled'],
+    }]}]
+    QueryOrchestrator._validate_nonempty_array_filters(
+        'Show label enabled items',
+        'SELECT id FROM public.items',
+        entities,
+    )
