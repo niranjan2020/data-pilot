@@ -1898,7 +1898,12 @@ def _contract_comparison_checks(
     except Exception:
         return failure([], "SQL cannot be parsed against the semantic contract.")
     if not isinstance(tree, exp.Select):
-        return failure([], "Comparison and grain contract requires an inspectable SELECT.")
+        # Do not accept an opaque/unsupported statement. Surface its shape
+        # and SQL for targeted dialect handling instead of weakening checks.
+        result = failure([], "Comparison and grain contract requires an inspectable SELECT.")
+        result[0]["parsed_expression_type"] = type(tree).__name__
+        result[0]["sql_excerpt"] = sql[:3000]
+        return result
 
     def column_name(node):
         return _normalise(node.name) if isinstance(node, exp.Column) else None
