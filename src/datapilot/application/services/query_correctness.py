@@ -1772,6 +1772,60 @@ def _array_and_period_grain_checks(sql: str, *, dialect: str) -> list[dict[str, 
     return checks
 
 
+def _contract_comparison_checks(sql: str, *, cohorts: Iterable[dict[str, Any]], grain: Iterable[str], dialect: str) -> list[dict[str, Any]]:
+    """Fail closed when SQL does not preserve explicitly resolved cohorts."""
+    required = list(cohorts)
+    if not required:
+        return []
+    try:
+        tree = parse_one(sql, read=sqlglot_dialect(dialect))
+    except Exception:
+        tree = None
+    if not isinstance(tree, exp.Select):
+        return [{"code": "comparison_contract_violation", "status": "failed", "severity": "error",
+                 "message": "Comparison SQL could not be inspected as SELECT."}]
+    group = tree.args.get("group")
+    grouped = {_normalise(col.name) for expr in (group.expressions if group else [])
+               for col in expr.find_all(exp.Column)}
+    where = tree.args.get("where")
+    pending = [where.this] if where else []
+    conjuncts = []
+    while pending:
+        node = pending.pop()
+        if isinstance(node, exp.And):
+            pending.extend([node.this, node.expression])
+        else:
+            conjuncts.append(node)
+    missing = []
+    for cohort in required:
+        column = _normalise(cohort.get("column_name", "")).rsplit(".", 1)[-1]
+        values = {str(v) for v in cohort.get("values", [])}
+        if not column or len(values) < 2:
+            continue
+        present = any(
+            isinstance(p, exp.In)
+            and isinstance(p.this, exp.Column)
+            and _normalise(p.this.name) == column
+            and len(p.expressions) >= len(values)
+            and all(isinstance(v, exp.Literal) for v in p.expressions)
+            and values.issubset({str(v.this) for v in p.expressions})
+            for p in conjuncts
+        )
+        if not present or column not in grouped:
+            missing.append(column)
+    if any(isinstance(a, exp.AggFunc) for a in tree.find_all(exp.AggFunc)):
+        missing.extend(
+            _normalise(c).rsplit(".", 1)[-1] for c in grain
+            if _normalise(c).rsplit(".", 1)[-1] not in grouped
+        )
+    if missing:
+        return [{"code": "comparison_contract_violation", "status": "failed",
+                 "severity": "error", "missing_columns": sorted(set(missing)),
+                 "message": "Generated SQL does not preserve comparison cohorts and aggregation grain."}]
+    return [{"code": "comparison_contract_alignment", "status": "passed",
+             "severity": "info", "message": "Comparison cohorts and aggregation grain are preserved."}]
+
+
 def assess_query_correctness(
     *,
     affected_tables: Iterable[str],
@@ -1785,6 +1839,8 @@ def assess_query_correctness(
     required_time_plan: dict[str, Any] | None = None,
     trusted_published_relationships: Iterable[dict[str, Any]] | None = None,
     dialect: str = "postgresql",
+    comparison_cohorts: Iterable[dict[str, Any]] = (),
+    aggregation_grain: Iterable[str] = (),
 ) -> list[dict[str, Any]]:
     """Return deterministic pre-execution alignment checks.
 
@@ -1809,6 +1865,9 @@ def assess_query_correctness(
         sql, question=question, required_grouping_columns=required_grouping_columns, dialect=dialect,
     ) if sql else []
     comparison_checks = _comparison_grouping_checks(sql, question=question, dialect=dialect) if sql else []
+    contract_comparison_checks = _contract_comparison_checks(
+        sql, cohorts=comparison_cohorts, grain=aggregation_grain, dialect=dialect,
+    ) if sql else []
     required_relationships = list(required_relationships)
     # Only the orchestrator may supply this trusted, DB-backed grant set.
     # Never infer publication from flags on a relationship request.
@@ -1875,7 +1934,7 @@ def assess_query_correctness(
                 })
     fanout_checks = _fanout_checks(sql, governed_metrics=governed_metrics, required_relationships=required_relationships, dialect=dialect) if sql else []
     time_checks = _time_checks(sql, required_time_plan=required_time_plan, dialect=dialect) if sql else []
-    semantic_checks = metric_checks + grouping_checks + ranking_grain_checks + explicit_grain_checks + comparison_checks + filter_checks + relationship_checks + publication_checks + join_policy_checks + fanout_checks + time_checks + (_array_and_period_grain_checks(sql, dialect=dialect) if sql else [])
+    semantic_checks = metric_checks + grouping_checks + ranking_grain_checks + explicit_grain_checks + comparison_checks + contract_comparison_checks + filter_checks + relationship_checks + publication_checks + join_policy_checks + fanout_checks + time_checks + (_array_and_period_grain_checks(sql, dialect=dialect) if sql else [])
 
     if not governed:
         return semantic_checks + [{
