@@ -2100,6 +2100,47 @@ class QueryOrchestrator:
                     for predicate in conjuncts(where.this):
                         if isinstance(predicate, exp.Paren):
                             predicate = predicate.this
+                        # PostgreSQL array membership is not scalar equality.
+                        # Require the governed column and canonical string literals
+                        # on a single positive outer WHERE conjunct. For multiple
+                        # required values, only containment guarantees ALL values;
+                        # overlap/ANY express ANY-of and cannot prove both.
+                        if data_type.endswith("[]") or "array" in data_type:
+                            predicate_sql = predicate.sql(dialect=sqlglot_dialect(dialect))
+                            array_columns = [c for c in predicate.find_all(exp.Column) if correct_column(c)]
+                            if len(array_columns) != 1:
+                                continue
+                            col_sql = array_columns[0].sql(dialect=sqlglot_dialect(dialect))
+                            import re as _re
+                            escaped_col = _re.escape(col_sql)
+                            # Anchored syntax prevents unrelated nested expressions
+                            # or literal strings from satisfying the requirement.
+                            containment = _re.fullmatch(
+                                rf"\\s*{escaped_col}\\s*@>\\s*ARRAY\\s*\\[(.*?)\\](?:::text\\[\\])?\\s*",
+                                predicate_sql, flags=_re.I | _re.S,
+                            )
+                            any_member = _re.fullmatch(
+                                rf"\\s*'((?:''|[^'])*)'\\s*=\\s*ANY\\s*\\(\\s*{escaped_col}\\s*\\)\\s*",
+                                predicate_sql, flags=_re.I | _re.S,
+                            )
+                            overlap = _re.fullmatch(
+                                rf"\\s*{escaped_col}\\s*&&\\s*ARRAY\\s*\\[(.*?)\\](?:::text\\[\\])?\\s*",
+                                predicate_sql, flags=_re.I | _re.S,
+                            )
+                            observed = set()
+                            if containment or (overlap and len(matched) == 1):
+                                body = (containment or overlap).group(1)
+                                literals = _re.fullmatch(
+                                    r"\\s*'((?:''|[^'])*)'(?:\\s*,\\s*'((?:''|[^'])*)')*\\s*", body,
+                                )
+                                if literals:
+                                    observed = {v.replace("''", "'").casefold()
+                                                for v in _re.findall(r"'((?:''|[^'])*)'", body)}
+                            elif any_member and len(matched) == 1:
+                                observed = {any_member.group(1).replace("''", "'").casefold()}
+                            if {v.casefold() for v in matched}.issubset(observed):
+                                constrained.update(observed)
+                            continue
                         if not isinstance(predicate, (exp.EQ, exp.In)):
                             continue
                         lhs = predicate.this
