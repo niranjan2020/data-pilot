@@ -78,3 +78,33 @@ def test_does_not_require_literal_array_filter_for_unnest_grouping():
         "Show counts for alpha tag and beta tag",
         "SELECT tag, COUNT(*) FROM public.items CROSS JOIN LATERAL UNNEST(tags) AS tag GROUP BY tag",
     )
+
+def test_repairs_single_case_only_containment_literal():
+    original = "SELECT id FROM public.items WHERE tags @> ARRAY['alpha']"
+    with pytest.raises(SQLValidationError) as captured:
+        validate("Find items with alpha tag", original)
+    repaired = QueryOrchestrator._repair_canonical_array_literal(original, captured.value)
+    assert repaired is not None
+    assert "ARRAY['Alpha']" in repaired
+    validate("Find items with alpha tag", repaired)
+
+
+def test_repair_does_not_guess_missing_array_category():
+    original = "SELECT id FROM public.items WHERE tags @> ARRAY['Alpha']"
+    with pytest.raises(SQLValidationError) as captured:
+        validate("Find items with alpha tag and beta tag", original)
+    assert QueryOrchestrator._repair_canonical_array_literal(original, captured.value) is None
+
+
+def test_repair_rejects_joined_queries():
+    original = "SELECT i.id FROM public.items i JOIN public.other o ON i.id = o.id WHERE i.tags @> ARRAY['alpha']"
+    with pytest.raises(SQLValidationError) as captured:
+        validate("Find items with alpha tag", original)
+    assert QueryOrchestrator._repair_canonical_array_literal(original, captured.value) is None
+
+
+def test_repair_rejects_or_predicates():
+    original = "SELECT id FROM public.items WHERE tags @> ARRAY['alpha'] OR id = 1"
+    with pytest.raises(SQLValidationError) as captured:
+        validate("Find items with alpha tag", original)
+    assert QueryOrchestrator._repair_canonical_array_literal(original, captured.value) is None
