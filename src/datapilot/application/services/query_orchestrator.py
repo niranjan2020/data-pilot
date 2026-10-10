@@ -2247,20 +2247,19 @@ class QueryOrchestrator:
                     for aggregate in ast.find_all(exp.AggFunc):
                         if aggregate.find_ancestor(exp.Select) is not ast:
                             continue
+                        aggregate_codes = set()
                         for case in aggregate.find_all(exp.Case):
-                            case_columns = list(case.find_all(exp.Column))
-                            if not any(correct_column(c) for c in case_columns):
+                            if not any(correct_column(c) for c in case.find_all(exp.Column)):
                                 continue
                             literals = {
-                                str(v.this).casefold()
-                                for v in case.find_all(exp.Literal) if v.is_string
+                                str(v.this) for v in case.find_all(exp.Literal) if v.is_string
                             }
-                            matches_in_case = {
-                                value.casefold() for value in matched
-                                if value.casefold() in literals
-                            }
-                            if len(matches_in_case) == 1:
-                                covered.update(matches_in_case)
+                            aggregate_codes.update(
+                                value.casefold() for value in matched if value in literals
+                            )
+                        # Each aggregate must isolate exactly one cohort.
+                        if len(aggregate_codes) == 1:
+                            covered.update(aggregate_codes)
                     if {v.casefold() for v in matched}.issubset(covered):
                         constrained.update(covered)
                 # AND-combined positive ANY predicates require every listed
@@ -2268,7 +2267,7 @@ class QueryOrchestrator:
                 if not constrained and len(matched) >= 2 and where and (
                     data_type.endswith("[]") or "array" in data_type
                 ):
-                    required_codes = {v.casefold() for v in matched}
+                    required_codes = set(matched)
                     found_codes = set()
                     safe = True
                     for predicate in conjuncts(where.this):
@@ -2286,13 +2285,13 @@ class QueryOrchestrator:
                             if isinstance(literal, exp.Literal) and literal.is_string and isinstance(member, exp.Any):
                                 operand = member.this.this if isinstance(member.this, exp.Paren) else member.this
                                 if correct_column(operand):
-                                    code = str(literal.this).casefold()
+                                    code = str(literal.this)
                         if code not in required_codes:
                             safe = False
                             break
                         found_codes.add(code)
                     if safe and required_codes.issubset(found_codes):
-                        constrained.update(found_codes)
+                        constrained.update(v.casefold() for v in found_codes)
                 missing = [v for v in matched if v.casefold() not in constrained]
                 if missing:
                     raise SQLValidationError(
