@@ -9,6 +9,7 @@ from typing import Any, Iterable
 RECOVERABLE_CORRECTNESS_CODES = frozenset({
     "metric_expression_violation",
     "grouping_dimension_violation",
+    "comparison_contract_violation",
     "filter_violation",
     "relationship_violation",
     "join_fanout_violation",
