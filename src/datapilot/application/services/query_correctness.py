@@ -338,9 +338,13 @@ def _comparison_grouping_checks(sql: str, *, question: str, dialect: str) -> lis
         )):
             cohort_columns.add(_normalise(cohort_column.name))
             key = _normalise(cohort_column.name)
-            # Preserve the first qualifying comparison set as the baseline.
-            # Later IN predicates must be checked against it, not redefine it.
-            cohort_values.setdefault(key, set(values))
+            # Use the narrowest candidate cohort set as the baseline.
+            # A wider additional IN list must not redefine the requested
+            # comparison, regardless of SQLGlot's conjunct traversal order.
+            # Equal-size candidates keep the first encountered baseline.
+            previous = cohort_values.get(key)
+            if previous is None or len(values) < len(previous):
+                cohort_values[key] = set(values)
     missing = sorted(cohort_columns - grouped)
     if not cohort_columns:
         return []
