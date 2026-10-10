@@ -713,3 +713,50 @@ def test_governed_array_both_categories_rejects_any_of_filter(predicate):
             f"SELECT COUNT(*) FROM public.assets WHERE {predicate}",
             entities,
         )
+
+
+FUEL_ENTITIES = [{
+    "name": "Inventory", "schema_name": "public", "table_name": "inventory",
+    "attributes": [{
+        "column_name": "fuel_types", "data_type": "text[]",
+        "value_mappings": [
+            {"canonical_value": "LNG", "synonyms": ["lng"]},
+            {"canonical_value": "Methanol", "synonyms": ["methanol"]},
+        ],
+    }],
+}]
+
+
+def test_comparison_accepts_separate_conditional_array_aggregates():
+    sql = (
+        "SELECT category, "
+        "COUNT(CASE WHEN 'LNG' = ANY(fuel_types) THEN id END) AS lng_count, "
+        "COUNT(CASE WHEN 'Methanol' = ANY(fuel_types) THEN id END) AS methanol_count "
+        "FROM public.inventory GROUP BY category"
+    )
+    QueryOrchestrator._validate_explicit_categorical_comparison(
+        "Compare LNG and methanol inventory counts by category", sql, FUEL_ENTITIES
+    )
+
+
+def test_comparison_accepts_conjunctive_array_membership_for_both_values():
+    sql = (
+        "SELECT COUNT(*) FROM public.inventory WHERE "
+        "'LNG' = ANY(fuel_types) AND 'Methanol' = ANY(fuel_types)"
+    )
+    QueryOrchestrator._validate_explicit_categorical_comparison(
+        "How many inventory items have both LNG and methanol?", sql, FUEL_ENTITIES
+    )
+
+
+@pytest.mark.parametrize("where", [
+    "'LNG' = ANY(fuel_types) OR 'Methanol' = ANY(fuel_types)",
+    "'LNG' = ANY(fuel_types) AND 'LNG' = ANY(fuel_types)",
+    "'LNG' = ANY(fuel_types) AND 'methanol' = ANY(fuel_types)",
+])
+def test_comparison_rejects_nonconjunctive_or_noncanonical_array_values(where):
+    with pytest.raises(SQLValidationError):
+        QueryOrchestrator._validate_explicit_categorical_comparison(
+            "How many inventory items have both LNG and methanol?",
+            "SELECT COUNT(*) FROM public.inventory WHERE " + where, FUEL_ENTITIES
+        )
