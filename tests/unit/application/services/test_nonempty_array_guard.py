@@ -291,3 +291,26 @@ def test_repair_refuses_missing_or_untrusted_error_metadata():
     assert QueryOrchestrator._repair_nonempty_array_filter(
         'SELECT labels FROM public.items', error,
     ) is None
+
+
+@pytest.mark.parametrize('sql', [
+    'SELECT labels FROM public.items WHERE labels IS NOT NULL',
+    'SELECT labels FROM public.items WHERE labels IS NOT NULL AND id > 0',
+    'SELECT labels FROM public.items WHERE id > 0 AND labels IS NOT NULL',
+    'SELECT labels FROM public.items WHERE (labels IS NOT NULL AND id > 0)',
+])
+def test_repair_removes_redundant_null_check_but_retains_other_filters(sql):
+    repaired = QueryOrchestrator._repair_nonempty_array_filter(sql, _nonempty_error())
+    assert repaired is not None
+    assert 'CARDINALITY(labels) > 0' in repaired
+    assert 'labels IS NOT NULL' not in repaired
+    if 'id > 0' in sql:
+        assert 'id > 0' in repaired
+
+
+def test_repair_preserves_nontrivial_array_business_filter():
+    sql = "SELECT labels FROM public.items WHERE labels <> '{}' AND id > 0"
+    repaired = QueryOrchestrator._repair_nonempty_array_filter(sql, _nonempty_error())
+    assert repaired is not None
+    assert 'CARDINALITY(labels) > 0' in repaired
+    assert 'id > 0' in repaired
