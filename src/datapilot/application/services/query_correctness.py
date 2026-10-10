@@ -411,18 +411,18 @@ def _filter_checks(
                 matched = True
                 break
 
-        # Array-valued semantic attributes require membership, not scalar
-        # equality. Only accept a predicate tying the governed column to the
-        # canonical literal; unrelated literal occurrences cannot satisfy it.
-        if not matched and operator == "=" and str(item.get("data_type") or "").lower() in ("array", "text[]"):
+        # SQLGlot parses PostgreSQL @>/ANY/&& into dialect-specific AST
+        # nodes. Check the predicate operator, governed column and literal
+        # together; unrelated occurrences of the literal do not count.
+        if not matched and operator == "=" and str(item.get("data_type") or "").casefold() in ("array", "text[]"):
             import re
             rendered = tree.sql(dialect=sqlglot_dialect(dialect))
-            col = r'(?:"?[a-z_][a-z0-9_]*"?\\.)?"?' + re.escape(column_name) + r'"?'
+            col = r'(?:"?[a-z_][a-z0-9_]*"?\.)?"?' + re.escape(column_name) + r'"?'
             val = re.escape(expected_value)
             patterns = (
-                col + r"\\s*@>\\s*ARRAY\\s*\\[\\s*'" + val + r"'\\s*\\]",
-                r"'" + val + r"'\\s*=\\s*ANY\\s*\\(\\s*" + col + r"\\s*\\)",
-                col + r"\\s*&&\\s*ARRAY\\s*\\[\\s*'" + val + r"'\\s*\\]",
+                col + r"\s*@>\s*ARRAY\s*\[\s*'" + val + r"'\s*\]",
+                r"'" + val + r"'\s*=\s*ANY\s*\(\s*" + col + r"\s*\)",
+                col + r"\s*&&\s*ARRAY\s*\[\s*'" + val + r"'\s*\]",
             )
             matched = any(re.search(pattern, rendered, re.I) for pattern in patterns)
 
