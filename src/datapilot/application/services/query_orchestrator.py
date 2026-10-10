@@ -2106,38 +2106,36 @@ class QueryOrchestrator:
                         # required values, only containment guarantees ALL values;
                         # overlap/ANY express ANY-of and cannot prove both.
                         if data_type.endswith("[]") or "array" in data_type:
-                            predicate_sql = predicate.sql(dialect=sqlglot_dialect(dialect))
-                            array_columns = [c for c in predicate.find_all(exp.Column) if correct_column(c)]
-                            if len(array_columns) != 1:
-                                continue
-                            col_sql = array_columns[0].sql(dialect=sqlglot_dialect(dialect))
-                            import re as _re
-                            escaped_col = _re.escape(col_sql)
-                            # Anchored syntax prevents unrelated nested expressions
-                            # or literal strings from satisfying the requirement.
-                            containment = _re.fullmatch(
-                                rf"\\s*{escaped_col}\\s*@>\\s*ARRAY\\s*\\[(.*?)\\](?:::text\\[\\])?\\s*",
-                                predicate_sql, flags=_re.I | _re.S,
-                            )
-                            any_member = _re.fullmatch(
-                                rf"\\s*'((?:''|[^'])*)'\\s*=\\s*ANY\\s*\\(\\s*{escaped_col}\\s*\\)\\s*",
-                                predicate_sql, flags=_re.I | _re.S,
-                            )
-                            overlap = _re.fullmatch(
-                                rf"\\s*{escaped_col}\\s*&&\\s*ARRAY\\s*\\[(.*?)\\](?:::text\\[\\])?\\s*",
-                                predicate_sql, flags=_re.I | _re.S,
-                            )
+                            # SQLGlot normalizes PostgreSQL operators into AST
+                            # nodes; matching re-serialized SQL is unreliable.
+                            def literal_values(node):
+                                if isinstance(node, exp.Paren):
+                                    return literal_values(node.this)
+                                if isinstance(node, exp.Cast):
+                                    return literal_values(node.this)
+                                if isinstance(node, exp.Array):
+                                    values = node.expressions
+                                    if all(isinstance(v, exp.Literal) and v.is_string for v in values):
+                                        return {str(v.this).casefold() for v in values}
+                                if isinstance(node, exp.Literal) and node.is_string:
+                                    return {str(node.this).casefold()}
+                                return set()
+
+                            kind = predicate.key.casefold()
+                            lhs = predicate.this
+                            rhs = predicate.expression
                             observed = set()
-                            if containment or (overlap and len(matched) == 1):
-                                body = (containment or overlap).group(1)
-                                literals = _re.fullmatch(
-                                    r"\\s*'((?:''|[^'])*)'(?:\\s*,\\s*'((?:''|[^'])*)')*\\s*", body,
-                                )
-                                if literals:
-                                    observed = {v.replace("''", "'").casefold()
-                                                for v in _re.findall(r"'((?:''|[^'])*)'", body)}
-                            elif any_member and len(matched) == 1:
-                                observed = {any_member.group(1).replace("''", "'").casefold()}
+                            if kind in {"arraycontains", "array_contains"} and correct_column(lhs):
+                                observed = literal_values(rhs)
+                            elif kind in {"arrayoverlaps", "array_overlaps"} and correct_column(lhs):
+                                if len(matched) == 1:
+                                    observed = literal_values(rhs)
+                            elif isinstance(predicate, exp.EQ):
+                                # 'LNG' = ANY(array_col) is single-value membership.
+                                if len(matched) == 1:
+                                    for value, any_node in ((lhs, rhs), (rhs, lhs)):
+                                        if isinstance(any_node, exp.Any) and correct_column(any_node.this):
+                                            observed = literal_values(value)
                             if {v.casefold() for v in matched}.issubset(observed):
                                 constrained.update(observed)
                             continue
