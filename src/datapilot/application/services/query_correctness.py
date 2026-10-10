@@ -522,16 +522,21 @@ def _filter_checks(
         for predicate in conjuncts:
             if not isinstance(predicate, node_type):
                 continue
-            left_columns = {
-                _normalise(column.name) for column in predicate.this.find_all(exp.Column)
-            } if predicate.this is not None else set()
-            right_columns = {
-                _normalise(column.name) for column in predicate.expression.find_all(exp.Column)
-            } if predicate.expression is not None else set()
+            # A column appearing *inside* an arbitrary expression does not
+            # establish the governed predicate. For example,
+            # COALESCE(status, 'active') = 'active' must not satisfy
+            # status = 'active'. Only a direct column or a case-normalizing
+            # LOWER(column) expression is an approved operand.
+            def governed_operand(node: exp.Expression | None) -> str | None:
+                if isinstance(node, exp.Lower):
+                    node = node.this
+                if isinstance(node, exp.Column):
+                    return _normalise(node.name)
+                return None
 
-            if column_name in left_columns:
+            if governed_operand(predicate.this) == column_name:
                 actual = literal_value(predicate.expression)
-            elif column_name in right_columns and operator == "=":
+            elif operator == "=" and governed_operand(predicate.expression) == column_name:
                 actual = literal_value(predicate.this)
             else:
                 continue
