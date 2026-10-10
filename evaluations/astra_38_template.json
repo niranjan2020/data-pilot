@@ -1,0 +1,236 @@
+[
+  {
+    "id": "3A-1",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3A-2",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3A-3",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3A-4",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3A-5",
+    "question": "",
+    "expect": null,
+    "baseline_issue": "empty array"
+  },
+  {
+    "id": "3A-6",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3A-7",
+    "question": "",
+    "expect": null,
+    "baseline_issue": "unnest grouping"
+  },
+  {
+    "id": "3A-8",
+    "question": "",
+    "expect": null,
+    "baseline_issue": "canonical array literal"
+  },
+  {
+    "id": "3A-9",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3A-10",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3B-1",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3B-2",
+    "question": "",
+    "expect": null,
+    "baseline_issue": "numeric year comparison"
+  },
+  {
+    "id": "3B-3",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3B-4",
+    "question": "",
+    "expect": null,
+    "baseline_issue": "onboarding boundary"
+  },
+  {
+    "id": "3B-5",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3B-6",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3B-7",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3B-8",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3B-9",
+    "question": "",
+    "expect": null,
+    "baseline_issue": "numeric year comparison"
+  },
+  {
+    "id": "3B-10",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3C-1",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3C-2",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3C-3",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3C-4",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3C-5",
+    "question": "",
+    "expect": null,
+    "baseline_issue": "top-N boundary"
+  },
+  {
+    "id": "3C-6",
+    "question": "",
+    "expect": null,
+    "baseline_issue": "governed correctness"
+  },
+  {
+    "id": "3C-7",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3C-8",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3C-9",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3C-10",
+    "question": "",
+    "expect": null,
+    "baseline_issue": "grouping grain"
+  },
+  {
+    "id": "3D-1",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3D-2",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3D-3",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3D-4",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3D-5",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3D-6",
+    "question": "",
+    "expect": null,
+    "baseline_issue": null
+  },
+  {
+    "id": "3D-7",
+    "question": "",
+    "expect": null,
+    "baseline_issue": "metric governance"
+  },
+  {
+    "id": "3D-8",
+    "question": "",
+    "expect": null,
+    "baseline_issue": "period grain"
+  },
+  {
+    "id": "3D-9",
+    "question": "",
+    "expect": null,
+    "baseline_issue": "empty array"
+  }
+]
