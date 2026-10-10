@@ -75,3 +75,20 @@ def test_extra_predicate_cannot_eliminate_required_cohort(extra):
         aggregation_grain=["status"],
     )
     assert any(c["code"] == "comparison_contract_violation" for c in checks)
+
+
+@pytest.mark.parametrize("sql,expected", [
+    ("SELECT region, COUNT(*) FROM public.items GROUP BY region", "passed"),
+    ("SELECT COUNT(*) FROM public.items", "failed"),
+    ("SELECT category, COUNT(*) FROM public.items GROUP BY category", "failed"),
+])
+def test_explicit_aggregation_grain_without_comparison_cohorts(sql, expected):
+    checks = assess_query_correctness(
+        affected_tables=["public.items"],
+        governed_tables=["public.items"],
+        sql=sql,
+        aggregation_grain=["region"],
+    )
+    matches = [c for c in checks if c["code"].startswith("comparison_contract_")]
+    assert len(matches) == 1
+    assert matches[0]["status"] == expected
