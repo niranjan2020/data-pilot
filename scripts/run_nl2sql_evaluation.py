@@ -21,6 +21,21 @@ def evaluate_case(case: dict, response: dict) -> dict:
     sql = response.get("sql") or ""
     trace = response.get("trace") or {}
     checks = []
+    execution_status = (
+        "succeeded" if status == "completed" and response.get("result") is not None
+        else "api_error" if status == "http_error"
+        else "not_executed" if status == "completed"
+        else "rejected" if status in ("rejected", "clarification_required", "needs_clarification")
+        else "other"
+    )
+    details = response.get("details") or {}
+    error_payload = details.get("detail", details) if isinstance(details, dict) else {}
+    error_payload = error_payload if isinstance(error_payload, dict) else {}
+    error_info = error_payload.get("details") or {}
+    if not isinstance(error_info, dict):
+        error_info = {}
+    error_codes = [c.get("code") for c in error_info.get("checks", []) if isinstance(c, dict)]
+    semantic_approved = case.get("review_status") == "approved"
     for field, actual in (("status", status),):
         if field in expected:
             checks.append({"check": field, "passed": actual == expected[field]})
@@ -56,7 +71,16 @@ def evaluate_case(case: dict, response: dict) -> dict:
         "reference_sql": case.get("reference_sql"),
         "duplicate_of": case.get("duplicate_of"),
         "status": status, "sql": sql, "checks": checks,
-        "verdict": ("unreviewed" if not checks else
+        "execution_status": execution_status,
+        "error_type": error_payload.get("error"),
+        "error_message": error_payload.get("message"),
+        "error_codes": error_codes,
+        "sql_checks_status": ("passed" if checks and all(c["passed"] for c in checks)
+                              else "failed" if checks else "not_configured"),
+        "semantic_status": ("not_verified" if not semantic_approved or not checks
+                            else "passed" if all(c["passed"] for c in checks)
+                            else "failed"),
+        "verdict": ("unreviewed" if not checks or not semantic_approved else
                     "pass" if all(item["passed"] for item in checks) else "needs_review"),
         "response": response,
     }
@@ -125,7 +149,12 @@ def main() -> int:
             break
     summary = {key: sum(x["verdict"] == key for x in results)
                for key in ("pass", "needs_review", "unreviewed", "not_configured", "transport_error")}
+    execution_summary = {key: sum(x.get("execution_status") == key for x in results)
+                         for key in ("succeeded", "api_error", "rejected", "not_executed", "other")}
+    semantic_summary = {key: sum(x.get("semantic_status") == key for x in results)
+                        for key in ("passed", "failed", "not_verified")}
     report = {
+        "execution_summary": execution_summary, "semantic_summary": semantic_summary,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "source": args.source, "mode": "execute" if args.execute else "dry_run",
         "summary": summary, "results": results,
@@ -135,12 +164,19 @@ def main() -> int:
     if args.markdown:
         lines = ["# NL-to-SQL evaluation", "", "## Summary", ""]
         lines.extend("- {}: {}".format(k, v) for k, v in summary.items())
-        lines.extend(["", "| ID | Verdict | API status | Checks |", "|---|---|---|---|"])
+        lines.extend(["", "## Execution outcomes", ""])
+        lines.extend("- {}: {}".format(k, v) for k, v in execution_summary.items())
+        lines.extend(["", "## Semantic verification", ""])
+        lines.extend("- {}: {}".format(k, v) for k, v in semantic_summary.items())
+        lines.extend(["", "| ID | Verdict | Execution | Semantic | Error codes | Checks |",
+                      "|---|---|---|---|---|---|"])
         for item in results:
             checks = item.get("checks") or []
             passed = sum(bool(check.get("passed")) for check in checks)
-            lines.append("| {} | {} | {} | {}/{} |".format(
-                item["id"], item["verdict"], item.get("status") or "-",
+            lines.append("| {} | {} | {} | {} | {} | {}/{} |".format(
+                item["id"], item["verdict"], item.get("execution_status") or "-",
+                item.get("semantic_status") or "-",
+                ", ".join(item.get("error_codes") or []) or "-",
                 passed, len(checks),
             ))
         args.markdown.parent.mkdir(parents=True, exist_ok=True)
