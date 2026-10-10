@@ -2238,6 +2238,61 @@ class QueryOrchestrator:
                     ]
                     if len(same_column_predicates) != 1:
                         constrained.clear()
+                # Distinct conditional aggregates can preserve comparison
+                # cohorts without a global WHERE restriction. Each requested
+                # canonical value must appear in its own aggregate's CASE,
+                # associated with the governed column.
+                if not constrained and len(matched) >= 2 and isinstance(ast, exp.Select):
+                    covered = set()
+                    for aggregate in ast.find_all(exp.AggFunc):
+                        if aggregate.find_ancestor(exp.Select) is not ast:
+                            continue
+                        for case in aggregate.find_all(exp.Case):
+                            case_columns = list(case.find_all(exp.Column))
+                            if not any(correct_column(c) for c in case_columns):
+                                continue
+                            literals = {
+                                str(v.this).casefold()
+                                for v in case.find_all(exp.Literal) if v.is_string
+                            }
+                            matches_in_case = {
+                                value.casefold() for value in matched
+                                if value.casefold() in literals
+                            }
+                            if len(matches_in_case) == 1:
+                                covered.update(matches_in_case)
+                    if {v.casefold() for v in matched}.issubset(covered):
+                        constrained.update(covered)
+                # AND-combined positive ANY predicates require every listed
+                # array value. Unlike OR or overlap, they preserve ALL-of intent.
+                if not constrained and len(matched) >= 2 and where and (
+                    data_type.endswith("[]") or "array" in data_type
+                ):
+                    required_codes = {v.casefold() for v in matched}
+                    found_codes = set()
+                    safe = True
+                    for predicate in conjuncts(where.this):
+                        columns = list(predicate.find_all(exp.Column))
+                        if not any(correct_column(c) for c in columns):
+                            continue
+                        if not isinstance(predicate, exp.EQ):
+                            safe = False
+                            break
+                        code = None
+                        for literal, member in (
+                            (predicate.this, predicate.expression),
+                            (predicate.expression, predicate.this),
+                        ):
+                            if isinstance(literal, exp.Literal) and literal.is_string and isinstance(member, exp.Any):
+                                operand = member.this.this if isinstance(member.this, exp.Paren) else member.this
+                                if correct_column(operand):
+                                    code = str(literal.this).casefold()
+                        if code not in required_codes:
+                            safe = False
+                            break
+                        found_codes.add(code)
+                    if safe and required_codes.issubset(found_codes):
+                        constrained.update(found_codes)
                 missing = [v for v in matched if v.casefold() not in constrained]
                 if missing:
                     raise SQLValidationError(
