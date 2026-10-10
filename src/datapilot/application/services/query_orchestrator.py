@@ -1505,8 +1505,18 @@ class QueryOrchestrator:
                 column_name = str(attribute.get("column_name") or "").casefold()
                 for select in ast.find_all(exp.Select):
                     where = select.args.get("where")
+                    # A missing WHERE cannot establish an explicitly requested
+                    # nonempty array filter.
                     if where is None:
-                        continue
+                        raise SQLValidationError(
+                            'Generated SQL does not enforce nonempty array semantics',
+                            details={'checks': [{
+                                'code': 'nonempty_array_filter_violation',
+                                'status': 'failed', 'severity': 'error',
+                                'column_name': attribute.get('column_name'),
+                                'message': 'Explicit nonempty intent requires a positive array population filter.',
+                            }]},
+                        )
                     # Restrict to positive AND conjuncts. An OR, negation, or
                     # nested query cannot establish the nonempty guarantee.
                     def conjuncts(node):
