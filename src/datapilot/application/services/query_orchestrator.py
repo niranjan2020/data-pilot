@@ -2193,22 +2193,34 @@ class QueryOrchestrator:
                 # lineage, never by coincidental name or literal matching.
                 expanded_columns = set()
                 if isinstance(ast, exp.Select):
-                    for lateral in ast.find_all(exp.Lateral):
-                        if lateral.find_ancestor(exp.Select) is not ast:
+                    # SQLGlot represents CROSS JOIN LATERAL UNNEST either as
+                    # Join(Lateral(Unnest)) or as Join(Unnest), depending on
+                    # dialect/version. Inspect both, and require a unique
+                    # physical array source and explicit output alias.
+                    for node in ast.walk():
+                        if not isinstance(node, (exp.Lateral, exp.Unnest)):
                             continue
-                        alias = lateral.args.get("alias")
-                        source = lateral.this
-                        if not isinstance(alias, exp.TableAlias) or not alias.columns:
+                        if node.find_ancestor(exp.Select) is not ast:
                             continue
-                        source_columns = list(source.find_all(exp.Column)) if source else []
-                        if len(source_columns) != 1:
+                        unnest = node if isinstance(node, exp.Unnest) else node.find(exp.Unnest)
+                        if unnest is None:
                             continue
-                        physical = source_columns[0]
+                        aliases = [
+                            node.args.get("alias"),
+                            unnest.args.get("alias"),
+                            node.parent.args.get("alias") if isinstance(node.parent, exp.Lateral) else None,
+                        ]
+                        alias = next((a for a in aliases if isinstance(a, exp.TableAlias)
+                                      and a.columns and a.this), None)
+                        if alias is None:
+                            continue
+                        sources = list(unnest.find_all(exp.Column))
+                        if len(sources) != 1:
+                            continue
+                        physical = sources[0]
                         if physical.name.casefold() != column_name.casefold():
                             continue
                         if physical.table and physical.table.casefold() not in valid_qualifiers:
-                            continue
-                        if not any(isinstance(n, exp.Unnest) for n in source.walk()):
                             continue
                         for output in alias.columns:
                             expanded_columns.add((alias.this.name.casefold(), output.name.casefold()))
