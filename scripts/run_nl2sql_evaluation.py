@@ -33,7 +33,9 @@ def _result_semantic_checks(case: dict, response: dict) -> list[dict]:
     if case.get("review_status") != "approved" or response.get("status") != "completed":
         return []
     expected = case.get("expected_result")
-    if not isinstance(expected, dict):
+    # Counts or SQL fragments alone cannot certify a business answer.
+    # Require an independently reviewed expected result set.
+    if not isinstance(expected, dict) or not isinstance(expected.get("rows"), list):
         return []
     result = response.get("result")
     if not isinstance(result, dict):
