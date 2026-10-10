@@ -1041,9 +1041,24 @@ class QueryOrchestrator:
 
             try:
                 statements = sqlglot.parse(executable_sql, read="postgres")
-                has_join = any(isinstance(node, exp.Join)
-                               for statement in statements if statement is not None
-                               for node in statement.walk())
+                # LATERAL UNNEST is a local array expansion, not a
+                # relationship between physical datasets. Only this exact
+                # shape is exempt; ordinary joins still require publication.
+                def physical_join(join):
+                    if not isinstance(join, exp.Join):
+                        return False
+                    target = join.this
+                    if isinstance(target, exp.Lateral):
+                        target = target.this
+                    if isinstance(target, exp.Unnest):
+                        return False
+                    return True
+
+                has_join = any(
+                    physical_join(node)
+                    for statement in statements if statement is not None
+                    for node in statement.walk()
+                )
             except Exception as exc:
                 raise SQLValidationError(
                     "Cannot verify SQL relationship publication",
