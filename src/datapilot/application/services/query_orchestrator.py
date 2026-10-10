@@ -1502,10 +1502,10 @@ class QueryOrchestrator:
                     # SQLGlot may normalize IS NOT NULL as NOT(IS(...)) or
                     # another equivalent AST shape. Match the *individual*
                     # parsed conjunct's normalized SQL instead of its class.
-                    column_pattern = r'(?:[A-Za-z_][A-Za-z_0-9]*\\.)?"?' + re.escape(column_name) + r'"?'
+                    column_pattern = r'(?:[A-Za-z_][A-Za-z_0-9]*\.)?"?' + re.escape(column_name) + r'"?'
                     null_only = any(
                         re.fullmatch(
-                            rf'{column_pattern}\\s+IS\\s+NOT\\s+NULL',
+                            rf'{column_pattern}\s+IS\s+NOT\s+NULL',
                             predicate.sql(dialect="postgres").strip(),
                             re.I,
                         )
@@ -1520,7 +1520,7 @@ class QueryOrchestrator:
                         predicate for predicate in clauses
                         if any(c.name.casefold() == column_name for c in predicate.find_all(exp.Column))
                         and not re.fullmatch(
-                            rf'{column_pattern}\\s+IS\\s+NOT\\s+NULL',
+                            rf'{column_pattern}\s+IS\s+NOT\s+NULL',
                             predicate.sql(dialect="postgres").strip(), re.I,
                         )
                     ]
