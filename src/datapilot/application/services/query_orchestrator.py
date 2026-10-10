@@ -886,9 +886,16 @@ class QueryOrchestrator:
                     for table in statements[0].find_all(exp.Table)
                     if table.db and table.name
                 }
+                # CTE references are query-local relations, not physical
+                # datasets. Keep rejecting every other unqualified table.
+                cte_names = {
+                    cte.alias_or_name.casefold()
+                    for cte in statements[0].find_all(exp.CTE)
+                    if cte.alias_or_name
+                }
                 unqualified = {
                     table.name for table in statements[0].find_all(exp.Table)
-                    if not table.db
+                    if not table.db and table.name.casefold() not in cte_names
                 }
             except Exception as exc:
                 raise SQLValidationError(
