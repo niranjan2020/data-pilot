@@ -97,3 +97,34 @@ class AnalyticalAttributePublicationStore:
                     (data_source_id, entity_id, attribute_name),
                 )
                 return await cursor.fetchone() is not None
+
+    async def list_published_dimensions(self, data_source_id: int) -> list[dict]:
+        """Read authoritative, datasource-scoped grants with semantic ownership.
+
+        An approved entity or discovered column alone never authorizes a dimension.
+        """
+        if type(data_source_id) is not int or data_source_id <= 0:
+            raise ValueError("Invalid datasource identifier")
+        pool = await self._pool()
+        async with pool.connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(ATTRIBUTE_DIMENSION_PUBLICATION_DDL)
+                await cursor.execute(
+                    """
+                    SELECT p.entity_id, a.name, a.column_name, a.synonyms
+                    FROM datapilot_catalog.analytical_attribute_publications p
+                    JOIN datapilot_catalog.semantic_entities e
+                      ON e.id = p.entity_id AND e.data_source_id = p.data_source_id
+                    JOIN datapilot_catalog.semantic_attributes a
+                      ON a.entity_id = e.id AND a.name = p.attribute_name
+                    WHERE p.data_source_id = %s
+                    ORDER BY p.entity_id, a.name
+                    """,
+                    (data_source_id,),
+                )
+                rows = await cursor.fetchall()
+        return [
+            {"entity_id": row[0], "name": row[1], "column_name": row[2],
+             "synonyms": row[3] if isinstance(row[3], list) else []}
+            for row in rows
+        ]
