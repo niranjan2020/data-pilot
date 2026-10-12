@@ -29,6 +29,12 @@ def check_published_grouping(
     Reject ambiguous matches rather than picking an arbitrary owning entity.
     """
     normalized = _terms(question)
+    # Only grouping intent belongs to this guard; dimensions mentioned solely
+    # in filters must be validated by the separate filter-alignment gate.
+    grouping_intent = re.search(r"\\b(?:by|per|grouped by|group by)\\s+(.+)", normalized)
+    if grouping_intent is None:
+        return ()
+    normalized = " " + grouping_intent.group(1).strip() + " "
     candidates = []
     for d in dimensions:
         if type(d.get("entity_id")) is not int or not d.get("column_name"):
