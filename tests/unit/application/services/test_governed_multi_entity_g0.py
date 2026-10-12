@@ -69,3 +69,27 @@ async def test_metric_with_related_dimension_requires_join_context():
     )
     assert {e["name"] for e in context["entities"]} == {"Transaction", "Account"}
     assert {r["name"] for r in context["relationships"]} == {"Transaction to Account"}
+
+
+class PublishedCatalog(Catalog):
+    async def list_published_analytical_dimensions(self, source_id):
+        return [{"entity_id": 2, "name": "Region", "column_name": "region",
+                 "synonyms": ["territory"]}]
+
+
+@pytest.mark.asyncio
+async def test_published_dimension_adds_related_entity_and_relationship():
+    context = await SemanticContextAssembler(PublishedCatalog()).assemble(
+        "example", [], "show transaction count by region"
+    )
+    assert {e["name"] for e in context["entities"]} == {"Transaction", "Account"}
+    assert {r["name"] for r in context["relationships"]} == {"Transaction to Account"}
+
+
+@pytest.mark.asyncio
+async def test_unpublished_near_name_does_not_add_related_entity():
+    context = await SemanticContextAssembler(PublishedCatalog()).assemble(
+        "example", [], "show transaction count by region_next"
+    )
+    assert {e["name"] for e in context["entities"]} == {"Transaction"}
+    assert context["relationships"] == []
