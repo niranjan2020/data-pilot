@@ -8,6 +8,41 @@ import re
 from datapilot.infrastructure.metadata.postgresql import PostgreSQLMetadataProvider
 
 
+
+
+def resolve_published_dimension_owners(
+    question: str,
+    published_dimensions: list[dict[str, Any]],
+) -> set[int]:
+    """Find explicit, unambiguous dimension owners from trusted published grants.
+
+    This helper never treats a discovered physical column as a semantic grant.
+    Callers must supply datasource-scoped, persisted, published dimensions;
+    conflicting published owners are left unresolved for clarification.
+    """
+    normalized = " " + re.sub(r"[^a-z0-9]+", " ", question.casefold()).strip() + " "
+    matches: dict[str, set[int]] = {}
+    for dimension in published_dimensions:
+        entity_id = dimension.get("entity_id")
+        if type(entity_id) is not int or entity_id <= 0:
+            continue
+        terms = [dimension.get("name"), *(dimension.get("synonyms") or [])]
+        for term in terms:
+            if not isinstance(term, str):
+                continue
+            phrase = re.sub(r"[^a-z0-9]+", " ", term.casefold()).strip()
+            if phrase and f" {phrase} " in normalized:
+                matches.setdefault(phrase, set()).add(entity_id)
+    # Longer explicit phrases override their own shorter substring matches.
+    longest = {
+        phrase: owners for phrase, owners in matches.items()
+        if not any(
+            phrase != other and f" {phrase} " in f" {other} "
+            for other in matches
+        )
+    }
+    return {next(iter(owners)) for owners in longest.values() if len(owners) == 1}
+
 class SemanticContextAssembler:
     """Expand vector-search seeds through the authoritative semantic graph."""
 
