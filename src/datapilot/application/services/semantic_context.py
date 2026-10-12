@@ -298,6 +298,7 @@ class SemanticContextAssembler:
         # Published dimensions are structural anchors independent of vector
         # ranking. Physical discovery alone cannot grant an attribute.
         load_dimensions = getattr(self._metadata, "list_published_analytical_dimensions", None)
+        published_dimensions = []
         if load_dimensions is not None:
             published_dimensions = await load_dimensions(source_id)
             if not isinstance(published_dimensions, list):
@@ -458,6 +459,7 @@ class SemanticContextAssembler:
             "relationships": selected_relationships,
             "metrics": selected_metrics,
             "business_rules": selected_rules,
+            "published_dimensions": published_dimensions,
             "time_dimensions": [
                 dimension for dimension in time_dimensions
                 if dimension["entity_id"] in entity_ids
