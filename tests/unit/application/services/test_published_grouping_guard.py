@@ -47,3 +47,23 @@ def test_unrelated_technical_join_key_not_prohibited_by_grouping_guard():
     sql = ("SELECT a.region, COUNT(DISTINCT t.id) FROM public.transactions t "
            "JOIN public.accounts a ON t.account_id=a.id GROUP BY a.region")
     assert verify(sql) == ()
+
+
+def test_grouping_guard_actually_checks_explicit_by_intent():
+    sql = "SELECT t.region_next, COUNT(*) FROM public.transactions t GROUP BY t.region_next"
+    errors = verify(sql, question="show transaction count by region")
+    assert errors and "GROUP BY" in errors[0]
+
+
+def test_correct_grouping_but_wrong_projection_is_rejected():
+    sql = ("SELECT t.region_next, COUNT(*) FROM public.transactions t "
+           "JOIN public.accounts a ON t.account_id = a.id GROUP BY a.region, t.region_next")
+    errors = verify(sql)
+    assert errors and "SELECT" in errors[0]
+
+
+def test_published_grouping_projection_with_alias_is_accepted():
+    sql = ("SELECT a.region AS area, COUNT(DISTINCT t.id) AS total "
+           "FROM public.transactions t JOIN public.accounts a "
+           "ON t.account_id = a.id GROUP BY a.region")
+    assert verify(sql) == ()
