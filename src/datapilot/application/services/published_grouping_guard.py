@@ -92,4 +92,25 @@ def check_published_grouping(
                 matched = True
         if not matched:
             return (f"GROUP BY does not use published dimension {d.get('name')}.",)
+        # The grouped physical dimension must also be projected. Checking only
+        # GROUP BY permits SELECT wrong_entity.similar_column GROUP BY approved.
+        # This guard currently accepts direct physical projections; expression
+        # and CTE lineage require the existing analytical verifier's full plan.
+        projections = [
+            node.this if isinstance(node, exp.Alias) else node
+            for node in (tree.expressions or [])
+        ]
+        projected = any(
+            isinstance(node, exp.Column)
+            and node.name.casefold() == colname
+            and (
+                table_aliases.get(node.table.casefold()) == expected
+                if node.table
+                else len(set(table_aliases.values())) == 1
+                     and expected in table_aliases.values()
+            )
+            for node in projections
+        )
+        if not projected:
+            return (f"SELECT does not project published dimension {d.get('name')}.",)
     return ()
