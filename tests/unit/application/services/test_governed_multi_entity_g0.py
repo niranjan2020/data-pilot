@@ -65,7 +65,7 @@ async def test_metric_with_related_dimension_requires_join_context():
     # drops the Account entity and the relationship. A future implementation
     # must bind the dimension and include the approved path, or fail closed.
     context = await SemanticContextAssembler(Catalog()).assemble(
-        "example", [], "show transaction count by account region"
+        "example", [], "show transaction count by region"
     )
     assert {e["name"] for e in context["entities"]} == {"Transaction", "Account"}
     assert {r["name"] for r in context["relationships"]} == {"Transaction to Account"}
