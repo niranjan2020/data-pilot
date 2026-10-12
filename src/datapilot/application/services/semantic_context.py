@@ -295,6 +295,19 @@ class SemanticContextAssembler:
                 if entity["id"] in metric_owner_ids:
                     dataset_keys.add((entity.get("schema_name"), entity.get("table_name")))
 
+        # Published dimensions are structural anchors independent of vector
+        # ranking. Physical discovery alone cannot grant an attribute.
+        load_dimensions = getattr(self._metadata, "list_published_analytical_dimensions", None)
+        if load_dimensions is not None:
+            published_dimensions = await load_dimensions(source_id)
+            if not isinstance(published_dimensions, list):
+                raise ValueError("Published dimension catalog is unavailable")
+            published_owner_ids = resolve_published_dimension_owners(
+                question, published_dimensions
+            )
+            known_entity_ids = {entity["id"] for entity in entities}
+            entity_ids.update(published_owner_ids & known_entity_ids)
+
         # Temporal intent may require a governed date role that lives on a
         # directly related entity rather than on the metric owner. For example,
         # Revenue may live on Sales Order Line while Order Date lives on Sales
