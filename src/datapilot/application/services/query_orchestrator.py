@@ -786,6 +786,7 @@ class QueryOrchestrator:
             "comparison_cohorts": list(semantic_contract.comparison_cohorts),
             "aggregation_grain": list(semantic_contract.aggregation_grain),
             "data_source_name": request.source_name,
+            "published_dimensions": governed_context.get("published_dimensions", []),
         }
         async def recover_execution_error(
             sql: str,
@@ -913,6 +914,7 @@ class QueryOrchestrator:
         comparison_cohorts: Optional[list[dict[str, Any]]] = None,
         aggregation_grain: Optional[list[str]] = None,
         data_source_name: Optional[str] = None,
+        published_dimensions: Optional[list[dict[str, Any]]] = None,
     ) -> QueryResponse:
         validation = await self._validator.validate(
             sql,
@@ -1026,6 +1028,25 @@ class QueryOrchestrator:
                 )
 
         executable_sql = validation.sanitized_sql or sql
+        # Independently verify the physical owner of each explicitly requested
+        # published dimension before any SQL reaches execution.
+        if published_dimensions:
+            from datapilot.application.services.published_grouping_guard import (
+                check_published_grouping,
+            )
+            grouping_violations = check_published_grouping(
+                executable_sql, question, published_dimensions,
+                governed_entities or [], dialect=sqlglot_dialect(self._database.dialect),
+            )
+            if grouping_violations:
+                raise SQLValidationError(
+                    "Generated SQL does not match published grouping dimensions",
+                    details={"checks": [{
+                        "code": "published_dimension_alignment",
+                        "status": "failed", "severity": "error",
+                        "message": reason,
+                    } for reason in grouping_violations]},
+                )
         if trace is not None:
             trace.validated_sql = executable_sql
             trace.validation_affected_tables = list(validation.affected_tables)
