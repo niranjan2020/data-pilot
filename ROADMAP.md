@@ -1261,3 +1261,55 @@ When completing a milestone:
 5. Keep SaaS work deferred unless its start gate is satisfied.
 
 The roadmap is a decision document, not a promise to implement every listed feature.
+
+
+---
+
+## Active milestone — Governed multi-entity semantic SQL (2026-10-12)
+
+**Status: ACTIVE / failing live Astra acceptance; implementation not yet verified.** This milestone is a focused correctness gate within Stage A/B + Stage C semantic onboarding, not a replacement for existing 49-question acceptance or other roadmap work. Do not mark older acceptance suites passed without their actual live evidence.
+
+### Reproduced evidence
+- Question: "Show fixture count by operator".
+- Wrong SQL grouped `astra.fixtures.operator_next` and counted distinct fixture IDs, with no join to `astra.vessels`.
+- `operator_next` is **not** among the 14 published Fixture attributes, yet the generation prompt exposed the complete physical fixtures schema including that column.
+- Published Vessel entity has four attributes (alternative_fuel_type, ownership_status, vessel_segment, vessel_status); `vessels.operator` is not published.
+- Supplied prompt's `semantic_intent_contract` has Fixture Count but empty dimensions and relationships; `governed_semantic_context.relationships` is empty despite the Admin UI displaying saved Fixture.vessel_id -> Vessel.id (many-to-one). Physical FK discovery does contain that relationship.
+- Separate observed failure: "Generated SQL uses an unpublished or invalid relationship." Root cause still requires inspection of persisted publication state, datasource scoping, loader and query pipeline.
+- **Never interpret these observations as proof of a single root cause.** Record planner, publication, retrieval and validation evidence independently.
+
+### P0 implementation batches, in order
+**G0 — Reproduction and instrumentation:** Add anonymized cross-domain fixture regressions for unpublished near-name columns, missing published dimension, persisted relationship absent from governed context, and invalid-relationship errors. Inspect live path from Admin save -> persisted publication -> datasource-scoped loader -> semantic intent -> generator -> validator. No live routing changes yet.
+
+**G1 — Publication contract and visibility:** Separate discovered physical schema from approved semantic attributes. Define explicit published / internal-use-only / excluded column roles, with safe backwards-compatible migration and datasource scope. Metric keys and relationship keys remain authorized for their exact internal purpose, not general NL dimension matching. Fail closed on unpublished projected/grouped/filtered fields, with explicit policy for technical predicates. Keep physical schema available to trusted validation, not as unrestricted LLM candidate list. Ensure query prompt builder uses a minimal authorized projection.
+
+**G2 — Entity-qualified semantic binding:** Resolve requested dimensions to (datasource, entity, attribute, physical column) and metrics to governed definitions before SQL generation. If no published operator dimension exists, return actionable unsupported/configuration-needed, not `operator_next`. No fuzzy fallback to unpublished columns. When multiple published meanings are plausible, clarify. Preserve independent categorical/time intent behavior.
+
+**G3 — Published relationship graph:** Persist and load approved relationship edges with source/target entity and physical key, cardinality, datasource and publication status. Verify why saved Fixture-to-Vessel is missing from governed context. Deterministically find valid one-hop paths, reject missing/ambiguous paths, then extend to multi-hop with explicit tests. Never let physical FK discovery alone silently grant publication. Join keys may be internal-only.
+
+**G4 — Plan and SQL verification:** Extend existing typed-plan/binder/compiler and SQLGlot validation rather than create a parallel engine. Check dimension physical provenance, relationship edge identity and join ON predicates, metric expression, grouping grain, and authorized column usage across SELECT/WHERE/JOIN/GROUP BY/HAVING/ORDER BY and nested queries. Fail closed, optionally regenerate within bounded attempts; never execute a semantically invalid but syntactically valid query.
+
+**G5 — Fanout and multi-entity aggregate correctness:** Guard one-to-many joins, distinct measures, null join keys, zero-related-record questions and many-to-many/multi-hop ambiguities. Choose correct pre-aggregation or distinct strategy based on measure grain; `COUNT(DISTINCT id)` is not a universal fix for sums or ratios.
+
+**G6 — Observability and live acceptance:** Trace resolved metric/dimension IDs, publication version, selected/rejected column candidates, relationship path, prompt schema projection, validator evidence and rejection reason without secrets. Evaluate single-table and cross-table questions against independently verified SQL/results on Astra and AdventureWorks. Preserve the earlier 49-question gate and full regression suite. Do not claim success from unit tests alone.
+
+### Acceptance examples
+1. "How many fixtures?" -> governed Fixture Count; no unnecessary join.
+2. "Fixture count by charterer" -> published Fixture charterer dimension only.
+3. "Fixture count by operator" -> if Vessel.Operator unpublished, explicit configuration-needed response; after publishing, use `astra.vessels.operator` via approved Fixture.vessel_id = Vessel.id; never `fixtures.operator_next`.
+4. "Fixture count by vessel name" -> approved Vessel display/dimension and relationship, or actionable missing-publication response.
+5. Relationship saved but not published/loaded -> reject with actionable diagnostic; never invent a join.
+6. Explicit next-operator questions -> only permitted when separately published with clear meaning; do not conflate with current operator.
+7. Regression across an unrelated sales/order/product schema with similarly named but unapproved fields.
+8. Unapproved physical columns never appear as arbitrary LLM SQL candidates, while internal PK/FK usage remains functional.
+9. Aggregate fanout, nullable keys, ambiguity, and unauthorized column injection tests pass.
+10. Live generated SQL and actual query results independently reviewed; no false 100% claims.
+
+### Broader Wren-gap capability map (preserved)
+- **P0:** complete semantic SQL engine (incremental G1-G5), relationship-aware planning (G3), metric grain/fanout protection (G5), publication-time semantic model validation (G1/G3/G4).
+- **P1:** complex calculations; calculated semantic dimensions; modeled views/reusable semantic queries; governed verified examples/query memory; value profiling/discovery; immutable semantic model versions/rollback; explanation and traceability (G6 starts this); enterprise authorization and execution identity.
+- **P2:** multi-database connectors; YAML/JSON portability and environment promotion; performance optimization.
+- Later enhancements must be evidence-driven and reuse the same governed plan/compiler, not introduce Astra-specific templates or hardcoded operator rules.
+
+### Immediate engineering next action
+Inspect existing production code and tests for semantic publication/loading and query prompt construction; implement **G0 then G1** in small independently tested batches. Keep current live route unchanged until G4/G6 acceptance proves safe cutover. Do not reset local metadata or Docker volumes.
