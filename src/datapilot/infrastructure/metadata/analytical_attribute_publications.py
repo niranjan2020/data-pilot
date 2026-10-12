@@ -111,7 +111,7 @@ class AnalyticalAttributePublicationStore:
                 await cursor.execute(ATTRIBUTE_DIMENSION_PUBLICATION_DDL)
                 await cursor.execute(
                     """
-                    SELECT p.entity_id, a.name, a.column_name, a.synonyms
+                    SELECT p.entity_id, a.name, a.column_name,\n                           ARRAY(SELECT s.synonym FROM datapilot_catalog.semantic_attribute_synonyms s\n                                 WHERE s.attribute_id = a.id ORDER BY s.synonym)
                     FROM datapilot_catalog.analytical_attribute_publications p
                     JOIN datapilot_catalog.semantic_entities e
                       ON e.id = p.entity_id AND e.data_source_id = p.data_source_id
