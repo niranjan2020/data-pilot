@@ -1520,6 +1520,15 @@ class PostgreSQLMetadataProvider(MetadataProvider):
                     )
                     return (await cursor.fetchone())[0]
 
+    async def list_published_analytical_dimensions(self, data_source_id: int) -> list[dict]:
+        """Only explicit persisted grants, never inferred from entity approval."""
+        from datapilot.infrastructure.metadata.analytical_attribute_publications import (
+            AnalyticalAttributePublicationStore,
+        )
+        return await AnalyticalAttributePublicationStore(self).list_published_dimensions(
+            data_source_id
+        )
+
     async def list_semantic_relationships(self, data_source_id: int) -> list[dict]:
         await self.initialize()
         pool = await self._get_pool()
