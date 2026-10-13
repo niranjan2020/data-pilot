@@ -281,6 +281,23 @@ class QueryOrchestrator:
                         chosen_edges = [relationship_by_id.get(edge_id) for edge_id in chosen_ids]
                         if any(edge is None for edge in chosen_edges):
                             raise SQLValidationError("Selected relationship no longer exists")
+                        # The candidate was produced by the semantic assembler.
+                        # Re-resolve it against current metadata, and require an
+                        # unbroken route from the requested metric owner to the
+                        # requested published dimension owner. Matching IDs alone
+                        # must not authorize a repointed or reordered graph.
+                        issue = ambiguous_paths[0]
+                        current_node = issue["metric_entity_id"]
+                        for edge in chosen_edges:
+                            if edge["from_entity_id"] != current_node:
+                                raise SQLValidationError(
+                                    "Selected relationship path no longer follows the governed metric-to-dimension route"
+                                )
+                            current_node = edge["to_entity_id"]
+                        if current_node != issue["dimension_entity_id"]:
+                            raise SQLValidationError(
+                                "Selected relationship path no longer reaches the governed dimension"
+                            )
                         identity_keys = (
                             "from_schema", "from_table", "from_column",
                             "to_schema", "to_table", "to_column",
