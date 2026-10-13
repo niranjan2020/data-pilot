@@ -87,6 +87,25 @@ def authorize_exact_selected_route_sql(
         joins = tree.args.get("joins") or []
         if len(joins) != len(selected_relationships):
             return PublishedJoinAuthorization(False, ("SQL does not use every selected route edge.",))
+        root_clause = tree.args.get("from_")
+        if not root_clause or not isinstance(root_clause.this, exp.Table):
+            return PublishedJoinAuthorization(False, ("Selected route has no physical root.",))
+        root = root_clause.this
+        expected_root = selected_relationships[0]
+        if (str(root.db or "").casefold(), str(root.name).casefold()) != (
+            str(expected_root.get("from_schema") or "").casefold(),
+            str(expected_root.get("from_table") or "").split(".")[-1].casefold(),
+        ):
+            return PublishedJoinAuthorization(False, ("SQL starts from a different relationship root.",))
+        for join, edge in zip(joins, selected_relationships):
+            target = join.this
+            if not isinstance(target, exp.Table) or (
+                str(target.db or "").casefold(), str(target.name).casefold()
+            ) != (
+                str(edge.get("to_schema") or "").casefold(),
+                str(edge.get("to_table") or "").split(".")[-1].casefold(),
+            ):
+                return PublishedJoinAuthorization(False, ("SQL changes the selected relationship order.",))
     except Exception:
         return PublishedJoinAuthorization(False, ("Selected route SQL parsing failed.",))
     decision = validate_governed_join_graph(sql, selected_relationships)
