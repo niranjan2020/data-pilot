@@ -56,6 +56,13 @@ def project_metric_prompt_schema(
     # discovered columns for ordinary same-table calculations, filtering and
     # grouping. This does not authorize a different entity or any JOIN:
     # related tables still receive only approved dimensions and join keys.
+    single_entity_scope = (
+        len({(str(e.get("schema_name") or "").casefold(),
+              str(e.get("table_name") or "").casefold())
+             for e in entities}) == 1
+        and not governed_context.get("relationships")
+        and not governed_context.get("published_dimensions")
+    )
     metric_owner_keys = {
         (str(entity_by_id[metric["entity_id"]].get("schema_name") or "").casefold(),
          str(entity_by_id[metric["entity_id"]].get("table_name") or "").casefold())
@@ -68,7 +75,7 @@ def project_metric_prompt_schema(
     for table in schema.tables:
         key = (str(table.schema_name or "").casefold(), table.name.casefold())
         columns = allowed.get(key, set())
-        if key in metric_owner_keys:
+        if single_entity_scope and key in metric_owner_keys:
             columns = {column.name.casefold() for column in table.columns}
         if columns:
             tables.append(table.model_copy(update={
