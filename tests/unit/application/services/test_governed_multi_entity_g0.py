@@ -93,3 +93,49 @@ async def test_unpublished_near_name_does_not_add_related_entity():
     )
     assert {e["name"] for e in context["entities"]} == {"Transaction"}
     assert context["relationships"] == []
+
+
+@pytest.mark.asyncio
+async def test_follow_up_rehydrates_published_dimensions_from_authority():
+    assembler = SemanticContextAssembler(PublishedCatalog())
+    current = await assembler.assemble(
+        "example", [], "show transaction count by region"
+    )
+    follow_up = await assembler.carry_forward(
+        "example", current,
+        {"previous_question": "show transaction count by region",
+         "governed_entities": ["Transaction", "Account"],
+         "governed_metrics": ["Transaction Count"]},
+    )
+    assert any(
+        d["entity_id"] == 2 and d["column_name"] == "region"
+        for d in follow_up["published_dimensions"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_follow_up_does_not_trust_injected_dimension_publications():
+    assembler = SemanticContextAssembler(PublishedCatalog())
+    current = await assembler.assemble("example", [], "show transactions")
+    current["published_dimensions"] = [
+        {"entity_id": 1, "name": "Fake", "column_name": "region_next"}
+    ]
+    follow_up = await assembler.carry_forward(
+        "example", current,
+        {"previous_question": "show transactions",
+         "governed_entities": ["Transaction"]},
+    )
+    assert all(
+        d["column_name"] != "region_next"
+        for d in follow_up["published_dimensions"]
+    )
+
+
+def test_published_dimension_owners_do_not_match_identifier_prefix():
+    from datapilot.application.services.semantic_context import (
+        resolve_published_dimension_owners,
+    )
+    published = [{"entity_id": 2, "name": "Region",
+                  "column_name": "region", "synonyms": []}]
+    assert resolve_published_dimension_owners("count by region_next", published) == set()
+    assert resolve_published_dimension_owners("count by region", published) == {2}
