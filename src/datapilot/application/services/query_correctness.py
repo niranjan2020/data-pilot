@@ -1571,6 +1571,57 @@ def _fanout_checks(
                 and len(unique_join_edges) == len(outer_joins)
                 and len(outer_joins) == len(tree.args.get("joins") or [])
             )
+            # A structural join proof is meaningful for an additive metric
+            # only when the outer aggregate consumes the metric's declared
+            # physical source on the root relation. Never infer this from the
+            # metric display name or from an identically named joined column.
+            metric_table = str(metric.get("table_name") or "").strip().casefold()
+            metric_column = str(metric.get("column_name") or "").strip().casefold()
+            root_alias = (
+                str(root_source.alias_or_name).casefold()
+                if isinstance(root_source, exp.Table) else ""
+            )
+            root_identity = (
+                f"{str(root_source.db).casefold()}.{str(root_source.name).casefold()}"
+                if isinstance(root_source, exp.Table) and root_source.db
+                else str(root_source.name).casefold()
+                if isinstance(root_source, exp.Table) else ""
+            )
+            direct_metric_aggregates = []
+            if isinstance(tree, exp.Select):
+                for projection in tree.expressions:
+                    for aggregate in projection.find_all(exp.AggFunc):
+                        if aggregate.find_ancestor(exp.Select) is tree:
+                            direct_metric_aggregates.append(aggregate)
+            metric_root_proven = (
+                bool(whole_graph_nonmultiplying)
+                and bool(metric_table and metric_column)
+                and metric_table == root_identity
+                and len(direct_metric_aggregates) == 1
+                and direct_metric_aggregates[0].key.casefold() == aggregation
+                and isinstance(direct_metric_aggregates[0].this, exp.Column)
+                and str(direct_metric_aggregates[0].this.table or "").casefold() == root_alias
+                and str(direct_metric_aggregates[0].this.name).casefold() == metric_column
+            )
+            checks.append({
+                "code": (
+                    "fanout_metric_root_provenance_observed"
+                    if metric_root_proven
+                    else "fanout_metric_root_provenance_unverified"
+                ),
+                "status": "passed" if metric_root_proven else "skipped",
+                "severity": "info",
+                "metric": metric_name,
+                "relationship": relationship.get("name"),
+                "message": (
+                    "The outer aggregate reads the governed metric column from "
+                    "the physical root of a nonmultiplying join graph; "
+                    "this is not an execution authorization."
+                    if metric_root_proven else
+                    "The metric's outer aggregate provenance was not established "
+                    "on the nonmultiplying join graph."
+                ),
+            })
             checks.append({
                 "code": (
                     "fanout_whole_join_graph_nonmultiplying_observed"
