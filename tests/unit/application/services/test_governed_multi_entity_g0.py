@@ -139,3 +139,30 @@ def test_published_dimension_owners_do_not_match_identifier_prefix():
                   "column_name": "region", "synonyms": []}]
     assert resolve_published_dimension_owners("count by region_next", published) == set()
     assert resolve_published_dimension_owners("count by region", published) == {2}
+
+
+class MultiplePublishedDimensionsCatalog(PublishedCatalog):
+    async def list_published_analytical_dimensions(self, source_id):
+        return [
+            {"entity_id": 2, "name": "Region", "column_name": "region",
+             "synonyms": ["territory"]},
+            {"entity_id": 99, "name": "Secret Category",
+             "column_name": "secret_category", "synonyms": []},
+        ]
+
+
+@pytest.mark.asyncio
+async def test_published_dimension_context_excludes_unselected_entity_grants():
+    context = await SemanticContextAssembler(MultiplePublishedDimensionsCatalog()).assemble(
+        "example", [], "show transaction count by region"
+    )
+    assert {d["column_name"] for d in context["published_dimensions"]} == {"region"}
+    assert {e["name"] for e in context["entities"]} == {"Transaction", "Account"}
+
+
+@pytest.mark.asyncio
+async def test_published_dimension_contract_is_empty_for_unrelated_question():
+    context = await SemanticContextAssembler(MultiplePublishedDimensionsCatalog()).assemble(
+        "example", [], "show transactions"
+    )
+    assert context["published_dimensions"] == []
