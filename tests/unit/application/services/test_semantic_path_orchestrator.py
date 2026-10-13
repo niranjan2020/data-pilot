@@ -52,15 +52,25 @@ async def test_unresolved_semantic_path_blocks_before_generator_or_database(stat
         semantic_catalog_provider=Mock(),
         semantic_context_assembler=assembler,
     )
-    with pytest.raises(SQLValidationError) as caught:
-        await orchestrator.query(
-            QueryRequest(question="show transaction count by region",
-                         source_name="example"),
-            conversation_context={"previous_question": "show transactions"},
+    request = QueryRequest(question="show transaction count by region",
+                           source_name="example")
+    if status == "ambiguous":
+        response = await orchestrator.query(
+            request, conversation_context={"previous_question": "show transactions"},
         )
-    checks = caught.value.details["checks"]
-    assert checks[0]["code"] == "semantic_relationship_path_unresolved"
-    assert checks[0]["reason"] == status
+        assert response.status == "ambiguous"
+        assert response.clarification is not None
+        assert response.clarification.kind == "relationship"
+        assert response.clarification.options == []
+        assert response.sql is None
+    else:
+        with pytest.raises(SQLValidationError) as caught:
+            await orchestrator.query(
+                request, conversation_context={"previous_question": "show transactions"},
+            )
+        checks = caught.value.details["checks"]
+        assert checks[0]["code"] == "semantic_relationship_path_unresolved"
+        assert checks[0]["reason"] == status
     assert assembler.assemble_calls == 1
     assert assembler.carry_calls == 1
     generator.generate.assert_not_awaited()
