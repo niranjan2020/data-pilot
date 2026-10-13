@@ -1050,7 +1050,7 @@ class QueryOrchestrator:
             }
             corrected = await self._sql_generator.generate(
                 question=request.question,
-                schema=schema,
+                schema=prompt_schema,
                 context=recovery_context,
                 dialect=self._database.dialect,
             )
@@ -1091,7 +1091,7 @@ class QueryOrchestrator:
             }
             corrected = await self._sql_generator.generate(
                 question=request.question,
-                schema=schema,
+                schema=prompt_schema,
                 context=correction_context,
                 dialect=self._database.dialect,
             )
