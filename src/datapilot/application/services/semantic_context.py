@@ -43,6 +43,49 @@ def resolve_published_dimension_owners(
     }
     return {next(iter(owners)) for owners in longest.values() if len(owners) == 1}
 
+
+def unique_shortest_relationship_path(
+    start: int,
+    target: int,
+    relationships: list[dict[str, Any]],
+) -> tuple[dict[str, Any], ...]:
+    """Return the unique shortest semantic path, or no path if ambiguous.
+
+    Relationships here are candidate metadata, not execution grants. The
+    existing published-join authorization remains mandatory before execution.
+    """
+    if start == target:
+        return ()
+    from collections import deque
+
+    adjacency: dict[int, list[tuple[int, dict[str, Any]]]] = {}
+    for relationship in relationships:
+        left = relationship.get("from_entity_id")
+        right = relationship.get("to_entity_id")
+        if type(left) is not int or type(right) is not int or left == right:
+            continue
+        adjacency.setdefault(left, []).append((right, relationship))
+        adjacency.setdefault(right, []).append((left, relationship))
+    queue = deque([(start, frozenset({start}), ())])
+    shortest = None
+    found: list[tuple[dict[str, Any], ...]] = []
+    while queue:
+        node, visited, path = queue.popleft()
+        if shortest is not None and len(path) >= shortest:
+            continue
+        for neighbor, relationship in adjacency.get(node, []):
+            if neighbor in visited:
+                continue
+            candidate = (*path, relationship)
+            if neighbor == target:
+                shortest = len(candidate)
+                found.append(candidate)
+                if len(found) > 1:
+                    return ()
+            elif shortest is None:
+                queue.append((neighbor, visited | {neighbor}, candidate))
+    return found[0] if len(found) == 1 else ()
+
 class SemanticContextAssembler:
     """Expand vector-search seeds through the authoritative semantic graph."""
 
@@ -323,6 +366,29 @@ class SemanticContextAssembler:
             )
             known_entity_ids = {entity["id"] for entity in entities}
             entity_ids.update(published_owner_ids & known_entity_ids)
+
+        # Connect an explicitly requested metric to an explicitly published
+        # dimension only when there is exactly one shortest semantic path.
+        # Ambiguous or disconnected graphs are never resolved by arbitrary
+        # relationship ordering. Physical join publication is checked later.
+        if explicit_metric_ids and published_dimensions:
+            dimension_owner_ids = resolve_published_dimension_owners(
+                question, published_dimensions
+            )
+            metric_owner_ids = {
+                metric["entity_id"] for metric in metrics
+                if metric["id"] in explicit_metric_ids
+            }
+            for metric_owner in metric_owner_ids:
+                for dimension_owner in dimension_owner_ids:
+                    path = unique_shortest_relationship_path(
+                        metric_owner, dimension_owner, relationships
+                    )
+                    for relationship in path:
+                        entity_ids.update((
+                            relationship["from_entity_id"],
+                            relationship["to_entity_id"],
+                        ))
 
         # Temporal intent may require a governed date role that lives on a
         # directly related entity rather than on the metric owner. For example,
