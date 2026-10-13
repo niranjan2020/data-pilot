@@ -141,9 +141,11 @@ def shortest_relationship_path_candidates(
                 queue.append(neighbor)
     if target not in distances:
         return []
+    # Never show a truncated subset as if it were the complete set of
+    # possible shortest routes. Detect overflow with one extra candidate.
     paths: list[tuple[dict[str, Any], ...]] = []
     def visit(node: int, route: tuple[dict[str, Any], ...]) -> None:
-        if len(paths) >= max_candidates:
+        if len(paths) > max_candidates:
             return
         if node == target:
             paths.append(route)
@@ -152,7 +154,7 @@ def shortest_relationship_path_candidates(
             if distances.get(neighbor) == distances[node] + 1:
                 visit(neighbor, (*route, edge))
     visit(start, ())
-    return paths
+    return paths if len(paths) <= max_candidates else []
 
 
 def classify_relationship_path(
