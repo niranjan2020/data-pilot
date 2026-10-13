@@ -335,3 +335,51 @@ def test_semantic_route_classifies_disconnected_and_parallel_edges():
         {"from_entity_id": 1, "to_entity_id": 2},
     ]) == "ambiguous"
     assert classify_relationship_path(1, 1, []) == "same_entity"
+
+
+def test_shortest_path_candidates_have_stable_ids_and_names():
+    from datapilot.application.services.semantic_context import (
+        shortest_relationship_path_candidates,
+    )
+    edges = [
+        {"id": 12, "name": "Alternative first", "from_entity_id": 1, "to_entity_id": 4},
+        {"id": 13, "name": "Alternative second", "from_entity_id": 4, "to_entity_id": 3},
+        {"id": 10, "name": "First", "from_entity_id": 1, "to_entity_id": 2},
+        {"id": 11, "name": "Second", "from_entity_id": 2, "to_entity_id": 3},
+    ]
+    routes = shortest_relationship_path_candidates(1, 3, edges)
+    assert [[edge["id"] for edge in route] for route in routes] == [
+        [10, 11], [12, 13],
+    ]
+    assert [[edge["id"] for edge in route] for route in
+            shortest_relationship_path_candidates(1, 3, list(reversed(edges)))] == [
+        [10, 11], [12, 13],
+    ]
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_path_context_contains_named_candidate_routes():
+    context = await SemanticContextAssembler(AmbiguousTwoHopCatalog()).assemble(
+        "example", [], "show transaction count by region"
+    )
+    issue, = context["relationship_path_issues"]
+    assert issue["status"] == "ambiguous"
+    assert [candidate["relationship_ids"] for candidate in issue["candidates"]] == [
+        [10, 11], [12, 13],
+    ]
+    assert issue["candidates"][0]["relationship_names"] == [
+        "Transaction Bridge", "Bridge Territory",
+    ]
+
+
+def test_path_candidates_do_not_use_unstable_or_duplicate_relationship_ids():
+    from datapilot.application.services.semantic_context import (
+        shortest_relationship_path_candidates,
+    )
+    assert shortest_relationship_path_candidates(1, 2, [
+        {"from_entity_id": 1, "to_entity_id": 2},
+    ]) == []
+    assert shortest_relationship_path_candidates(1, 2, [
+        {"id": 1, "from_entity_id": 1, "to_entity_id": 2},
+        {"id": 1, "from_entity_id": 1, "to_entity_id": 2},
+    ]) == []
