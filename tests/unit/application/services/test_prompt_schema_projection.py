@@ -69,3 +69,42 @@ def test_non_metric_question_preserves_schema_discovery():
     assert project_metric_prompt_schema(
         schema, context, authoritative_dimensions=True,
     ) is schema
+
+
+def test_single_entity_metric_keeps_configured_grouping_attributes():
+    schema = _schema()
+    context = {
+        "metrics": [{"entity_id": 12, "attribute_name": "Id"}],
+        "entities": [{
+            "id": 12, "schema_name": "astra", "table_name": "vessels",
+            "key_column": "id",
+            "attributes": [
+                {"name": "Managing Owner", "column_name": "ownership_status"},
+                {"name": "Operator", "column_name": "operator"},
+            ],
+        }],
+        "published_dimensions": [],
+        "relationships": [],
+    }
+    projected = project_metric_prompt_schema(
+        schema, context, authoritative_dimensions=True,
+    )
+    assert [(table.name, [col.name for col in table.columns])
+            for table in projected.tables] == [
+        ("vessels", ["operator", "ownership_status"])
+    ]
+
+
+def test_other_entity_near_name_remains_excluded_from_metric_prompt():
+    context = _context()
+    context["published_dimensions"] = []
+    context["entities"][0]["attributes"] = [
+        {"name": "Id", "column_name": "id"},
+    ]
+    projected = project_metric_prompt_schema(
+        _schema(), context, authoritative_dimensions=True,
+    )
+    assert all(
+        column.name != "operator_next"
+        for table in projected.tables for column in table.columns
+    )
