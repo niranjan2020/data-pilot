@@ -12,7 +12,7 @@ from sqlglot import exp, parse_one
 
 
 def _terms(text: str) -> str:
-    return " " + re.sub(r"[^a-z0-9]+", " ", text.casefold()).strip() + " "
+    return " " + re.sub(r"[^a-z0-9_]+", " ", text.casefold()).strip() + " " 
 
 
 def check_published_grouping(
