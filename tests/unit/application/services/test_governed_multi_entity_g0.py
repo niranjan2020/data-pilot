@@ -390,3 +390,18 @@ def test_path_candidates_do_not_use_unstable_or_duplicate_relationship_ids():
         {"id": 1, "from_entity_id": 1, "to_entity_id": 2},
         {"id": 1, "from_entity_id": 1, "to_entity_id": 2},
     ]) == []
+
+
+def test_path_candidate_limit_never_returns_truncated_choices():
+    from datapilot.application.services.semantic_context import (
+        shortest_relationship_path_candidates,
+    )
+    edges = []
+    for index in range(9):
+        middle = 100 + index
+        edges.extend([
+            {"id": index * 2 + 1, "from_entity_id": 1, "to_entity_id": middle},
+            {"id": index * 2 + 2, "from_entity_id": middle, "to_entity_id": 3},
+        ])
+    assert shortest_relationship_path_candidates(1, 3, edges, max_candidates=8) == []
+    assert len(shortest_relationship_path_candidates(1, 3, edges, max_candidates=9)) == 9
