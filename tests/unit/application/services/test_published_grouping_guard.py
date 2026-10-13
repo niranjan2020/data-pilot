@@ -67,3 +67,25 @@ def test_published_grouping_projection_with_alias_is_accepted():
            "FROM public.transactions t JOIN public.accounts a "
            "ON t.account_id = a.id GROUP BY a.region")
     assert verify(sql) == ()
+
+
+def test_group_by_projection_alias_uses_published_source():
+    sql = ("SELECT a.region AS area, COUNT(*) FROM public.accounts a "
+           "GROUP BY area")
+    assert verify(sql) == ()
+
+
+def test_group_by_ordinal_uses_published_source():
+    sql = ("SELECT a.region, COUNT(*) FROM public.accounts a GROUP BY 1")
+    assert verify(sql) == ()
+
+
+def test_alias_cannot_hide_unpublished_similar_column():
+    sql = ("SELECT t.region_next AS region, COUNT(*) "
+           "FROM public.transactions t GROUP BY region")
+    assert verify(sql)
+
+
+def test_ordinal_cannot_hide_wrong_entity_column():
+    sql = ("SELECT t.region, COUNT(*) FROM public.transactions t GROUP BY 1")
+    assert verify(sql)
