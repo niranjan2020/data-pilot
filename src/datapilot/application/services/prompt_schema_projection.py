@@ -51,11 +51,25 @@ def project_metric_prompt_schema(
         permit(entity_by_id.get(edge.get("from_entity_id")), edge.get("from_column"))
         permit(entity_by_id.get(edge.get("to_entity_id")), edge.get("to_column"))
 
+    # Backward compatibility: a metric's own physical table was queryable
+    # before cross-entity dimension publication was introduced. Preserve its
+    # discovered columns for ordinary same-table calculations, filtering and
+    # grouping. This does not authorize a different entity or any JOIN:
+    # related tables still receive only approved dimensions and join keys.
+    metric_owner_keys = {
+        (str(entity_by_id[metric["entity_id"]].get("schema_name") or "").casefold(),
+         str(entity_by_id[metric["entity_id"]].get("table_name") or "").casefold())
+        for metric in governed_context["metrics"]
+        if metric.get("entity_id") in entity_by_id
+    }
+
     # Never leak unrelated physical tables or columns into the prompt.
     tables = []
     for table in schema.tables:
         key = (str(table.schema_name or "").casefold(), table.name.casefold())
         columns = allowed.get(key, set())
+        if key in metric_owner_keys:
+            columns = {column.name.casefold() for column in table.columns}
         if columns:
             tables.append(table.model_copy(update={
                 "columns": [col for col in table.columns if col.name.casefold() in columns],
