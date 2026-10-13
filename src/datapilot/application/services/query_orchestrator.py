@@ -1305,24 +1305,54 @@ class QueryOrchestrator:
         # Re-authorize the *final* SQL before dry-run or execution; grants
         # established for an earlier SQL string are not transferable.
         if publication_metadata is not None and executable_sql != publication_checked_sql:
+            # A repaired single-table query needs no relationship grants.
+            # However, a repair that introduces *any* physical join must
+            # obtain current datasource-scoped grants, even if the original
+            # SQL had no joins. Do not mistake LATERAL UNNEST for a join
+            # between physical datasets.
+            import sqlglot
+            from sqlglot import exp
             from datapilot.application.published_join_authorization import authorize_published_joins
-            source_id = (
-                await publication_metadata.get_data_source_id(data_source_name)
-                if data_source_name else None
-            )
-            final_authorization = await authorize_published_joins(
-                publication_metadata, source_id, executable_sql,
-                required_relationships or [],
-            )
-            if not final_authorization.allowed:
+            try:
+                final_statements = sqlglot.parse(
+                    executable_sql, read=sqlglot_dialect(self._database.dialect),
+                )
+                final_has_join = any(
+                    isinstance(node, exp.Join)
+                    and not isinstance(
+                        node.this.this if isinstance(node.this, exp.Lateral)
+                        else node.this, exp.Unnest,
+                    )
+                    for statement in final_statements if statement is not None
+                    for node in statement.walk()
+                )
+            except Exception as exc:
                 raise SQLValidationError(
-                    "Final SQL failed published relationship authorization",
+                    "Cannot verify repaired SQL relationship publication",
                     details={"checks": [{
                         "code": "relationship_publication_violation",
                         "status": "failed", "severity": "error",
-                        "message": "; ".join(final_authorization.reasons),
+                        "message": "Unable to parse final SQL for relationship authorization.",
                     }]},
+                ) from exc
+            if final_has_join or required_relationships:
+                source_id = (
+                    await publication_metadata.get_data_source_id(data_source_name)
+                    if data_source_name else None
                 )
+                final_authorization = await authorize_published_joins(
+                    publication_metadata, source_id, executable_sql,
+                    required_relationships or [],
+                )
+                if not final_authorization.allowed:
+                    raise SQLValidationError(
+                        "Final SQL failed published relationship authorization",
+                        details={"checks": [{
+                            "code": "relationship_publication_violation",
+                            "status": "failed", "severity": "error",
+                            "message": "; ".join(final_authorization.reasons),
+                        }]},
+                    )
         if published_dimensions:
             from datapilot.application.services.published_grouping_guard import check_published_grouping
             final_grouping_violations = check_published_grouping(
