@@ -164,8 +164,12 @@ def check_published_grouping(
         return ("Empty SQL for grouping authorization.",)
     ctes = {}
     for cte in tree.find_all(exp.CTE):
-        if isinstance(cte.this, exp.Select):
-            ctes[cte.alias.casefold()] = cte.this
+        # Duplicate names or unsupported CTE shapes cannot provide trusted
+        # physical lineage; never silently let the last definition win.
+        name = cte.alias.casefold()
+        if not name or name in ctes or not isinstance(cte.this, exp.Select):
+            return ("Cannot verify published dimension through ambiguous CTEs.",)
+        ctes[name] = cte.this
     if not isinstance(tree, exp.Select):
         return ("Cannot verify published grouping on this SQL query shape.",)
     grouped = _group_expressions(tree)
