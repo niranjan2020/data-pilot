@@ -104,3 +104,20 @@ def test_fixture_count_by_operator_rejects_physical_near_name_substitution():
     )
     assert authorize_exact_selected_route_sql(approved_sql, relationship).allowed
     assert not authorize_exact_selected_route_sql(wrong_sql, relationship).allowed
+
+
+@pytest.mark.asyncio
+async def test_unpublished_operator_produces_explicit_no_sql_signal():
+    context = await SemanticContextAssembler(
+        AstraFixtureCatalog(operator_published=False)
+    ).assemble("astra", [], "Show fixture count by operator")
+    assert context["unpublished_grouping_intent"] == "operator"
+    assert context["metrics"] == []
+
+
+@pytest.mark.asyncio
+async def test_published_operator_has_no_unpublished_dimension_signal():
+    context = await SemanticContextAssembler(AstraFixtureCatalog()).assemble(
+        "astra", [], "Show fixture count by operator"
+    )
+    assert "unpublished_grouping_intent" not in context
