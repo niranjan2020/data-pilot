@@ -310,10 +310,17 @@ async def test_ambiguous_semantic_route_is_reported_without_guessing():
     context = await SemanticContextAssembler(AmbiguousTwoHopCatalog()).assemble(
         "example", [], "show transaction count by region"
     )
-    assert context["relationship_path_issues"] == [{
+    issues = context["relationship_path_issues"]
+    assert len(issues) == 1
+    assert {key: issues[0][key] for key in (
+        "metric_entity_id", "dimension_entity_id", "status"
+    )} == {
         "metric_entity_id": 1, "dimension_entity_id": 3,
         "status": "ambiguous",
-    }]
+    }
+    assert [candidate["relationship_ids"] for candidate in issues[0]["candidates"]] == [
+        [10, 11], [12, 13],
+    ]
     assert context["relationships"] == []
 
 
