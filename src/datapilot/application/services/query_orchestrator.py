@@ -1117,6 +1117,7 @@ class QueryOrchestrator:
                 # Reuse the exact grants checked against the SQL AST.
                 trusted_published_relationships = list(authorization.verified_grants)
 
+        publication_checked_sql = executable_sql
         try:
             self._validate_nonempty_array_filters(question, executable_sql, governed_entities or [])
         except SQLValidationError as nonempty_error:
@@ -1303,7 +1304,7 @@ class QueryOrchestrator:
         # Repairs can change SQL after the initial published-join check.
         # Re-authorize the *final* SQL before dry-run or execution; grants
         # established for an earlier SQL string are not transferable.
-        if publication_metadata is not None:
+        if publication_metadata is not None and executable_sql != publication_checked_sql:
             from datapilot.application.published_join_authorization import authorize_published_joins
             source_id = (
                 await publication_metadata.get_data_source_id(data_source_name)
