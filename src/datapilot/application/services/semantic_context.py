@@ -490,9 +490,40 @@ class SemanticContextAssembler:
                 published_owners = resolve_published_dimension_owners(
                     "by " + grouping_phrase, published_dimensions,
                 )
-                if not published_owners and not any(
+                # Existing single-entity attributes remain usable for metrics
+                # on that same entity. Publication is required to introduce a
+                # grouping attribute owned by a *different* entity.
+                metric_owner_ids = {
+                    metric["entity_id"] for metric in metrics
+                    if metric["id"] in explicit_metric_ids
+                }
+                def _matches_grouping_attribute(attribute):
+                    terms = [
+                        attribute.get("name") or "",
+                        *(attribute.get("synonyms") or []),
+                    ]
+                    for term in terms:
+                        normalized = re.sub(
+                            r"[^a-z0-9]+", " ", str(term).casefold()
+                        ).strip()
+                        if normalized and (
+                            grouping_phrase == normalized
+                            or grouping_phrase.startswith(normalized + " ")
+                        ):
+                            return True
+                    return False
+
+                local_grouping = any(
+                    entity["id"] in metric_owner_ids
+                    and any(
+                        _matches_grouping_attribute(attribute)
+                        for attribute in entity.get("attributes") or []
+                    )
+                    for entity in entities
+                )
+                if (not published_owners and not local_grouping and not any(
                     "_" in token for token in grouping_phrase.split()
-                ):
+                )):
                     return {
                         "datasets": [], "entities": [], "relationships": [],
                         "metrics": [], "business_rules": [],
