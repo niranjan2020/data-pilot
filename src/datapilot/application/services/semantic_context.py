@@ -482,7 +482,7 @@ class SemanticContextAssembler:
         # deployments without that contract retain their existing behavior.
         if load_dimensions is not None and explicit_metric_ids:
             grouping_match = re.search(
-                r"\\b(?:grouped by|group by|by|per)\\s+([a-z][a-z0-9_ ]*)",
+                r"\b(?:grouped by|group by|by|per)\s+([a-z][a-z0-9_ ]*)",
                 question.casefold(),
             )
             if grouping_match:
