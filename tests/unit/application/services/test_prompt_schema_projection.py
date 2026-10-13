@@ -108,3 +108,23 @@ def test_other_entity_near_name_remains_excluded_from_metric_prompt():
         column.name != "operator_next"
         for table in projected.tables for column in table.columns
     )
+
+
+def test_single_entity_metric_preserves_unconfigured_physical_columns():
+    schema = _schema()
+    context = {
+        "metrics": [{"entity_id": 12, "attribute_name": "Id"}],
+        "entities": [{
+            "id": 12, "schema_name": "astra", "table_name": "vessels",
+            "key_column": "id", "attributes": [{"name": "Operator", "column_name": "operator"}],
+        }],
+        "published_dimensions": [],
+        "relationships": [],
+    }
+    projected = project_metric_prompt_schema(
+        schema, context, authoritative_dimensions=True,
+    )
+    assert [(table.name, [col.name for col in table.columns])
+            for table in projected.tables] == [
+        ("vessels", ["id", "operator", "ownership_status"])
+    ]
