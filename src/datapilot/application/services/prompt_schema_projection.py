@@ -61,7 +61,6 @@ def project_metric_prompt_schema(
               str(e.get("table_name") or "").casefold())
              for e in entities}) == 1
         and not governed_context.get("relationships")
-        and not governed_context.get("published_dimensions")
     )
     metric_owner_keys = {
         (str(entity_by_id[metric["entity_id"]].get("schema_name") or "").casefold(),
