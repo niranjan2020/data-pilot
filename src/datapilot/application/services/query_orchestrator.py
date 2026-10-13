@@ -211,8 +211,40 @@ class QueryOrchestrator:
                     request.source_name, governed_context, conversation_context
                 )
             if path_issues:
+                # Ambiguous paths are a user-facing semantic clarification,
+                # not a SQL syntax error. Do not offer arbitrary candidate
+                # routes until they can be represented as verified choices.
+                ambiguous_paths = [
+                    issue for issue in path_issues
+                    if issue.get("status") == "ambiguous"
+                ]
+                if ambiguous_paths and len(ambiguous_paths) == len(path_issues):
+                    return self._with_explanation(QueryResponse(
+                        question=request.question,
+                        status="ambiguous",
+                        semantic_ambiguities=[
+                            "Multiple equally short semantic relationships connect "
+                            f"metric entity {issue['metric_entity_id']} to "
+                            f"dimension entity {issue['dimension_entity_id']}."
+                            for issue in ambiguous_paths
+                        ],
+                        clarification=ClarificationRequest(
+                            kind="relationship",
+                            key="relationship",
+                            question=(
+                                "Which governed relationship path should be used? "
+                                "Ask an administrator to configure an unambiguous "
+                                "relationship before retrying."
+                            ),
+                            options=[],
+                        ),
+                        message=(
+                            "Multiple governed relationship paths match this question. "
+                            "No SQL was generated."
+                        ),
+                    ))
                 raise SQLValidationError(
-                    "Semantic relationship path requires clarification",
+                    "Semantic relationship path is not configured",
                     details={"checks": [{
                         "code": "semantic_relationship_path_unresolved",
                         "status": "failed",
@@ -221,8 +253,7 @@ class QueryOrchestrator:
                         "dimension_entity_id": issue["dimension_entity_id"],
                         "reason": issue["status"],
                         "message": (
-                            "Multiple equally short semantic relationship paths exist. "
-                            "Select the intended relationship in the semantic model."
+                            "Multiple equally short semantic relationship paths exist."
                             if issue["status"] == "ambiguous" else
                             "No semantic relationship connects the requested metric "
                             "and published dimension. Configure a relationship."
