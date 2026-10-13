@@ -1125,11 +1125,11 @@ class QueryOrchestrator:
                 # Keep the rejected SQL visible to the evaluation harness.
                 # Without this, a 400 response hides whether generation
                 # omitted cohorts or the AST verifier rejected valid SQL.
-                details = dict(getattr(comparison_error, "details", None) or {})
+                details = dict(getattr(nonempty_error, "details", None) or {})
                 details["generated_sql"] = executable_sql
                 raise SQLValidationError(
-                    str(comparison_error), details=details,
-                ) from comparison_error
+                    str(nonempty_error), details=details,
+                ) from nonempty_error
             repaired_validation = await self._validator.validate(
                 repaired_sql, dialect=self._database.dialect, enforce_read_only=True,
             )
