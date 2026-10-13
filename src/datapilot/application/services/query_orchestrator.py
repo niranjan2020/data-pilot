@@ -204,6 +204,11 @@ class QueryOrchestrator:
             governed_context = await self._semantic_context_assembler.assemble(
                 request.source_name, retrieved_context, contextual_question
             )
+            if governed_context.get("unpublished_grouping_intent"):
+                raise SQLValidationError("Requested grouping dimension is not published", details={"checks": [{
+                    "code": "semantic_dimension_not_published", "status": "failed",
+                    "severity": "error", "message": "Publish the grouping dimension in Admin Studio before querying it.",
+                }]})
             # A follow-up may rehydrate previously selected entities, but
             # must not erase unresolved path ambiguity from the current turn.
             path_issues = list(governed_context.get("relationship_path_issues") or [])
