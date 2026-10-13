@@ -1380,6 +1380,84 @@ class QueryOrchestrator:
                 details={"errors": policy_result.errors},
             )
 
+        # Policy enforcement may rewrite SQL (for example to apply a row
+        # limit). The exact SQL sent to the database must remain within the
+        # authorized physical dataset and published relationship boundaries.
+        if policy_result.sql != executable_sql:
+            if not _repaired_sql_scope_safe(
+                policy_result.sql,
+                dialect=self._database.dialect,
+                allowed_tables=allowed_tables,
+            ):
+                raise SQLValidationError(
+                    "Policy SQL changed the authorized dataset scope",
+                    details={"checks": [{
+                        "code": "dataset_selection_violation",
+                        "status": "failed", "severity": "error",
+                        "message": "Policy rewrite introduced an unverified SQL scope.",
+                    }]},
+                )
+            if publication_metadata is not None:
+                import sqlglot
+                from sqlglot import exp
+                from datapilot.application.published_join_authorization import authorize_published_joins
+                try:
+                    policy_statements = sqlglot.parse(
+                        policy_result.sql, read=sqlglot_dialect(self._database.dialect),
+                    )
+                    policy_has_join = any(
+                        isinstance(node, exp.Join)
+                        and not isinstance(
+                            node.this.this if isinstance(node.this, exp.Lateral)
+                            else node.this, exp.Unnest,
+                        )
+                        for statement in policy_statements if statement is not None
+                        for node in statement.walk()
+                    )
+                except Exception as exc:
+                    raise SQLValidationError(
+                        "Unable to parse policy SQL for relationship authorization",
+                        details={"checks": [{
+                            "code": "relationship_publication_violation",
+                            "status": "failed", "severity": "error",
+                            "message": "Policy SQL relationship verification failed.",
+                        }]},
+                    ) from exc
+                if policy_has_join or required_relationships:
+                    source_id = (
+                        await publication_metadata.get_data_source_id(data_source_name)
+                        if data_source_name else None
+                    )
+                    policy_authorization = await authorize_published_joins(
+                        publication_metadata, source_id, policy_result.sql,
+                        required_relationships or [],
+                    )
+                    if not policy_authorization.allowed:
+                        raise SQLValidationError(
+                            "Policy SQL failed published relationship authorization",
+                            details={"checks": [{
+                                "code": "relationship_publication_violation",
+                                "status": "failed", "severity": "error",
+                                "message": "; ".join(policy_authorization.reasons),
+                            }]},
+                        )
+            if published_dimensions:
+                from datapilot.application.services.published_grouping_guard import check_published_grouping
+                policy_grouping_violations = check_published_grouping(
+                    policy_result.sql, question, published_dimensions,
+                    governed_entities or [],
+                    dialect=sqlglot_dialect(self._database.dialect),
+                )
+                if policy_grouping_violations:
+                    raise SQLValidationError(
+                        "Policy SQL failed published dimension alignment",
+                        details={"checks": [{
+                            "code": "published_dimension_alignment",
+                            "status": "failed", "severity": "error",
+                            "message": reason,
+                        } for reason in policy_grouping_violations]},
+                    )
+
         if trace is not None:
             trace.policy_sql = policy_result.sql
             trace.policy_warnings = list(policy_result.warnings)
