@@ -32,6 +32,12 @@ def project_metric_prompt_schema(
     for metric in governed_context["metrics"]:
         entity = entity_by_id.get(metric.get("entity_id"))
         permit(entity, entity.get("key_column") if entity else None)
+        # Configured attributes on the metric's own entity remain available
+        # for single-entity analytics. Other entities still require explicit
+        # dimension publication and an approved relationship.
+        if entity:
+            for attribute in entity.get("attributes") or []:
+                permit(entity, attribute.get("column_name"))
         attribute_name = metric.get("attribute_name")
         if entity and attribute_name:
             for attribute in entity.get("attributes") or []:
