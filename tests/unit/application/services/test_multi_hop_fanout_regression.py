@@ -131,3 +131,53 @@ def test_one_safe_derived_edge_does_not_waive_second_direct_fanout():
     assert any(c["code"] == "join_fanout_violation" for c in checks)
     assert not any(c.get("code") == "fanout_join_coverage_observed"
                    and c.get("metric") == "Balance" for c in checks)
+
+
+def test_whole_join_graph_nonmultiplication_evidence_for_unique_derived_edges():
+    sql = (
+        "SELECT a.region, SUM(a.balance) AS balance "
+        "FROM public.accounts a "
+        "LEFT JOIN (SELECT t.account_id, COUNT(*) AS n "
+        "FROM public.transactions t GROUP BY t.account_id) d "
+        "ON a.id = d.account_id GROUP BY a.region"
+    )
+    checks = assess_query_correctness(
+        affected_tables=["public.accounts", "public.transactions"],
+        governed_tables=["public.accounts", "public.transactions"],
+        sql=sql,
+        governed_metrics=[{"name": "Balance", "entity_id": 1,
+                           "aggregation": "sum"}],
+        required_relationships=[RELATIONSHIPS[0]],
+    )
+    assert any(c["code"] == "fanout_whole_join_graph_nonmultiplying_observed"
+               for c in checks)
+    # Evidence is not yet a metric-safety waiver.
+    assert any(c["code"] == "join_fanout_violation" for c in checks)
+
+
+def test_whole_join_graph_evidence_rejected_when_second_edge_is_not_unique():
+    sql = (
+        "SELECT a.region, SUM(a.balance) AS balance "
+        "FROM public.accounts a "
+        "LEFT JOIN (SELECT t.account_id, COUNT(*) AS n "
+        "FROM public.transactions t GROUP BY t.account_id) d "
+        "ON a.id = d.account_id "
+        "LEFT JOIN public.items i ON a.id = i.account_id "
+        "GROUP BY a.region"
+    )
+    checks = assess_query_correctness(
+        affected_tables=["public.accounts", "public.transactions", "public.items"],
+        governed_tables=["public.accounts", "public.transactions", "public.items"],
+        sql=sql,
+        governed_metrics=[{"name": "Balance", "entity_id": 1,
+                           "aggregation": "sum"}],
+        required_relationships=[
+            RELATIONSHIPS[0],
+            {"name": "Account Items", "from_entity_id": 1, "to_entity_id": 3,
+             "from_table": "public.accounts", "to_table": "public.items",
+             "from_column": "id", "to_column": "account_id",
+             "cardinality": "one-to-many"},
+        ],
+    )
+    assert not any(c["code"] == "fanout_whole_join_graph_nonmultiplying_observed"
+                   for c in checks)
