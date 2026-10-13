@@ -203,9 +203,31 @@ class QueryOrchestrator:
             governed_context = await self._semantic_context_assembler.assemble(
                 request.source_name, retrieved_context, contextual_question
             )
+            # A follow-up may rehydrate previously selected entities, but
+            # must not erase unresolved path ambiguity from the current turn.
+            path_issues = list(governed_context.get("relationship_path_issues") or [])
             if conversation_context:
                 governed_context = await self._semantic_context_assembler.carry_forward(
                     request.source_name, governed_context, conversation_context
+                )
+            if path_issues:
+                raise SQLValidationError(
+                    "Semantic relationship path requires clarification",
+                    details={"checks": [{
+                        "code": "semantic_relationship_path_unresolved",
+                        "status": "failed",
+                        "severity": "error",
+                        "metric_entity_id": issue["metric_entity_id"],
+                        "dimension_entity_id": issue["dimension_entity_id"],
+                        "reason": issue["status"],
+                        "message": (
+                            "Multiple equally short semantic relationship paths exist. "
+                            "Select the intended relationship in the semantic model."
+                            if issue["status"] == "ambiguous" else
+                            "No semantic relationship connects the requested metric "
+                            "and published dimension. Configure a relationship."
+                        ),
+                    } for issue in path_issues]},
                 )
             logger.info(
                 "query governed_context datasets=%s entities=%s relationships=%s metrics=%s rules=%s",
