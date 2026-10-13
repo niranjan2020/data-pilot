@@ -118,6 +118,7 @@ class QueryRejection(BaseModel):
         "invalid_metric_selection",
         "invalid_attribute_selection",
         "invalid_time_dimension_selection",
+        "invalid_relationship_selection",
     ]
     category: Literal["semantic_resolution"] = "semantic_resolution"
     reason: str
