@@ -122,3 +122,28 @@ def test_computed_dimension_is_not_accepted_as_direct_published_dimension():
     sql = ("SELECT LOWER(a.region) AS territory, COUNT(*) "
            "FROM public.accounts a GROUP BY 1")
     assert verify(sql)
+
+
+def test_nested_scalar_subquery_cannot_shadow_grouping_alias():
+    sql = ("SELECT a.region, (SELECT MAX(t.region) FROM public.transactions t) AS other "
+           "FROM public.accounts a GROUP BY a.region")
+    assert verify(sql) == ()
+
+
+def test_nested_scalar_subquery_cannot_supply_missing_published_dimension():
+    sql = ("SELECT t.region, (SELECT MAX(a.region) FROM public.accounts a) AS other "
+           "FROM public.transactions t GROUP BY t.region")
+    assert verify(sql)
+
+
+def test_duplicate_source_alias_cannot_prove_published_lineage():
+    sql = ("SELECT a.region, COUNT(*) FROM public.accounts a "
+           "JOIN public.transactions a ON a.id = a.account_id GROUP BY a.region")
+    assert verify(sql)
+
+
+def test_derived_table_wrong_owner_cannot_substitute():
+    sql = ("SELECT x.region, COUNT(*) FROM "
+           "(SELECT t.region AS region FROM public.transactions t) x "
+           "GROUP BY x.region")
+    assert verify(sql)
