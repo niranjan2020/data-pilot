@@ -897,3 +897,53 @@ async def publish_saved_source_categorical_mappings(
             await source.close()
         if owns_metadata:
             await metadata.close()
+
+@router.get("/data-source/{source_id}/relationship-publications")
+async def get_relationship_publications(source_id: int, request: Request):
+    """Inspect only currently valid, datasource-scoped relationship grants."""
+    metadata, owns = await _setup_metadata(request)
+    try:
+        if await metadata.get_active_data_source_id() != source_id:
+            raise HTTPException(status_code=409, detail="Datasource is not active.")
+        return await metadata.list_current_relationship_publications(source_id)
+    finally:
+        if owns:
+            await metadata.close()
+
+
+@router.post("/data-source/{source_id}/relationship-publication")
+async def publish_verified_relationship(
+    source_id: int, payload: RelationshipReviewInput, request: Request,
+):
+    """Publish a fresh verified review; never accept client-provided evidence."""
+    metadata, owns = await _setup_metadata(request)
+    try:
+        if await metadata.get_active_data_source_id() != source_id:
+            raise HTTPException(status_code=409, detail="Datasource is not active.")
+        identity = (
+            "from_schema", "from_table", "from_column",
+            "to_schema", "to_table", "to_column",
+        )
+        reviews = await metadata.list_reviewed_relationships(source_id)
+        review = next(
+            (item for item in reviews
+             if all(item.get(key) == getattr(payload, key) for key in identity)),
+            None,
+        )
+        if review is None:
+            raise HTTPException(status_code=404, detail="Relationship review not found.")
+        if any(review.get(key) != getattr(payload, key)
+               for key in ("cardinality", "review_status", "join_policy")):
+            raise HTTPException(status_code=409, detail="Relationship review changed; refresh before publication.")
+        if not await metadata.publish_reviewed_relationship(source_id, review):
+            raise HTTPException(
+                status_code=409,
+                detail="Relationship is not eligible for publication; complete live verification and review.",
+            )
+        return {"published": True, "relationship": {
+            key: review[key] for key in identity
+        }}
+    finally:
+        if owns:
+            await metadata.close()
+
