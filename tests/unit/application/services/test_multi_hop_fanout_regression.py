@@ -151,7 +151,7 @@ def test_whole_join_graph_nonmultiplication_evidence_for_unique_derived_edges():
     )
     assert any(c["code"] == "fanout_whole_join_graph_nonmultiplying_observed"
                for c in checks)
-    # Evidence is not yet a metric-safety waiver.
+    # Without explicit physical metric provenance, the waiver is unavailable.
     assert any(c["code"] == "join_fanout_violation" for c in checks)
 
 
@@ -217,7 +217,8 @@ def test_metric_root_provenance_requires_declared_physical_source():
     })
     assert not any(c["code"] == "fanout_metric_root_provenance_observed"
                    for c in wrong_table)
-    assert any(c["code"] == "join_fanout_violation" for c in matching)
+    assert any(c["code"] == "fanout_row_preservation_proven" for c in matching)
+    assert not any(c["code"] == "join_fanout_violation" for c in matching)
 
 
 def test_metric_root_provenance_rejects_expression_instead_of_direct_column():
@@ -240,3 +241,67 @@ def test_metric_root_provenance_rejects_expression_instead_of_direct_column():
     )
     assert not any(c["code"] == "fanout_metric_root_provenance_observed"
                    for c in checks)
+
+
+def test_proven_left_derived_join_allows_governed_root_sum():
+    sql = (
+        "SELECT a.region, SUM(a.balance) AS balance "
+        "FROM public.accounts a "
+        "LEFT JOIN (SELECT t.account_id, COUNT(*) AS n "
+        "FROM public.transactions t GROUP BY t.account_id) d "
+        "ON a.id = d.account_id GROUP BY a.region"
+    )
+    metrics = [{
+        "name": "Balance", "entity_id": 1, "aggregation": "sum",
+        "table_name": "public.accounts", "column_name": "balance",
+    }]
+    checks = assess_query_correctness(
+        affected_tables=["public.accounts", "public.transactions"],
+        governed_tables=["public.accounts", "public.transactions"],
+        sql=sql, governed_metrics=metrics,
+        required_relationships=[RELATIONSHIPS[0]],
+    )
+    assert any(c["code"] == "fanout_row_preservation_proven" for c in checks)
+    assert not any(c["code"] == "join_fanout_violation" for c in checks)
+
+
+def test_inner_derived_join_does_not_preserve_unmatched_root_rows():
+    sql = (
+        "SELECT a.region, SUM(a.balance) AS balance "
+        "FROM public.accounts a "
+        "JOIN (SELECT t.account_id, COUNT(*) AS n "
+        "FROM public.transactions t GROUP BY t.account_id) d "
+        "ON a.id = d.account_id GROUP BY a.region"
+    )
+    checks = assess_query_correctness(
+        affected_tables=["public.accounts", "public.transactions"],
+        governed_tables=["public.accounts", "public.transactions"],
+        sql=sql,
+        governed_metrics=[{
+            "name": "Balance", "entity_id": 1, "aggregation": "sum",
+            "table_name": "public.accounts", "column_name": "balance",
+        }],
+        required_relationships=[RELATIONSHIPS[0]],
+    )
+    assert any(c["code"] == "join_fanout_violation" for c in checks)
+
+
+def test_where_filter_prevents_row_preservation_waiver():
+    sql = (
+        "SELECT a.region, SUM(a.balance) AS balance "
+        "FROM public.accounts a "
+        "LEFT JOIN (SELECT t.account_id, COUNT(*) AS n "
+        "FROM public.transactions t GROUP BY t.account_id) d "
+        "ON a.id = d.account_id WHERE d.n > 0 GROUP BY a.region"
+    )
+    checks = assess_query_correctness(
+        affected_tables=["public.accounts", "public.transactions"],
+        governed_tables=["public.accounts", "public.transactions"],
+        sql=sql,
+        governed_metrics=[{
+            "name": "Balance", "entity_id": 1, "aggregation": "sum",
+            "table_name": "public.accounts", "column_name": "balance",
+        }],
+        required_relationships=[RELATIONSHIPS[0]],
+    )
+    assert any(c["code"] == "join_fanout_violation" for c in checks)
