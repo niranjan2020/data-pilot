@@ -89,3 +89,36 @@ def test_alias_cannot_hide_unpublished_similar_column():
 def test_ordinal_cannot_hide_wrong_entity_column():
     sql = ("SELECT t.region, COUNT(*) FROM public.transactions t GROUP BY 1")
     assert verify(sql)
+
+
+def test_cte_approved_dimension_lineage():
+    sql = ("WITH grouped AS (SELECT a.region AS territory FROM public.accounts a) "
+           "SELECT g.territory, COUNT(*) FROM grouped g GROUP BY g.territory")
+    assert verify(sql) == ()
+
+
+def test_cte_wrong_physical_owner_rejected():
+    sql = ("WITH grouped AS (SELECT t.region_next AS territory "
+           "FROM public.transactions t) SELECT g.territory, COUNT(*) "
+           "FROM grouped g GROUP BY g.territory")
+    assert verify(sql)
+
+
+def test_inline_subquery_approved_dimension_lineage():
+    sql = ("SELECT g.territory, COUNT(*) FROM "
+           "(SELECT a.region AS territory FROM public.accounts a) g "
+           "GROUP BY g.territory")
+    assert verify(sql) == ()
+
+
+def test_nested_ctes_preserve_published_lineage():
+    sql = ("WITH first AS (SELECT a.region AS territory FROM public.accounts a), "
+           "second AS (SELECT f.territory AS area FROM first f) "
+           "SELECT s.area, COUNT(*) FROM second s GROUP BY s.area")
+    assert verify(sql) == ()
+
+
+def test_computed_dimension_is_not_accepted_as_direct_published_dimension():
+    sql = ("SELECT LOWER(a.region) AS territory, COUNT(*) "
+           "FROM public.accounts a GROUP BY 1")
+    assert verify(sql)
