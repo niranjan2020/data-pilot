@@ -115,3 +115,34 @@ async def test_relationship_selection_cannot_bypass_publication_authorization():
     assert response.sql is None
     generator.generate.assert_not_awaited()
     database.execute_query.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("selection", ["999", "10,12", "", "10,11,13"])
+async def test_forged_or_stale_relationship_selection_is_rejected(selection):
+    assembler = PathAssembler("ambiguous")
+    generator = SimpleNamespace(
+        generate=AsyncMock(side_effect=AssertionError("SQL generated")),
+    )
+    database = SimpleNamespace(
+        dialect="postgres",
+        execute_query=AsyncMock(side_effect=AssertionError("database executed")),
+    )
+    orchestrator = QueryOrchestrator(
+        database_provider=database,
+        sql_validator=Mock(),
+        sql_generator=generator,
+        semantic_catalog_provider=Mock(),
+        semantic_context_assembler=assembler,
+    )
+    response = await orchestrator.query(QueryRequest(
+        question="show transaction count by region",
+        source_name="example",
+        clarification_selections={"relationship": selection},
+    ))
+    assert response.status == "rejected"
+    assert response.rejection is not None
+    assert response.rejection.code == "invalid_relationship_selection"
+    assert response.sql is None
+    generator.generate.assert_not_awaited()
+    database.execute_query.assert_not_awaited()
