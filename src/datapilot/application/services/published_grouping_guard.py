@@ -32,20 +32,38 @@ def _physical_lineage(
         expression = expression.this
     if not isinstance(expression, exp.Column):
         return set()
+    # Resolve only sources belonging to this SELECT. Descendant query scopes
+    # must not contribute tables or override aliases in the outer query.
     tables = {}
-    for table in select.find_all(exp.Table):
-        if table.find_ancestor(exp.Select) is not select:
-            continue
-        alias = table.alias_or_name.casefold()
-        if table.db:
-            tables[alias] = ("physical", table.db.casefold(), table.name.casefold())
-        elif table.name.casefold() in ctes:
-            tables[alias] = ("derived", table.name.casefold())
-    for sub in select.find_all(exp.Subquery):
-        if sub.find_ancestor(exp.Select) is not select:
-            continue
-        if isinstance(sub.this, exp.Select) and sub.alias:
-            tables[sub.alias.casefold()] = ("inline", sub.this)
+    from_clause = select.args.get("from_")
+    sources = []
+    if from_clause and from_clause.this is not None:
+        sources.append(from_clause.this)
+    sources.extend(join.this for join in select.args.get("joins") or []
+                   if join.this is not None)
+    for source in sources:
+        if isinstance(source, exp.Table):
+            alias = source.alias_or_name.casefold()
+            if alias in tables:
+                return set()
+            if source.db:
+                tables[alias] = ("physical", source.db.casefold(), source.name.casefold())
+            elif source.name.casefold() in ctes:
+                tables[alias] = ("derived", source.name.casefold())
+            else:
+                # Unqualified, unrecognized relations cannot establish lineage.
+                return set()
+        elif isinstance(source, exp.Subquery):
+            if not isinstance(source.this, exp.Select) or not source.alias:
+                return set()
+            alias = source.alias.casefold()
+            if alias in tables:
+                return set()
+            tables[alias] = ("inline", source.this)
+        else:
+            # Unsupported table-valued functions / lateral sources must not
+            # accidentally authorize a similarly named physical column.
+            return set()
     qualifier = expression.table.casefold() if expression.table else ""
     if not qualifier:
         if len(tables) != 1:
