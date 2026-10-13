@@ -56,3 +56,30 @@ def test_semantic_contract_preserves_selected_route_as_independent_snapshot():
     assert snapshot["selected_relationship_route"][0]["to_table"] == "bridges"
     snapshot["selected_relationship_route"][0]["to_table"] = "tampered"
     assert contract.selected_relationship_route[0]["to_table"] == "bridges"
+
+
+BASE_SQL = """SELECT t.id FROM public.transactions t
+LEFT JOIN public.bridges b ON t.bridge_id = b.id
+LEFT JOIN public.regions r ON b.region_id = r.id"""
+
+
+@pytest.mark.parametrize("sql", [
+    BASE_SQL + " LIMIT 100",
+    "WITH selected AS (" + BASE_SQL + ") SELECT id FROM selected LIMIT 100",
+    "SELECT id FROM (" + BASE_SQL + ") selected LIMIT 100",
+])
+def test_selected_route_survives_safe_final_and_policy_wrappers(sql):
+    assert authorize_exact_selected_route_sql(sql, ROUTE).allowed
+
+
+@pytest.mark.parametrize("sql", [
+    BASE_SQL.replace("b.region_id = r.id", "b.other_id = r.id") + " LIMIT 100",
+    "WITH selected AS (" + BASE_SQL.replace(
+        "LEFT JOIN public.regions r ON b.region_id = r.id", ""
+    ) + ") SELECT id FROM selected LIMIT 100",
+    "SELECT id FROM (" + BASE_SQL.replace(
+        "public.regions r", "public.other_regions r"
+    ) + ") selected LIMIT 100",
+])
+def test_selected_route_rejects_repair_or_policy_wrapper_tampering(sql):
+    assert not authorize_exact_selected_route_sql(sql, ROUTE).allowed
