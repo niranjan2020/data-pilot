@@ -53,3 +53,41 @@ async def authorize_published_joins(
     decision = validate_governed_join_graph(sql, authorized)
     return PublishedJoinAuthorization(bool(decision.allowed), tuple(decision.reasons),
                                       tuple(authorized) if decision.allowed else ())
+
+
+def authorize_exact_selected_route_sql(
+    sql: str, selected_relationships: list[dict],
+) -> PublishedJoinAuthorization:
+    """Require SQL to use exactly the selected, ordered physical join route.
+
+    This supplements (never replaces) the datasource publication authorization.
+    The existing graph validator checks each join key, direction and policy;
+    requiring the same number of edges prevents a subset from being accepted.
+    """
+    import sqlglot
+    from sqlglot import exp
+
+    if not selected_relationships:
+        return PublishedJoinAuthorization(False, ("No selected route was supplied.",))
+    try:
+        statements = sqlglot.parse(sql, read="postgres")
+        if len(statements) != 1 or not isinstance(statements[0], exp.Select):
+            return PublishedJoinAuthorization(False, ("Expected one SELECT.",))
+        tree = statements[0]
+        with_clause = tree.args.get("with_")
+        if with_clause is not None:
+            ctes = list(with_clause.expressions)
+            if len(ctes) != 1 or not isinstance(ctes[0].this, exp.Select):
+                return PublishedJoinAuthorization(False, ("Unsupported CTE route.",))
+            tree = ctes[0].this
+        elif tree.args.get("from_") and isinstance(tree.args["from_"].this, exp.Subquery):
+            tree = tree.args["from_"].this.this
+        if not isinstance(tree, exp.Select):
+            return PublishedJoinAuthorization(False, ("Unsupported route structure.",))
+        joins = tree.args.get("joins") or []
+        if len(joins) != len(selected_relationships):
+            return PublishedJoinAuthorization(False, ("SQL does not use every selected route edge.",))
+    except Exception:
+        return PublishedJoinAuthorization(False, ("Selected route SQL parsing failed.",))
+    decision = validate_governed_join_graph(sql, selected_relationships)
+    return PublishedJoinAuthorization(decision.allowed, tuple(decision.reasons))
