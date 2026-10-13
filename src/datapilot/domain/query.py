@@ -103,7 +103,7 @@ class ClarificationOption(BaseModel):
 class ClarificationRequest(BaseModel):
     """Structured ambiguity returned before SQL generation."""
 
-    kind: Literal["entity", "time_dimension", "metric", "attribute"]
+    kind: Literal["entity", "time_dimension", "metric", "attribute", "relationship"]
     key: str
     question: str
     options: List[ClarificationOption] = Field(default_factory=list)
