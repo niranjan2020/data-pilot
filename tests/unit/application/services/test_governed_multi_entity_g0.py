@@ -257,3 +257,49 @@ async def test_ambiguous_two_hop_path_does_not_select_bridge():
     )
     assert {e["id"] for e in context["entities"]} == {1, 3}
     assert context["relationships"] == []
+
+
+def test_shortest_relationship_path_preferred_over_longer_route():
+    from datapilot.application.services.semantic_context import (
+        unique_shortest_relationship_path,
+    )
+    edges = [
+        {"id": 1, "from_entity_id": 1, "to_entity_id": 2},
+        {"id": 2, "from_entity_id": 2, "to_entity_id": 3},
+        {"id": 3, "from_entity_id": 1, "to_entity_id": 4},
+        {"id": 4, "from_entity_id": 4, "to_entity_id": 5},
+        {"id": 5, "from_entity_id": 5, "to_entity_id": 3},
+    ]
+    assert [r["id"] for r in unique_shortest_relationship_path(1, 3, edges)] == [1, 2]
+
+
+def test_parallel_relationship_edges_are_ambiguous():
+    from datapilot.application.services.semantic_context import (
+        unique_shortest_relationship_path,
+    )
+    edges = [
+        {"id": 1, "from_entity_id": 1, "to_entity_id": 2},
+        {"id": 2, "from_entity_id": 1, "to_entity_id": 2},
+    ]
+    assert unique_shortest_relationship_path(1, 2, edges) == ()
+
+
+def test_cycles_do_not_create_false_shortest_path_ambiguity():
+    from datapilot.application.services.semantic_context import (
+        unique_shortest_relationship_path,
+    )
+    edges = [
+        {"id": 1, "from_entity_id": 1, "to_entity_id": 2},
+        {"id": 2, "from_entity_id": 2, "to_entity_id": 3},
+        {"id": 3, "from_entity_id": 3, "to_entity_id": 1},
+        {"id": 4, "from_entity_id": 3, "to_entity_id": 4},
+    ]
+    assert [r["id"] for r in unique_shortest_relationship_path(1, 4, edges)] == [3, 4]
+
+
+def test_disconnected_relationship_graph_has_no_path():
+    from datapilot.application.services.semantic_context import (
+        unique_shortest_relationship_path,
+    )
+    edges = [{"id": 1, "from_entity_id": 1, "to_entity_id": 2}]
+    assert unique_shortest_relationship_path(1, 4, edges) == ()
