@@ -487,6 +487,16 @@ class SemanticContextAssembler:
             )
             if grouping_match:
                 grouping_phrase = grouping_match.group(1).strip()
+                # In ranking questions, "operators by distinct vessel count"
+                # describes the measure used for ordering, not a requested
+                # grouping dimension named "distinct vessel count". Do not
+                # reject such queries as unpublished dimensions.
+                measure_prefixes = (
+                    "distinct ", "vessel count", "fleet size", "number of ",
+                    "count ", "average ", "total ", "percentage ", "sum ",
+                )
+                if grouping_phrase.startswith(measure_prefixes):
+                    grouping_phrase = ""
                 published_owners = resolve_published_dimension_owners(
                     "by " + grouping_phrase, published_dimensions,
                 )
@@ -521,7 +531,7 @@ class SemanticContextAssembler:
                     )
                     for entity in entities
                 )
-                if (not published_owners and not local_grouping and not any(
+                if (grouping_phrase and not published_owners and not local_grouping and not any(
                     "_" in token for token in grouping_phrase.split()
                 )):
                     return {
