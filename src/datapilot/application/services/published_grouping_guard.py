@@ -81,15 +81,43 @@ def check_published_grouping(
         expected = (str(entity.get("schema_name") or "").casefold(),
                     str(entity.get("table_name") or "").casefold())
         colname = str(d["column_name"]).casefold()
-        matched = False
-        for column in group.find_all(exp.Column):
-            if column.name.casefold() != colname:
-                continue
-            if column.table:
-                if table_aliases.get(column.table.casefold()) == expected:
-                    matched = True
-            elif len(set(table_aliases.values())) == 1 and expected in table_aliases.values():
-                matched = True
+        # Expand GROUP BY aliases and positional ordinals using the existing
+        # analytical correctness resolver. Physical ownership is still checked
+        # separately; a matching column name alone is never sufficient.
+        from datapilot.application.services.query_correctness import (
+            _grouped_physical_columns,
+        )
+        grouped_names = _grouped_physical_columns(tree, dialect=dialect)
+        group_sources = list(group.expressions)
+        for expression in group.expressions:
+            projection = None
+            if isinstance(expression, exp.Literal) and expression.is_int:
+                index = int(expression.this) - 1
+                if 0 <= index < len(tree.expressions):
+                    projection = tree.expressions[index]
+            elif isinstance(expression, exp.Column) and not expression.table:
+                matches = [
+                    item for item in tree.expressions
+                    if isinstance(item, exp.Alias)
+                    and item.alias.casefold() == expression.name.casefold()
+                ]
+                if len(matches) == 1:
+                    projection = matches[0]
+            if projection is not None:
+                group_sources.append(
+                    projection.this if isinstance(projection, exp.Alias)
+                    else projection
+                )
+        matched = colname in grouped_names and any(
+            column.name.casefold() == colname and (
+                table_aliases.get(column.table.casefold()) == expected
+                if column.table
+                else len(set(table_aliases.values())) == 1
+                and expected in table_aliases.values()
+            )
+            for expression in group_sources
+            for column in expression.find_all(exp.Column)
+        )
         if not matched:
             return (f"GROUP BY does not use published dimension {d.get('name')}.",)
         # The grouped physical dimension must also be projected. Checking only
