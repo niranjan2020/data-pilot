@@ -245,6 +245,7 @@ class SemanticContextAssembler:
             "datasets": selected_datasets,
             "entities": selected_entities,
             "relationships": selected_relationships,
+            "relationship_path_issues": relationship_path_issues,
             "metrics": selected_metrics,
             "business_rules": selected_rules,
             "time_dimensions": selected_time_dimensions,
