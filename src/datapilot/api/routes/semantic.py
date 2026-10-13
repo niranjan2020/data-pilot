@@ -42,6 +42,12 @@ class AttributeRequest(BaseModel):
     nonempty_intent_phrases:list[str]=Field(default_factory=list)
     value_mappings:list[CanonicalValueRequest]=Field(default_factory=list)
 
+class AnalyticalDimensionPublicationRequest(BaseModel):
+    source_name: str = Field(min_length=1)
+    entity_id: int = Field(gt=0)
+    attribute_name: str = Field(min_length=1)
+
+
 class BusinessRuleRequest(BaseModel):
     source_name:str=Field(min_length=1)
     name:str=Field(min_length=1)
@@ -411,3 +417,82 @@ async def semantic_search(payload:SemanticSearchRequest):
     except Exception as exc:
         raise HTTPException(503,f"Semantic index unavailable: {type(exc).__name__}") from exc
     return {"source_name":payload.source_name,"question":payload.question,"results":results}
+
+@router.get("/{source_name}/analytical-dimensions")
+async def analytical_dimensions(source_name: str):
+    """Show configured attributes alongside their explicit publication state."""
+    p = provider()
+    try:
+        source_id = await p.get_data_source_id(source_name)
+        if source_id is None:
+            raise HTTPException(404, "Data source not found. Discover it first.")
+        entities = await p.list_semantic_entities(source_id)
+        published = await p.list_published_analytical_dimensions(source_id)
+        grants = {
+            (d["entity_id"], str(d["name"]).casefold()) for d in published
+        }
+        return {
+            "source_name": source_name,
+            "published_dimensions": published,
+            "attributes": [
+                {
+                    "entity_id": entity["id"],
+                    "entity_name": entity["name"],
+                    "attribute_name": attribute["name"],
+                    "column_name": attribute["column_name"],
+                    "is_published": (
+                        entity["id"], str(attribute["name"]).casefold()
+                    ) in grants,
+                }
+                for entity in entities
+                for attribute in entity.get("attributes") or []
+            ],
+        }
+    finally:
+        await p.close()
+
+
+@router.post("/analytical-dimensions/publish")
+async def publish_analytical_dimension(payload: AnalyticalDimensionPublicationRequest):
+    from datapilot.infrastructure.metadata.analytical_attribute_publications import (
+        AnalyticalAttributePublicationStore,
+    )
+    p = provider()
+    try:
+        source_id = await p.get_data_source_id(payload.source_name)
+        if source_id is None:
+            raise HTTPException(404, "Data source not found. Discover it first.")
+        try:
+            await AnalyticalAttributePublicationStore(p).publish(
+                data_source_id=source_id,
+                entity_id=payload.entity_id,
+                attribute_name=payload.attribute_name,
+            )
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {"published": True, "entity_id": payload.entity_id,
+                "attribute_name": payload.attribute_name}
+    finally:
+        await p.close()
+
+
+@router.post("/analytical-dimensions/revoke")
+async def revoke_analytical_dimension(payload: AnalyticalDimensionPublicationRequest):
+    from datapilot.infrastructure.metadata.analytical_attribute_publications import (
+        AnalyticalAttributePublicationStore,
+    )
+    p = provider()
+    try:
+        source_id = await p.get_data_source_id(payload.source_name)
+        if source_id is None:
+            raise HTTPException(404, "Data source not found. Discover it first.")
+        await AnalyticalAttributePublicationStore(p).revoke(
+            data_source_id=source_id,
+            entity_id=payload.entity_id,
+            attribute_name=payload.attribute_name,
+        )
+        return {"published": False, "entity_id": payload.entity_id,
+                "attribute_name": payload.attribute_name}
+    finally:
+        await p.close()
+
