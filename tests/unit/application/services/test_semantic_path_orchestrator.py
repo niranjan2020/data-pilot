@@ -24,6 +24,12 @@ class PathAssembler:
                 "metric_entity_id": 1,
                 "dimension_entity_id": 3,
                 "status": self.status,
+                "candidates": [
+                    {"relationship_ids": [10, 11],
+                     "relationship_names": ["Transaction Bridge", "Bridge Region"]},
+                    {"relationship_ids": [12, 13],
+                     "relationship_names": ["Transaction Alternate", "Alternate Region"]},
+                ] if self.status == "ambiguous" else [],
             }],
         }
 
@@ -61,7 +67,13 @@ async def test_unresolved_semantic_path_blocks_before_generator_or_database(stat
         assert response.status == "ambiguous"
         assert response.clarification is not None
         assert response.clarification.kind == "relationship"
-        assert response.clarification.options == []
+        assert [option.value for option in response.clarification.options] == [
+            "10,11", "12,13",
+        ]
+        assert [option.label for option in response.clarification.options] == [
+            "Transaction Bridge → Bridge Region",
+            "Transaction Alternate → Alternate Region",
+        ]
         assert response.sql is None
     else:
         with pytest.raises(SQLValidationError) as caught:
@@ -73,5 +85,33 @@ async def test_unresolved_semantic_path_blocks_before_generator_or_database(stat
         assert checks[0]["reason"] == status
     assert assembler.assemble_calls == 1
     assert assembler.carry_calls == 1
+    generator.generate.assert_not_awaited()
+    database.execute_query.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_relationship_selection_cannot_bypass_publication_authorization():
+    assembler = PathAssembler("ambiguous")
+    generator = SimpleNamespace(
+        generate=AsyncMock(side_effect=AssertionError("SQL generated")),
+    )
+    database = SimpleNamespace(
+        dialect="postgres",
+        execute_query=AsyncMock(side_effect=AssertionError("database executed")),
+    )
+    orchestrator = QueryOrchestrator(
+        database_provider=database,
+        sql_validator=Mock(),
+        sql_generator=generator,
+        semantic_catalog_provider=Mock(),
+        semantic_context_assembler=assembler,
+    )
+    response = await orchestrator.query(QueryRequest(
+        question="show transaction count by region",
+        source_name="example",
+        clarification_selections={"relationship": "10,11"},
+    ))
+    assert response.status == "ambiguous"
+    assert response.sql is None
     generator.generate.assert_not_awaited()
     database.execute_query.assert_not_awaited()
