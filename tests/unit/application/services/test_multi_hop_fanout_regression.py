@@ -305,3 +305,66 @@ def test_where_filter_prevents_row_preservation_waiver():
         required_relationships=[RELATIONSHIPS[0]],
     )
     assert any(c["code"] == "join_fanout_violation" for c in checks)
+
+
+def test_two_independent_unique_left_joins_preserve_root_metric():
+    sql = (
+        "SELECT a.region, SUM(a.balance) AS balance "
+        "FROM public.accounts a "
+        "LEFT JOIN (SELECT t.account_id, COUNT(*) AS n "
+        "FROM public.transactions t GROUP BY t.account_id) d "
+        "ON a.id = d.account_id "
+        "LEFT JOIN (SELECT i.account_id, COUNT(*) AS n "
+        "FROM public.items i GROUP BY i.account_id) x "
+        "ON a.id = x.account_id GROUP BY a.region"
+    )
+    relationships = [
+        RELATIONSHIPS[0],
+        {"name": "Account Items", "from_entity_id": 1, "to_entity_id": 3,
+         "from_table": "public.accounts", "to_table": "public.items",
+         "from_column": "id", "to_column": "account_id",
+         "cardinality": "one-to-many"},
+    ]
+    checks = assess_query_correctness(
+        affected_tables=["public.accounts", "public.transactions", "public.items"],
+        governed_tables=["public.accounts", "public.transactions", "public.items"],
+        sql=sql,
+        governed_metrics=[{
+            "name": "Balance", "entity_id": 1, "aggregation": "sum",
+            "table_name": "public.accounts", "column_name": "balance",
+        }],
+        required_relationships=relationships,
+    )
+    assert any(c["code"] == "fanout_row_preservation_proven" for c in checks)
+    assert not any(c["code"] == "join_fanout_violation" for c in checks)
+
+
+def test_mixed_inner_and_left_derived_joins_remain_fail_closed():
+    sql = (
+        "SELECT a.region, SUM(a.balance) AS balance "
+        "FROM public.accounts a "
+        "LEFT JOIN (SELECT t.account_id, COUNT(*) AS n "
+        "FROM public.transactions t GROUP BY t.account_id) d "
+        "ON a.id = d.account_id "
+        "JOIN (SELECT i.account_id, COUNT(*) AS n "
+        "FROM public.items i GROUP BY i.account_id) x "
+        "ON a.id = x.account_id GROUP BY a.region"
+    )
+    checks = assess_query_correctness(
+        affected_tables=["public.accounts", "public.transactions", "public.items"],
+        governed_tables=["public.accounts", "public.transactions", "public.items"],
+        sql=sql,
+        governed_metrics=[{
+            "name": "Balance", "entity_id": 1, "aggregation": "sum",
+            "table_name": "public.accounts", "column_name": "balance",
+        }],
+        required_relationships=[
+            RELATIONSHIPS[0],
+            {"name": "Account Items", "from_entity_id": 1, "to_entity_id": 3,
+             "from_table": "public.accounts", "to_table": "public.items",
+             "from_column": "id", "to_column": "account_id",
+             "cardinality": "one-to-many"},
+        ],
+    )
+    assert any(c["code"] == "join_fanout_violation" for c in checks)
+    assert not any(c["code"] == "fanout_row_preservation_proven" for c in checks)
