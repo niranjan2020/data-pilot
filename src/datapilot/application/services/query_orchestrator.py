@@ -1300,6 +1300,44 @@ class QueryOrchestrator:
                 details={"checks": blocking_correctness},
             )
 
+        # Repairs can change SQL after the initial published-join check.
+        # Re-authorize the *final* SQL before dry-run or execution; grants
+        # established for an earlier SQL string are not transferable.
+        if publication_metadata is not None:
+            from datapilot.application.published_join_authorization import authorize_published_joins
+            source_id = (
+                await publication_metadata.get_data_source_id(data_source_name)
+                if data_source_name else None
+            )
+            final_authorization = await authorize_published_joins(
+                publication_metadata, source_id, executable_sql,
+                required_relationships or [],
+            )
+            if not final_authorization.allowed:
+                raise SQLValidationError(
+                    "Final SQL failed published relationship authorization",
+                    details={"checks": [{
+                        "code": "relationship_publication_violation",
+                        "status": "failed", "severity": "error",
+                        "message": "; ".join(final_authorization.reasons),
+                    }]},
+                )
+        if published_dimensions:
+            from datapilot.application.services.published_grouping_guard import check_published_grouping
+            final_grouping_violations = check_published_grouping(
+                executable_sql, question, published_dimensions,
+                governed_entities or [], dialect=sqlglot_dialect(self._database.dialect),
+            )
+            if final_grouping_violations:
+                raise SQLValidationError(
+                    "Final SQL failed published dimension alignment",
+                    details={"checks": [{
+                        "code": "published_dimension_alignment",
+                        "status": "failed", "severity": "error",
+                        "message": reason,
+                    } for reason in final_grouping_violations]},
+                )
+
         policy_result = self._query_policy_enforcer.enforce(
             executable_sql,
             self._database.dialect,
