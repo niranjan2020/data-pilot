@@ -46,7 +46,8 @@ async def authorize_published_joins(
     for identity in identities:
         matches = [grant for grant in grants
                    if isinstance(grant, dict) and
-                   tuple(grant.get(k) for k in IDENTITY) == identity]
+                   tuple(str(grant.get(k) or "").casefold() for k in IDENTITY)
+                   == tuple(str(part).casefold() for part in identity)]
         if len(matches) != 1:
             return PublishedJoinAuthorization(False, ("Required relationship is not currently published for the exact physical join identity (datasource-scoped).",))
         authorized.append(matches[0])
