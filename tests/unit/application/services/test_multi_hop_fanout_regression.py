@@ -181,3 +181,62 @@ def test_whole_join_graph_evidence_rejected_when_second_edge_is_not_unique():
     )
     assert not any(c["code"] == "fanout_whole_join_graph_nonmultiplying_observed"
                    for c in checks)
+
+
+def test_metric_root_provenance_requires_declared_physical_source():
+    sql = (
+        "SELECT a.region, SUM(a.balance) AS balance "
+        "FROM public.accounts a "
+        "LEFT JOIN (SELECT t.account_id, COUNT(*) AS n "
+        "FROM public.transactions t GROUP BY t.account_id) d "
+        "ON a.id = d.account_id GROUP BY a.region"
+    )
+    def checks(metric):
+        return assess_query_correctness(
+            affected_tables=["public.accounts", "public.transactions"],
+            governed_tables=["public.accounts", "public.transactions"],
+            sql=sql,
+            governed_metrics=[metric],
+            required_relationships=[RELATIONSHIPS[0]],
+        )
+    matching = checks({
+        "name": "Balance", "entity_id": 1, "aggregation": "sum",
+        "table_name": "public.accounts", "column_name": "balance",
+    })
+    assert any(c["code"] == "fanout_metric_root_provenance_observed"
+               for c in matching)
+    wrong_column = checks({
+        "name": "Balance", "entity_id": 1, "aggregation": "sum",
+        "table_name": "public.accounts", "column_name": "other_balance",
+    })
+    assert not any(c["code"] == "fanout_metric_root_provenance_observed"
+                   for c in wrong_column)
+    wrong_table = checks({
+        "name": "Balance", "entity_id": 1, "aggregation": "sum",
+        "table_name": "public.transactions", "column_name": "balance",
+    })
+    assert not any(c["code"] == "fanout_metric_root_provenance_observed"
+                   for c in wrong_table)
+    assert any(c["code"] == "join_fanout_violation" for c in matching)
+
+
+def test_metric_root_provenance_rejects_expression_instead_of_direct_column():
+    sql = (
+        "SELECT a.region, SUM(a.balance + 1) AS balance "
+        "FROM public.accounts a "
+        "LEFT JOIN (SELECT t.account_id, COUNT(*) AS n "
+        "FROM public.transactions t GROUP BY t.account_id) d "
+        "ON a.id = d.account_id GROUP BY a.region"
+    )
+    checks = assess_query_correctness(
+        affected_tables=["public.accounts", "public.transactions"],
+        governed_tables=["public.accounts", "public.transactions"],
+        sql=sql,
+        governed_metrics=[{
+            "name": "Balance", "entity_id": 1, "aggregation": "sum",
+            "table_name": "public.accounts", "column_name": "balance",
+        }],
+        required_relationships=[RELATIONSHIPS[0]],
+    )
+    assert not any(c["code"] == "fanout_metric_root_provenance_observed"
+                   for c in checks)
