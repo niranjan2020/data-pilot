@@ -351,10 +351,26 @@ class QueryOrchestrator:
                             entity_id for edge in chosen_edges
                             for entity_id in (edge["from_entity_id"], edge["to_entity_id"])
                         }
+                        # Preserve published attributes/metric context from the
+                        # assembler. The raw metadata entity listing contains
+                        # physical identities, not the publication-filtered
+                        # semantic attributes required for safe generation.
+                        governed_entities = {
+                            entity.get("id"): entity
+                            for entity in governed_context.get("entities", [])
+                        }
                         governed_context["entities"] = [
-                            entity for entity in entities if entity["id"] in selected_ids
+                            governed_entities[entity_id]
+                            for entity_id in selected_ids
+                            if entity_id in governed_entities
                         ]
-                        governed_context["relationships"] = chosen_edges
+                        # The selected route is independently authorized from
+                        # authoritative metadata; do not inject raw physical
+                        # entity attributes into the LLM prompt.
+                        governed_context["relationships"] = [
+                            relationship for relationship in governed_context.get("relationships", [])
+                            if relationship.get("id") in chosen_ids
+                        ]
                     else:
                         return self._with_explanation(QueryResponse(
                         question=request.question,
