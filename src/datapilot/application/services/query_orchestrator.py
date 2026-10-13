@@ -256,9 +256,61 @@ class QueryOrchestrator:
                                 ),
                                 message="Invalid relationship selection; no SQL was generated.",
                             ))
-                        # Candidate membership is NOT publication authorization.
-                        # Keep the response non-executable until selected paths
-                        # are verified against current physical join grants.
+                        # Resolve the selected semantic IDs from the current
+                        # datasource and check every physical edge against fresh
+                        # persisted publication grants. This is necessary but not
+                        # sufficient for execution: final SQL must still be
+                        # checked against the exact selected route.
+                        metadata = self._relationship_publication_metadata
+                        if metadata is None:
+                            raise SQLValidationError(
+                                "Relationship publication metadata is unavailable"
+                            )
+                        source_id = await metadata.get_data_source_id(request.source_name)
+                        if type(source_id) is not int or source_id <= 0:
+                            raise SQLValidationError("Datasource publication identity is unavailable")
+                        entities = await metadata.list_semantic_entities(source_id)
+                        relationships = await metadata.list_semantic_relationships(source_id)
+                        grants = await metadata.list_current_relationship_publications(source_id)
+                        if not isinstance(entities, list) or not isinstance(relationships, list) or not isinstance(grants, list):
+                            raise SQLValidationError("Current relationship publication catalog is unavailable")
+                        entity_by_id = {entity["id"]: entity for entity in entities}
+                        relationship_by_id = {edge["id"]: edge for edge in relationships}
+                        chosen_ids = [int(part) for part in selected_route.split(",")]
+                        chosen_edges = [relationship_by_id.get(edge_id) for edge_id in chosen_ids]
+                        if any(edge is None for edge in chosen_edges):
+                            raise SQLValidationError("Selected relationship no longer exists")
+                        identity_keys = (
+                            "from_schema", "from_table", "from_column",
+                            "to_schema", "to_table", "to_column",
+                        )
+                        for edge in chosen_edges:
+                            left = entity_by_id.get(edge["from_entity_id"])
+                            right = entity_by_id.get(edge["to_entity_id"])
+                            if not left or not right:
+                                raise SQLValidationError("Selected relationship entity is unavailable")
+                            identity = (
+                                left.get("schema_name"), left.get("table_name"), edge.get("from_column"),
+                                right.get("schema_name"), right.get("table_name"), edge.get("to_column"),
+                            )
+                            matches = [
+                                grant for grant in grants
+                                if isinstance(grant, dict)
+                                and tuple(grant.get(key) for key in identity_keys) == identity
+                            ]
+                            if len(matches) != 1:
+                                raise SQLValidationError(
+                                    "Selected semantic relationship is not currently published",
+                                    details={"checks": [{
+                                        "code": "selected_relationship_not_published",
+                                        "status": "failed",
+                                        "severity": "error",
+                                        "relationship_id": edge["id"],
+                                    }]},
+                                )
+                        # Do not execute merely because all edges are published.
+                        # The generator and final SQL authorization must be
+                        # constrained to this exact path first.
                     return self._with_explanation(QueryResponse(
                         question=request.question,
                         status="ambiguous",
