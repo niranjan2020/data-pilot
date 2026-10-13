@@ -39,3 +39,20 @@ def test_exact_selected_route_accepts_both_governed_edges():
 ])
 def test_exact_selected_route_rejects_shortened_or_changed_sql(sql):
     assert not authorize_exact_selected_route_sql(sql, ROUTE).allowed
+
+
+def test_semantic_contract_preserves_selected_route_as_independent_snapshot():
+    from datapilot.application.services.semantic_intent_contract import SemanticIntentContract
+
+    selected = [dict(ROUTE[0])]
+    contract = SemanticIntentContract.from_governed_context(
+        {"metrics": [], "resolved_attribute_selection": None},
+        grouping_columns=[], required_filters=[], required_relationships=[],
+        time_plan=None, selected_relationship_route=selected,
+    )
+    selected[0]["to_table"] = "tampered"
+    assert contract.selected_relationship_route[0]["to_table"] == "bridges"
+    snapshot = contract.as_dict()
+    assert snapshot["selected_relationship_route"][0]["to_table"] == "bridges"
+    snapshot["selected_relationship_route"][0]["to_table"] = "tampered"
+    assert contract.selected_relationship_route[0]["to_table"] == "bridges"
