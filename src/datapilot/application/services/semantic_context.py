@@ -20,7 +20,7 @@ def resolve_published_dimension_owners(
     Callers must supply datasource-scoped, persisted, published dimensions;
     conflicting published owners are left unresolved for clarification.
     """
-    normalized = " " + re.sub(r"[^a-z0-9]+", " ", question.casefold()).strip() + " "
+    normalized = " " + re.sub(r"[^a-z0-9_]+", " ", question.casefold()).strip() + " "
     matches: dict[str, set[int]] = {}
     for dimension in published_dimensions:
         entity_id = dimension.get("entity_id")
@@ -30,7 +30,7 @@ def resolve_published_dimension_owners(
         for term in terms:
             if not isinstance(term, str):
                 continue
-            phrase = re.sub(r"[^a-z0-9]+", " ", term.casefold()).strip()
+            phrase = re.sub(r"[^a-z0-9_]+", " ", term.casefold()).strip()
             if phrase and f" {phrase} " in normalized:
                 matches.setdefault(phrase, set()).add(entity_id)
     # Longer explicit phrases override their own shorter substring matches.
@@ -133,7 +133,22 @@ class SemanticContextAssembler:
             and (d["id"] in current_time_ids or d.get("name") in prior_time_names)
         ]
 
+        # Rehydrate published dimensions from the authoritative datasource,
+        # not from previous conversation payloads or inferred physical columns.
+        # The G4 verifier needs these grants on follow-up turns as well.
+        load_dimensions = getattr(self._metadata, "list_published_analytical_dimensions", None)
+        published_dimensions = []
+        if load_dimensions is not None:
+            published_dimensions = await load_dimensions(source_id)
+            if not isinstance(published_dimensions, list):
+                raise ValueError("Published dimension catalog is unavailable")
+            published_dimensions = [
+                dimension for dimension in published_dimensions
+                if dimension.get("entity_id") in entity_ids
+            ]
+
         return {
+            "published_dimensions": published_dimensions,
             "datasets": selected_datasets,
             "entities": selected_entities,
             "relationships": selected_relationships,
