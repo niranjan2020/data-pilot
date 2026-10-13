@@ -15,6 +15,86 @@ def _terms(text: str) -> str:
     return " " + re.sub(r"[^a-z0-9_]+", " ", text.casefold()).strip() + " " 
 
 
+
+def _physical_lineage(
+    select: exp.Select,
+    expression: exp.Expression,
+    *,
+    ctes: dict[str, exp.Select],
+    seen: frozenset[str] = frozenset(),
+) -> set[tuple[str, str, str]]:
+    """Resolve direct column lineage through named CTEs and derived SELECTs.
+
+    Computed expressions, stars, ambiguous qualifiers and recursive CTEs are
+    deliberately not accepted as proof of an approved physical dimension.
+    """
+    if isinstance(expression, exp.Alias):
+        expression = expression.this
+    if not isinstance(expression, exp.Column):
+        return set()
+    tables = {}
+    for table in select.find_all(exp.Table):
+        if table.find_ancestor(exp.Select) is not select:
+            continue
+        alias = table.alias_or_name.casefold()
+        if table.db:
+            tables[alias] = ("physical", table.db.casefold(), table.name.casefold())
+        elif table.name.casefold() in ctes:
+            tables[alias] = ("derived", table.name.casefold())
+    for sub in select.find_all(exp.Subquery):
+        if sub.find_ancestor(exp.Select) is not select:
+            continue
+        if isinstance(sub.this, exp.Select) and sub.alias:
+            tables[sub.alias.casefold()] = ("inline", sub.this)
+    qualifier = expression.table.casefold() if expression.table else ""
+    if not qualifier:
+        if len(tables) != 1:
+            return set()
+        qualifier = next(iter(tables))
+    source = tables.get(qualifier)
+    if not source:
+        return set()
+    if source[0] == "physical":
+        return {(source[1], source[2], expression.name.casefold())}
+    key = source[1] if source[0] == "derived" else qualifier
+    if key in seen:
+        return set()
+    inner = ctes.get(key) if source[0] == "derived" else source[1]
+    if not isinstance(inner, exp.Select):
+        return set()
+    matching = [
+        item for item in inner.expressions
+        if (item.alias_or_name or "").casefold() == expression.name.casefold()
+    ]
+    if len(matching) != 1:
+        return set()
+    return _physical_lineage(
+        inner, matching[0], ctes=ctes, seen=seen | {key}
+    )
+
+
+def _group_expressions(select: exp.Select) -> list[exp.Expression]:
+    group = select.args.get("group")
+    if not group:
+        return []
+    resolved = []
+    for item in group.expressions:
+        if isinstance(item, exp.Literal) and item.is_int:
+            index = int(item.this) - 1
+            if not 0 <= index < len(select.expressions):
+                return []
+            resolved.append(select.expressions[index])
+        elif isinstance(item, exp.Column) and not item.table:
+            aliases = [
+                projection for projection in select.expressions
+                if isinstance(projection, exp.Alias)
+                and projection.alias.casefold() == item.name.casefold()
+            ]
+            resolved.append(aliases[0] if len(aliases) == 1 else item)
+        else:
+            resolved.append(item)
+    return resolved
+
 def check_published_grouping(
     sql: str,
     question: str,
@@ -64,81 +144,33 @@ def check_published_grouping(
         return ("Cannot parse SQL for grouping authorization.",)
     if tree is None:
         return ("Empty SQL for grouping authorization.",)
-    group = tree.args.get("group")
-    if not group:
+    ctes = {}
+    for cte in tree.find_all(exp.CTE):
+        if isinstance(cte.this, exp.Select):
+            ctes[cte.alias.casefold()] = cte.this
+    if not isinstance(tree, exp.Select):
+        return ("Cannot verify published grouping on this SQL query shape.",)
+    grouped = _group_expressions(tree)
+    if not grouped:
         return ("Requested published dimension is missing from GROUP BY.",)
     by_id = {e.get("id"): e for e in entities}
-    table_aliases = {}
-    for table in tree.find_all(exp.Table):
-        if table.db:
-            table_aliases[table.alias_or_name.casefold()] = (
-                table.db.casefold(), table.name.casefold()
-            )
-    for _, d in candidates:
-        entity = by_id.get(d["entity_id"])
-        if not entity:
+    grouped_lineage = set()
+    for expression in grouped:
+        grouped_lineage.update(_physical_lineage(tree, expression, ctes=ctes))
+    projected_lineage = set()
+    for expression in tree.expressions:
+        projected_lineage.update(_physical_lineage(tree, expression, ctes=ctes))
+    for _, dimension in candidates:
+        owner = by_id.get(dimension["entity_id"])
+        if owner is None:
             return ("Published dimension owner is missing from semantic context.",)
-        expected = (str(entity.get("schema_name") or "").casefold(),
-                    str(entity.get("table_name") or "").casefold())
-        colname = str(d["column_name"]).casefold()
-        # Expand GROUP BY aliases and positional ordinals using the existing
-        # analytical correctness resolver. Physical ownership is still checked
-        # separately; a matching column name alone is never sufficient.
-        from datapilot.application.services.query_correctness import (
-            _grouped_physical_columns,
+        physical = (
+            str(owner.get("schema_name") or "").casefold(),
+            str(owner.get("table_name") or "").casefold(),
+            str(dimension["column_name"]).casefold(),
         )
-        grouped_names = _grouped_physical_columns(tree, dialect=dialect)
-        group_sources = list(group.expressions)
-        for expression in group.expressions:
-            projection = None
-            if isinstance(expression, exp.Literal) and expression.is_int:
-                index = int(expression.this) - 1
-                if 0 <= index < len(tree.expressions):
-                    projection = tree.expressions[index]
-            elif isinstance(expression, exp.Column) and not expression.table:
-                matches = [
-                    item for item in tree.expressions
-                    if isinstance(item, exp.Alias)
-                    and item.alias.casefold() == expression.name.casefold()
-                ]
-                if len(matches) == 1:
-                    projection = matches[0]
-            if projection is not None:
-                group_sources.append(
-                    projection.this if isinstance(projection, exp.Alias)
-                    else projection
-                )
-        matched = colname in grouped_names and any(
-            column.name.casefold() == colname and (
-                table_aliases.get(column.table.casefold()) == expected
-                if column.table
-                else len(set(table_aliases.values())) == 1
-                and expected in table_aliases.values()
-            )
-            for expression in group_sources
-            for column in expression.find_all(exp.Column)
-        )
-        if not matched:
-            return (f"GROUP BY does not use published dimension {d.get('name')}.",)
-        # The grouped physical dimension must also be projected. Checking only
-        # GROUP BY permits SELECT wrong_entity.similar_column GROUP BY approved.
-        # This guard currently accepts direct physical projections; expression
-        # and CTE lineage require the existing analytical verifier's full plan.
-        projections = [
-            node.this if isinstance(node, exp.Alias) else node
-            for node in (tree.expressions or [])
-        ]
-        projected = any(
-            isinstance(node, exp.Column)
-            and node.name.casefold() == colname
-            and (
-                table_aliases.get(node.table.casefold()) == expected
-                if node.table
-                else len(set(table_aliases.values())) == 1
-                     and expected in table_aliases.values()
-            )
-            for node in projections
-        )
-        if not projected:
-            return (f"SELECT does not project published dimension {d.get('name')}.",)
+        if physical not in grouped_lineage:
+            return (f"GROUP BY does not use published dimension {dimension.get('name')}.",)
+        if physical not in projected_lineage:
+            return (f"SELECT does not project published dimension {dimension.get('name')}.",)
     return ()
