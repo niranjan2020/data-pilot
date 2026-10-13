@@ -98,6 +98,44 @@ def unique_shortest_relationship_path(
     path.reverse()
     return tuple(path)
 
+def classify_relationship_path(
+    start: int,
+    target: int,
+    relationships: list[dict[str, Any]],
+) -> str:
+    """Classify a metric-to-dimension route without selecting an arbitrary join.
+
+    Distinguish disconnected graphs from ambiguous shortest paths. This is
+    semantic planning metadata, not physical relationship publication.
+    """
+    if start == target:
+        return "same_entity"
+    if unique_shortest_relationship_path(start, target, relationships):
+        return "unique"
+    # Reachability ignores multiplicity, which is handled by the shortest
+    # path resolver above. No route means a disconnected semantic model.
+    from collections import deque
+
+    adjacency: dict[int, set[int]] = {}
+    for relationship in relationships:
+        left = relationship.get("from_entity_id")
+        right = relationship.get("to_entity_id")
+        if type(left) is not int or type(right) is not int or left == right:
+            continue
+        adjacency.setdefault(left, set()).add(right)
+        adjacency.setdefault(right, set()).add(left)
+    visited = {start}
+    queue = deque([start])
+    while queue:
+        for neighbor in adjacency.get(queue.popleft(), set()):
+            if neighbor == target:
+                return "ambiguous"
+            if neighbor not in visited:
+                visited.add(neighbor)
+                queue.append(neighbor)
+    return "disconnected"
+
+
 class SemanticContextAssembler:
     """Expand vector-search seeds through the authoritative semantic graph."""
 
@@ -383,6 +421,7 @@ class SemanticContextAssembler:
         # dimension only when there is exactly one shortest semantic path.
         # Ambiguous or disconnected graphs are never resolved by arbitrary
         # relationship ordering. Physical join publication is checked later.
+        relationship_path_issues: list[dict[str, Any]] = []
         if explicit_metric_ids and published_dimensions:
             dimension_owner_ids = resolve_published_dimension_owners(
                 question, published_dimensions
@@ -396,6 +435,15 @@ class SemanticContextAssembler:
                     path = unique_shortest_relationship_path(
                         metric_owner, dimension_owner, relationships
                     )
+                    status = classify_relationship_path(
+                        metric_owner, dimension_owner, relationships
+                    )
+                    if status in {"ambiguous", "disconnected"}:
+                        relationship_path_issues.append({
+                            "metric_entity_id": metric_owner,
+                            "dimension_entity_id": dimension_owner,
+                            "status": status,
+                        })
                     for relationship in path:
                         entity_ids.update((
                             relationship["from_entity_id"],
