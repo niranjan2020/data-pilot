@@ -199,6 +199,7 @@ class QueryOrchestrator:
             [(x.get("kind"), x.get("name"), x.get("score")) for x in retrieved_context],
         )
         governed_context: dict[str, Any] = {}
+        selected_route_contract: list[dict[str, Any]] = []
         if self._semantic_context_assembler is not None and request.source_name:
             governed_context = await self._semantic_context_assembler.assemble(
                 request.source_name, retrieved_context, contextual_question
@@ -210,7 +211,6 @@ class QueryOrchestrator:
                 governed_context = await self._semantic_context_assembler.carry_forward(
                     request.source_name, governed_context, conversation_context
                 )
-            selected_route_contract = []
             if path_issues:
                 # Ambiguous paths are a user-facing semantic clarification,
                 # not a SQL syntax error. Do not offer arbitrary candidate
@@ -1091,6 +1091,7 @@ class QueryOrchestrator:
         aggregation_grain: Optional[list[str]] = None,
         data_source_name: Optional[str] = None,
         published_dimensions: Optional[list[dict[str, Any]]] = None,
+        selected_relationship_route: Optional[list[dict[str, Any]]] = None,
     ) -> QueryResponse:
         validation = await self._validator.validate(
             sql,
@@ -1203,7 +1204,28 @@ class QueryOrchestrator:
                     }]},
                 )
 
+        def verify_selected_route(statement: str) -> None:
+            if not selected_relationship_route:
+                return
+            from datapilot.application.published_join_authorization import (
+                authorize_exact_selected_route_sql,
+            )
+            decision = authorize_exact_selected_route_sql(
+                statement, selected_relationship_route,
+            )
+            if not decision.allowed:
+                raise SQLValidationError(
+                    "SQL deviates from the selected published relationship route",
+                    details={"checks": [{
+                        "code": "selected_relationship_route_violation",
+                        "status": "failed",
+                        "severity": "error",
+                        "message": "; ".join(decision.reasons),
+                    }]},
+                )
+
         executable_sql = validation.sanitized_sql or sql
+        verify_selected_route(executable_sql)
         # Independently verify the physical owner of each explicitly requested
         # published dimension before any SQL reaches execution.
         if published_dimensions:
@@ -1556,6 +1578,7 @@ class QueryOrchestrator:
                 details={"errors": policy_result.errors},
             )
 
+        verify_selected_route(executable_sql)
         # Policy enforcement may rewrite SQL (for example to apply a row
         # limit). The exact SQL sent to the database must remain within the
         # authorized physical dataset and published relationship boundaries.
@@ -1664,6 +1687,7 @@ class QueryOrchestrator:
                     }]},
                 )
 
+        verify_selected_route(policy_result.sql)
         if trace is not None:
             trace.policy_sql = policy_result.sql
             trace.policy_warnings = list(policy_result.warnings)
