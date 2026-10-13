@@ -1466,6 +1466,39 @@ class QueryOrchestrator:
                 str(comparison_error), details=details,
             ) from comparison_error
 
+        # The semantic relationship describes intent, but only the verified
+        # datasource publication grant can authorize a join policy.
+        correctness_relationships = list(required_relationships or [])
+        if correctness_relationships and trusted_published_relationships:
+            def _identity(value):
+                parts = []
+                for side in ("from", "to"):
+                    schema = str(value.get(f"{side}_schema") or "").casefold()
+                    table = str(value.get(f"{side}_table") or "").casefold()
+                    if "." in table:
+                        split = table.split(".")
+                        if len(split) != 2 or (schema and schema != split[0]):
+                            return ()
+                        schema, table = split
+                    column = str(value.get(f"{side}_column") or "").casefold()
+                    if not all((schema, table, column)):
+                        return ()
+                    parts.extend((schema, table, column))
+                return tuple(parts)
+            verified_by_identity = {
+                _identity(grant): grant for grant in trusted_published_relationships
+                if _identity(grant)
+            }
+            correctness_relationships = [
+                {**relationship,
+                 "join_policy": verified_by_identity[_identity(relationship)]["join_policy"],
+                 "cardinality": verified_by_identity[_identity(relationship)].get(
+                     "cardinality", relationship.get("cardinality"))}
+                if _identity(relationship) in verified_by_identity
+                else relationship
+                for relationship in correctness_relationships
+            ]
+
         correctness_checks = assess_query_correctness(
             affected_tables=validation.affected_tables,
             governed_tables=governed_tables or [],
@@ -1474,7 +1507,7 @@ class QueryOrchestrator:
             governed_metrics=governed_metrics or [],
             required_grouping_columns=required_grouping_columns or [],
             required_filters=required_filters or [],
-            required_relationships=required_relationships or [],
+            required_relationships=correctness_relationships,
             required_time_plan=required_time_plan,
             comparison_cohorts=comparison_cohorts or [],
             aggregation_grain=aggregation_grain or [],
@@ -1544,7 +1577,7 @@ class QueryOrchestrator:
                         governed_metrics=governed_metrics or [],
                         required_grouping_columns=required_grouping_columns or [],
                         required_filters=required_filters or [],
-                        required_relationships=required_relationships or [],
+                        required_relationships=correctness_relationships,
                         required_time_plan=required_time_plan,
                         comparison_cohorts=comparison_cohorts or [],
                         aggregation_grain=aggregation_grain or [],
