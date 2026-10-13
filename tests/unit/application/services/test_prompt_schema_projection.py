@@ -91,7 +91,7 @@ def test_single_entity_metric_keeps_configured_grouping_attributes():
     )
     assert [(table.name, [col.name for col in table.columns])
             for table in projected.tables] == [
-        ("vessels", ["operator", "ownership_status"])
+        ("vessels", ["id", "operator", "ownership_status"])
     ]
 
 
