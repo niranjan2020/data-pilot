@@ -42,12 +42,30 @@ async def authorize_published_joins(
     identities = [tuple(r[k] for k in IDENTITY) for r in required]
     if len(set(identities)) != len(identities):
         return PublishedJoinAuthorization(False, ("Duplicate required relationships.",))
+    def physical_identity(record: dict) -> tuple[str, ...]:
+        # Semantic contracts may encode "schema.table" in from/to_table,
+        # while publication grants store schema and table separately.
+        values = []
+        for side in ("from", "to"):
+            schema = str(record.get(f"{side}_schema") or "").strip()
+            table = str(record.get(f"{side}_table") or "").strip()
+            column = str(record.get(f"{side}_column") or "").strip()
+            if "." in table:
+                parts = table.split(".")
+                if len(parts) != 2 or (schema and schema.casefold() != parts[0].casefold()):
+                    return ()
+                schema, table = parts
+            if not schema or not table or not column:
+                return ()
+            values.extend((schema.casefold(), table.casefold(), column.casefold()))
+        return tuple(values)
+
     authorized = []
-    for identity in identities:
+    for relationship in required:
+        identity = physical_identity(relationship)
         matches = [grant for grant in grants
-                   if isinstance(grant, dict) and
-                   tuple(str(grant.get(k) or "").casefold() for k in IDENTITY)
-                   == tuple(str(part).casefold() for part in identity)]
+                   if isinstance(grant, dict) and identity
+                   and physical_identity(grant) == identity]
         if len(matches) != 1:
             return PublishedJoinAuthorization(False, ("Required relationship is not currently published for the exact physical join identity (datasource-scoped).",))
         authorized.append(matches[0])
