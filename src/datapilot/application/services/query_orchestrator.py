@@ -1363,6 +1363,24 @@ class QueryOrchestrator:
                             "message": "; ".join(authorization.reasons)
                                        + ". Rewrite using a single governed physical dataset if the question can be answered without a relationship; otherwise only use a currently published relationship.",
                             "required_relationships": required_relationships or [],
+                            "publication_diagnostics": {
+                                "datasource_name": data_source_name,
+                                "datasource_id": source_id,
+                                "active_grants": [
+                                    {
+                                        key: grant.get(key)
+                                        for key in (
+                                            "from_schema", "from_table", "from_column",
+                                            "to_schema", "to_table", "to_column",
+                                            "join_policy", "cardinality",
+                                        )
+                                    }
+                                    for grant in (
+                                        await publication_metadata.list_current_relationship_publications(source_id)
+                                        if isinstance(source_id, int) and source_id > 0 else []
+                                    )
+                                ],
+                            },
                         }]},
                     )
                 # Reuse the exact grants checked against the SQL AST.
