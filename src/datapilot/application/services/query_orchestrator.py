@@ -210,6 +210,7 @@ class QueryOrchestrator:
                 governed_context = await self._semantic_context_assembler.carry_forward(
                     request.source_name, governed_context, conversation_context
                 )
+            selected_route_contract = []
             if path_issues:
                 # Ambiguous paths are a user-facing semantic clarification,
                 # not a SQL syntax error. Do not offer arbitrary candidate
@@ -308,10 +309,37 @@ class QueryOrchestrator:
                                         "relationship_id": edge["id"],
                                     }]},
                                 )
-                        # Do not execute merely because all edges are published.
-                        # The generator and final SQL authorization must be
-                        # constrained to this exact path first.
-                    return self._with_explanation(QueryResponse(
+                        selected_route_contract = []
+                        for edge in chosen_edges:
+                            left = entity_by_id[edge["from_entity_id"]]
+                            right = entity_by_id[edge["to_entity_id"]]
+                            identity = (
+                                left["schema_name"], left["table_name"], edge["from_column"],
+                                right["schema_name"], right["table_name"], edge["to_column"],
+                            )
+                            grant = next(
+                                grant for grant in grants
+                                if isinstance(grant, dict)
+                                and tuple(grant.get(key) for key in identity_keys) == identity
+                            )
+                            selected_route_contract.append({
+                                "id": edge["id"], "name": edge.get("name"),
+                                "from_entity_id": edge["from_entity_id"],
+                                "to_entity_id": edge["to_entity_id"],
+                                **dict(zip(identity_keys, identity)),
+                                "cardinality": grant.get("cardinality"),
+                                "join_policy": grant.get("join_policy"),
+                            })
+                        selected_ids = {
+                            entity_id for edge in chosen_edges
+                            for entity_id in (edge["from_entity_id"], edge["to_entity_id"])
+                        }
+                        governed_context["entities"] = [
+                            entity for entity in entities if entity["id"] in selected_ids
+                        ]
+                        governed_context["relationships"] = chosen_edges
+                    else:
+                        return self._with_explanation(QueryResponse(
                         question=request.question,
                         status="ambiguous",
                         semantic_ambiguities=[
@@ -335,7 +363,8 @@ class QueryOrchestrator:
                             "No SQL was generated."
                         ),
                     ))
-                raise SQLValidationError(
+                if not selected_route_contract:
+                    raise SQLValidationError(
                     "Semantic relationship path is not configured",
                     details={"checks": [{
                         "code": "semantic_relationship_path_unresolved",
@@ -863,6 +892,7 @@ class QueryOrchestrator:
                 and len(item["values"]) >= 2
             ],
             aggregation_grain=governed_grouping_columns,
+            selected_relationship_route=selected_route_contract,
         )
         generation_context = {
             "semantic_intent_contract": semantic_contract.as_dict(),
@@ -926,7 +956,8 @@ class QueryOrchestrator:
             "required_filters": list(semantic_contract.filters),
             "governed_entities": governed_context.get("entities", []),
             "selected_categorical_attribute": semantic_contract.categorical_attribute,
-            "required_relationships": list(semantic_contract.relationships),
+            "required_relationships": list(semantic_contract.selected_relationship_route or semantic_contract.relationships),
+            "selected_relationship_route": list(semantic_contract.selected_relationship_route),
             "required_time_plan": semantic_contract.time_plan,
             "comparison_cohorts": list(semantic_contract.comparison_cohorts),
             "aggregation_grain": list(semantic_contract.aggregation_grain),
