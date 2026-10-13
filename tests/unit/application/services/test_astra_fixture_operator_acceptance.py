@@ -121,3 +121,13 @@ async def test_published_operator_has_no_unpublished_dimension_signal():
         "astra", [], "Show fixture count by operator"
     )
     assert "unpublished_grouping_intent" not in context
+
+
+@pytest.mark.asyncio
+async def test_ranked_metric_by_count_is_not_mistaken_for_grouping_dimension():
+    """'operators by vessel count' is a ranking measure, not 'by vessel count' grouping."""
+    catalog = AstraFixtureCatalog(operator_published=False)
+    context = await SemanticContextAssembler(catalog).assemble(
+        "astra", [], "Show the top 10 fixtures by fixture count"
+    )
+    assert "unpublished_grouping_intent" not in context
