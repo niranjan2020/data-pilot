@@ -1656,6 +1656,42 @@ def _fanout_checks(
                 metric=metric_name,
                 relationship=relationship.get("name"),
             ))
+            # A narrowly proven LEFT-join chain preserves one row per root
+            # row: each right-hand derived relation has exactly one row per
+            # join key, and LEFT JOIN does not eliminate unmatched root rows.
+            # WHERE/HAVING and nested outer expressions can invalidate that
+            # preservation, so those plans remain fail-closed. Published join
+            # authorization and the other semantic checks are independent.
+            safe_root_aggregate = (
+                bool(metric_root_proven)
+                and bool(whole_graph_nonmultiplying)
+                and bool(outer_joins)
+                and all(join_type == "LEFT" for join_type in join_types)
+                and isinstance(tree, exp.Select)
+                and not tree.args.get("where")
+                and not tree.args.get("having")
+                and not tree.args.get("limit")
+                and not tree.args.get("offset")
+                and not tree.args.get("order")
+                and not any(
+                    isinstance(node, (exp.Subquery, exp.Exists))
+                    for projection in tree.expressions for node in projection.walk()
+                )
+            )
+            if safe_root_aggregate:
+                checks.append({
+                    "code": "fanout_row_preservation_proven",
+                    "status": "passed",
+                    "severity": "info",
+                    "metric": metric_name,
+                    "relationship": relationship.get("name"),
+                    "message": (
+                        "A LEFT-only join chain with unique derived right keys "
+                        "preserves root metric rows; other semantic and join "
+                        "authorization checks still apply."
+                    ),
+                })
+                continue
             checks.append({
                 "code": "fanout_safety_evidence_incomplete",
                 "status": "skipped",
