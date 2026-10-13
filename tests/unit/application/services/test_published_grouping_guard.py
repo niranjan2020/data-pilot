@@ -147,3 +147,16 @@ def test_derived_table_wrong_owner_cannot_substitute():
            "(SELECT t.region AS region FROM public.transactions t) x "
            "GROUP BY x.region")
     assert verify(sql)
+
+
+def test_duplicate_cte_names_cannot_authorize_published_dimension():
+    sql = ("WITH source AS (SELECT a.region FROM public.accounts a), "
+           "source AS (SELECT t.region FROM public.transactions t) "
+           "SELECT s.region, COUNT(*) FROM source s GROUP BY s.region")
+    assert verify(sql)
+
+
+def test_non_select_cte_cannot_authorize_published_dimension():
+    sql = ("WITH source AS (VALUES ('north')) "
+           "SELECT s.column1 AS region, COUNT(*) FROM source s GROUP BY s.column1")
+    assert verify(sql)
