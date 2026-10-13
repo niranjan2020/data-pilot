@@ -495,7 +495,14 @@ class SemanticContextAssembler:
                     "distinct ", "vessel count", "fleet size", "number of ",
                     "count ", "average ", "total ", "percentage ", "sum ",
                 )
-                if grouping_phrase.startswith(measure_prefixes):
+                metric_measure_terms = {
+                    re.sub(r"[^a-z0-9]+", " ", str(term).casefold()).strip()
+                    for metric in metrics if metric["id"] in explicit_metric_ids
+                    for term in [metric.get("name") or "", *(metric.get("synonyms") or [])]
+                }
+                if (grouping_phrase.startswith(measure_prefixes)
+                        or any(grouping_phrase == term or grouping_phrase.startswith(term + " ")
+                               for term in metric_measure_terms if term)):
                     grouping_phrase = ""
                 published_owners = resolve_published_dimension_owners(
                     "by " + grouping_phrase, published_dimensions,
