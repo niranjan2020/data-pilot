@@ -365,22 +365,22 @@ class QueryOrchestrator:
                     ))
                 if not selected_route_contract:
                     raise SQLValidationError(
-                    "Semantic relationship path is not configured",
-                    details={"checks": [{
-                        "code": "semantic_relationship_path_unresolved",
-                        "status": "failed",
-                        "severity": "error",
-                        "metric_entity_id": issue["metric_entity_id"],
-                        "dimension_entity_id": issue["dimension_entity_id"],
-                        "reason": issue["status"],
-                        "message": (
-                            "Multiple equally short semantic relationship paths exist."
-                            if issue["status"] == "ambiguous" else
-                            "No semantic relationship connects the requested metric "
-                            "and published dimension. Configure a relationship."
-                        ),
-                    } for issue in path_issues]},
-                )
+                        "Semantic relationship path is not configured",
+                        details={"checks": [{
+                            "code": "semantic_relationship_path_unresolved",
+                            "status": "failed",
+                            "severity": "error",
+                            "metric_entity_id": issue["metric_entity_id"],
+                            "dimension_entity_id": issue["dimension_entity_id"],
+                            "reason": issue["status"],
+                            "message": (
+                                "Multiple equally short semantic relationship paths exist."
+                                if issue["status"] == "ambiguous" else
+                                "No semantic relationship connects the requested metric "
+                                "and published dimension. Configure a relationship."
+                            ),
+                        } for issue in path_issues]},
+                    )
             logger.info(
                 "query governed_context datasets=%s entities=%s relationships=%s metrics=%s rules=%s",
                 [f"{x['schema_name']}.{x['table_name']}" for x in governed_context.get("datasets", [])],
