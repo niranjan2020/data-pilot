@@ -219,6 +219,24 @@ class QueryOrchestrator:
                     if issue.get("status") == "ambiguous"
                 ]
                 if ambiguous_paths and len(ambiguous_paths) == len(path_issues):
+                    # Show candidates only for a single ambiguous metric/dimension
+                    # pair. A selection is informational until the chosen path is
+                    # revalidated against authoritative publication metadata.
+                    candidates = (
+                        ambiguous_paths[0].get("candidates") or []
+                        if len(ambiguous_paths) == 1 else []
+                    )
+                    options = [
+                        ClarificationOption(
+                            value=",".join(str(value) for value in candidate["relationship_ids"]),
+                            label=" → ".join(candidate["relationship_names"]),
+                            description="Candidate semantic route; not yet approved for execution",
+                        )
+                        for candidate in candidates
+                        if candidate.get("relationship_ids")
+                        and len(candidate["relationship_ids"]) ==
+                            len(candidate.get("relationship_names") or [])
+                    ]
                     return self._with_explanation(QueryResponse(
                         question=request.question,
                         status="ambiguous",
@@ -232,11 +250,11 @@ class QueryOrchestrator:
                             kind="relationship",
                             key="relationship",
                             question=(
-                                "Which governed relationship path should be used? "
-                                "Ask an administrator to configure an unambiguous "
-                                "relationship before retrying."
+                                "Which semantic relationship route matches your intent? "
+                                "An administrator must publish and verify the route "
+                                "before execution."
                             ),
-                            options=[],
+                            options=options,
                         ),
                         message=(
                             "Multiple governed relationship paths match this question. "
