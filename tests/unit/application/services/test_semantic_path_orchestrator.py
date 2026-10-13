@@ -106,13 +106,12 @@ async def test_relationship_selection_cannot_bypass_publication_authorization():
         semantic_catalog_provider=Mock(),
         semantic_context_assembler=assembler,
     )
-    response = await orchestrator.query(QueryRequest(
-        question="show transaction count by region",
-        source_name="example",
-        clarification_selections={"relationship": "10,11"},
-    ))
-    assert response.status == "ambiguous"
-    assert response.sql is None
+    with pytest.raises(SQLValidationError, match="publication metadata is unavailable"):
+        await orchestrator.query(QueryRequest(
+            question="show transaction count by region",
+            source_name="example",
+            clarification_selections={"relationship": "10,11"},
+        ))
     generator.generate.assert_not_awaited()
     database.execute_query.assert_not_awaited()
 
