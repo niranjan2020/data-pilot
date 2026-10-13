@@ -1458,6 +1458,36 @@ class QueryOrchestrator:
                         } for reason in policy_grouping_violations]},
                     )
 
+        # A policy rewrite is a new SQL artifact, not just a new string.
+        # Re-run the read-only validator on the exact statement destined
+        # for execution. Physical scope checks alone cannot prove read-only
+        # semantics (e.g. a rewritten statement could contain a write CTE).
+        if policy_result.sql != executable_sql:
+            policy_validation = await self._validator.validate(
+                policy_result.sql,
+                dialect=self._database.dialect,
+                enforce_read_only=True,
+            )
+            if not policy_validation.is_valid:
+                raise SQLValidationError(
+                    "Policy SQL failed final read-only validation",
+                    details={"checks": [{
+                        "code": "policy_sql_validation_violation",
+                        "status": "failed", "severity": "error",
+                        "message": "Policy-rewritten SQL did not pass read-only validation.",
+                    }]},
+                )
+            # Do not execute an unexamined second normalization.
+            if (policy_validation.sanitized_sql or policy_result.sql) != policy_result.sql:
+                raise SQLValidationError(
+                    "Policy SQL changed during final validation",
+                    details={"checks": [{
+                        "code": "policy_sql_validation_violation",
+                        "status": "failed", "severity": "error",
+                        "message": "Final SQL validation modified the policy statement.",
+                    }]},
+                )
+
         if trace is not None:
             trace.policy_sql = policy_result.sql
             trace.policy_warnings = list(policy_result.warnings)
