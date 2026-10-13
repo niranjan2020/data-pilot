@@ -490,7 +490,9 @@ class SemanticContextAssembler:
                 published_owners = resolve_published_dimension_owners(
                     "by " + grouping_phrase, published_dimensions,
                 )
-                if not published_owners:
+                if not published_owners and not any(
+                    "_" in token for token in grouping_phrase.split()
+                ):
                     return {
                         "datasets": [], "entities": [], "relationships": [],
                         "metrics": [], "business_rules": [],
