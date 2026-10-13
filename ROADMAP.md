@@ -1,5 +1,17 @@
 # Data Pilot Roadmap
 
+## 2026-10-13 — Selected-route and Astra acceptance checkpoint
+
+- User confirmed **46 passed, 1 xfailed** in the focused relationship suite before this batch; this is **not** a full unit run or live acceptance result.
+- Exact selected-route contract, SQL verification at generated/final/policy boundaries, current publication-grant checks, and semantic endpoint continuity checks are implemented. **Successful end-to-end selected-route execution has not yet been demonstrated** and remains the next integration test gate.
+- Added synthetic Astra-shaped Fixture Count by Vessel Operator regression contracts: published Vessel.operator selects the related Vessel and Fixture→Vessel edge; unpublished operator must not authorize a physical near-name fallback; missing relationship must fail closed; SQL using fixtures.operator_next cannot satisfy the selected route. These tests are **offline fixtures**, not proof of actual Astra publication or correct live query results.
+- **Live datasource blocker:** this GitHub workflow cannot read the user's local Astra database or its current Admin publication records. Inspect real datasource-scoped entity/attribute/relationship publication state and run read-only dry-run plus independently checked result evaluation locally; do not assert actual publication or 49/49 correctness.
+- **49-question release gate remains OPEN.** The question-level acceptance corpus and expected outputs must be run against the real environment. Focus on this release gate rather than expanding isolated feature coverage indefinitely.
+- Next: add a successful selected-route orchestration test with approved published grants and an execution mock; then gather one complete real Astra dry-run trace for the Fixture Count by Operator case, and execute the full 49-question evaluation batch.
+
+---
+
+
 ## CURRENT RELEASE GATE — SQL correctness, 49 real-world questions
 
 **Priority 0: do not redirect development to fixtures, fixture options, or
