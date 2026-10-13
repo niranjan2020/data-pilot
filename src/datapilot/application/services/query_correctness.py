@@ -1543,6 +1543,52 @@ def _fanout_checks(
                     "Outer aggregate placement cannot establish joined-row semantics."
                 ),
             })
+            # A whole-query structural non-multiplication proof requires
+            # *every* outer edge to be a simple, locally unique derived join.
+            # This is a proof about joined-row multiplicity, not permission to
+            # waive metric lineage or semantic relationship authorization.
+            # Restrict to a physical root and a single SELECT; correlated
+            # subqueries, CTEs, DISTINCT and window functions need separate
+            # reasoning.
+            root_clause = tree.args.get("from_") if isinstance(tree, exp.Select) else None
+            root_source = root_clause.this if root_clause is not None else None
+            root_only = (
+                isinstance(root_source, exp.Table)
+                and not tree.args.get("with_")
+                and not tree.args.get("distinct")
+                and not tree.args.get("qualify")
+                and not any(isinstance(node, (exp.CTE, exp.Union, exp.Window))
+                            for node in tree.walk())
+            )
+            # Each edge's uniqueness was established independently above,
+            # including a single-column GROUP BY with no inner joins.
+            # The aliases must be fresh and connected to an existing source.
+            whole_graph_nonmultiplying = (
+                bool(root_only)
+                and bool(connected_graph)
+                and bool(unique_chain)
+                and not unsupported_join_types
+                and len(unique_join_edges) == len(outer_joins)
+                and len(outer_joins) == len(tree.args.get("joins") or [])
+            )
+            checks.append({
+                "code": (
+                    "fanout_whole_join_graph_nonmultiplying_observed"
+                    if whole_graph_nonmultiplying
+                    else "fanout_whole_join_graph_nonmultiplying_unverified"
+                ),
+                "status": "passed" if whole_graph_nonmultiplying else "skipped",
+                "severity": "info",
+                "metric": metric_name,
+                "relationship": relationship.get("name"),
+                "join_edge_count": len(outer_joins),
+                "message": (
+                    "All joined relations are uniquely keyed at their join columns; "
+                    "metric lineage and governed relationship authorization remain mandatory."
+                    if whole_graph_nonmultiplying else
+                    "Whole-query non-multiplication could not be established."
+                ),
+            })
             # Unique-key declarations must be verified explicitly; cardinality
             # labels and inferred join structure are not physical constraints.
             checks.append(assess_declared_unique_key(relationship, side="to"))
