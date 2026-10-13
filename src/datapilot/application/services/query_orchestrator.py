@@ -932,10 +932,25 @@ class QueryOrchestrator:
             aggregation_grain=governed_grouping_columns,
             selected_relationship_route=selected_route_contract,
         )
+        from datapilot.application.services.prompt_schema_projection import (
+            project_metric_prompt_schema,
+        )
+        prompt_schema = project_metric_prompt_schema(
+            schema, governed_context,
+            authoritative_dimensions=(
+                self._semantic_context_assembler is not None
+                and getattr(
+                    getattr(self._semantic_context_assembler, "_metadata", None),
+                    "list_published_analytical_dimensions", None,
+                ) is not None
+            ),
+        )
         generation_context = {
             "semantic_intent_contract": semantic_contract.as_dict(),
             "governed_semantic_context": governed_context,
-            "retrieved_semantic_context": retrieved_context,
+            "retrieved_semantic_context": (
+                [] if prompt_schema is not schema else retrieved_context
+            ),
             "semantic_catalog": catalog.model_dump(mode="json"),
             "query_intent": intent.model_dump(mode="json"),
             "parameters": parameters,
@@ -949,7 +964,7 @@ class QueryOrchestrator:
         if callable(build_messages):
             diagnostic_messages = build_messages(
                 question=request.question,
-                schema=schema,
+                schema=prompt_schema,
                 context=generation_context,
                 dialect=self._database.dialect,
             )
@@ -959,7 +974,7 @@ class QueryOrchestrator:
             ]
         generated = await self._sql_generator.generate(
             question=request.question,
-            schema=schema,
+            schema=prompt_schema,
             context=generation_context,
             dialect=self._database.dialect,
         )
