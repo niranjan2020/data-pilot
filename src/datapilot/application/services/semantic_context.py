@@ -476,6 +476,28 @@ class SemanticContextAssembler:
             known_entity_ids = {entity["id"] for entity in entities}
             entity_ids.update(published_owner_ids & known_entity_ids)
 
+        # A named metric grouped by an unapproved business dimension must not
+        # silently fall back to a similarly named physical column. Apply this
+        # only when an authoritative attribute-publication loader exists; old
+        # deployments without that contract retain their existing behavior.
+        if load_dimensions is not None and explicit_metric_ids:
+            grouping_match = re.search(
+                r"\\b(?:grouped by|group by|by|per)\\s+([a-z][a-z0-9_ ]*)",
+                question.casefold(),
+            )
+            if grouping_match:
+                grouping_phrase = grouping_match.group(1).strip()
+                published_owners = resolve_published_dimension_owners(
+                    "by " + grouping_phrase, published_dimensions,
+                )
+                if not published_owners:
+                    return {
+                        "datasets": [], "entities": [], "relationships": [],
+                        "metrics": [], "business_rules": [],
+                        "published_dimensions": published_dimensions,
+                        "unpublished_grouping_intent": grouping_phrase,
+                    }
+
         # Connect an explicitly requested metric to an explicitly published
         # dimension only when there is exactly one shortest semantic path.
         # Ambiguous or disconnected graphs are never resolved by arbitrary
