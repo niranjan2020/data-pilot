@@ -146,3 +146,48 @@ async def test_forged_or_stale_relationship_selection_is_rejected(selection):
     assert response.sql is None
     generator.generate.assert_not_awaited()
     database.execute_query.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_selected_path_requires_current_physical_publication_grants():
+    assembler = PathAssembler("ambiguous")
+    generator = SimpleNamespace(
+        generate=AsyncMock(side_effect=AssertionError("SQL generated")),
+    )
+    database = SimpleNamespace(
+        dialect="postgres",
+        execute_query=AsyncMock(side_effect=AssertionError("database executed")),
+    )
+    metadata = SimpleNamespace(
+        get_data_source_id=AsyncMock(return_value=42),
+        list_semantic_entities=AsyncMock(return_value=[
+            {"id": 1, "schema_name": "public", "table_name": "transactions"},
+            {"id": 2, "schema_name": "public", "table_name": "bridges"},
+            {"id": 3, "schema_name": "public", "table_name": "regions"},
+        ]),
+        list_semantic_relationships=AsyncMock(return_value=[
+            {"id": 10, "from_entity_id": 1, "to_entity_id": 2,
+             "from_column": "bridge_id", "to_column": "id"},
+            {"id": 11, "from_entity_id": 2, "to_entity_id": 3,
+             "from_column": "region_id", "to_column": "id"},
+        ]),
+        list_current_relationship_publications=AsyncMock(return_value=[]),
+    )
+    orchestrator = QueryOrchestrator(
+        database_provider=database,
+        sql_validator=Mock(),
+        sql_generator=generator,
+        semantic_catalog_provider=Mock(),
+        semantic_context_assembler=assembler,
+        relationship_publication_metadata=metadata,
+    )
+    with pytest.raises(SQLValidationError) as caught:
+        await orchestrator.query(QueryRequest(
+            question="show transaction count by region",
+            source_name="example",
+            clarification_selections={"relationship": "10,11"},
+        ))
+    assert caught.value.details["checks"][0]["code"] == "selected_relationship_not_published"
+    metadata.list_current_relationship_publications.assert_awaited_once_with(42)
+    generator.generate.assert_not_awaited()
+    database.execute_query.assert_not_awaited()
