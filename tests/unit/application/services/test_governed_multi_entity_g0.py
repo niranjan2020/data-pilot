@@ -303,3 +303,35 @@ def test_disconnected_relationship_graph_has_no_path():
     )
     edges = [{"id": 1, "from_entity_id": 1, "to_entity_id": 2}]
     assert unique_shortest_relationship_path(1, 4, edges) == ()
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_semantic_route_is_reported_without_guessing():
+    context = await SemanticContextAssembler(AmbiguousTwoHopCatalog()).assemble(
+        "example", [], "show transaction count by region"
+    )
+    assert context["relationship_path_issues"] == [{
+        "metric_entity_id": 1, "dimension_entity_id": 3,
+        "status": "ambiguous",
+    }]
+    assert context["relationships"] == []
+
+
+@pytest.mark.asyncio
+async def test_unique_semantic_route_has_no_path_issue():
+    context = await SemanticContextAssembler(TwoHopCatalog()).assemble(
+        "example", [], "show transaction count by region"
+    )
+    assert context["relationship_path_issues"] == []
+
+
+def test_semantic_route_classifies_disconnected_and_parallel_edges():
+    from datapilot.application.services.semantic_context import classify_relationship_path
+    assert classify_relationship_path(1, 3, [
+        {"from_entity_id": 1, "to_entity_id": 2},
+    ]) == "disconnected"
+    assert classify_relationship_path(1, 2, [
+        {"from_entity_id": 1, "to_entity_id": 2},
+        {"from_entity_id": 1, "to_entity_id": 2},
+    ]) == "ambiguous"
+    assert classify_relationship_path(1, 1, []) == "same_entity"
