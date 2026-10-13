@@ -237,6 +237,28 @@ class QueryOrchestrator:
                         and len(candidate["relationship_ids"]) ==
                             len(candidate.get("relationship_names") or [])
                     ]
+                    selected_route = effective_clarifications.get("relationship")
+                    if selected_route is not None:
+                        # Never accept an arbitrary relationship ID sequence from
+                        # the client. Compare against the current assembler's
+                        # datasource-scoped candidate set before any SQL generation.
+                        valid_values = {option.value for option in options}
+                        if selected_route not in valid_values:
+                            return self._with_explanation(QueryResponse(
+                                question=request.question,
+                                status="rejected",
+                                rejection=QueryRejection(
+                                    code="invalid_relationship_selection",
+                                    reason=(
+                                        "Selected relationship path is not a current "
+                                        "semantic candidate. Refresh the clarification."
+                                    ),
+                                ),
+                                message="Invalid relationship selection; no SQL was generated.",
+                            ))
+                        # Candidate membership is NOT publication authorization.
+                        # Keep the response non-executable until selected paths
+                        # are verified against current physical join grants.
                     return self._with_explanation(QueryResponse(
                         question=request.question,
                         status="ambiguous",
