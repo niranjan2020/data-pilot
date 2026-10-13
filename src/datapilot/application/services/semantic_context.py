@@ -66,25 +66,37 @@ def unique_shortest_relationship_path(
             continue
         adjacency.setdefault(left, []).append((right, relationship))
         adjacency.setdefault(right, []).append((left, relationship))
-    queue = deque([(start, frozenset({start}), ())])
-    shortest = None
-    found: list[tuple[dict[str, Any], ...]] = []
+    # Breadth-first traversal counts shortest routes without enumerating every
+    # simple path (which can grow exponentially on dense semantic graphs).
+    # Two distinct relationship edges between the same entities are distinct
+    # candidate join paths and must not be silently resolved by ordering.
+    distance = {start: 0}
+    route_count = {start: 1}
+    predecessor: dict[int, tuple[int, dict[str, Any]]] = {}
+    queue = deque([start])
     while queue:
-        node, visited, path = queue.popleft()
-        if shortest is not None and len(path) >= shortest:
-            continue
+        node = queue.popleft()
         for neighbor, relationship in adjacency.get(node, []):
-            if neighbor in visited:
-                continue
-            candidate = (*path, relationship)
-            if neighbor == target:
-                shortest = len(candidate)
-                found.append(candidate)
-                if len(found) > 1:
-                    return ()
-            elif shortest is None:
-                queue.append((neighbor, visited | {neighbor}, candidate))
-    return found[0] if len(found) == 1 else ()
+            next_distance = distance[node] + 1
+            if neighbor not in distance:
+                distance[neighbor] = next_distance
+                route_count[neighbor] = route_count[node]
+                predecessor[neighbor] = (node, relationship)
+                queue.append(neighbor)
+            elif distance[neighbor] == next_distance:
+                route_count[neighbor] = min(
+                    2, route_count[neighbor] + route_count[node]
+                )
+    if route_count.get(target) != 1:
+        return ()
+    path: list[dict[str, Any]] = []
+    cursor = target
+    while cursor != start:
+        previous, relationship = predecessor[cursor]
+        path.append(relationship)
+        cursor = previous
+    path.reverse()
+    return tuple(path)
 
 class SemanticContextAssembler:
     """Expand vector-search seeds through the authoritative semantic graph."""
