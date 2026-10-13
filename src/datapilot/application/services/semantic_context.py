@@ -474,7 +474,13 @@ class SemanticContextAssembler:
             "relationships": selected_relationships,
             "metrics": selected_metrics,
             "business_rules": selected_rules,
-            "published_dimensions": published_dimensions,
+            # Only publish dimensions belonging to the selected semantic
+            # entity boundary. Other datasource grants must not widen this
+            # question's SQL contract or enter its generation context.
+            "published_dimensions": [
+                dimension for dimension in published_dimensions
+                if dimension.get("entity_id") in entity_ids
+            ],
             "time_dimensions": [
                 dimension for dimension in time_dimensions
                 if dimension["entity_id"] in entity_ids
