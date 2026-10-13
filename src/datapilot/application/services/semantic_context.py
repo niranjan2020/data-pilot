@@ -98,6 +98,63 @@ def unique_shortest_relationship_path(
     path.reverse()
     return tuple(path)
 
+def shortest_relationship_path_candidates(
+    start: int,
+    target: int,
+    relationships: list[dict[str, Any]],
+    *,
+    max_candidates: int = 8,
+) -> list[tuple[dict[str, Any], ...]]:
+    """Enumerate bounded shortest routes for clarification, never execution.
+
+    Each candidate is a sequence of persisted relationship IDs. Missing or
+    duplicate IDs are excluded: a selection must identify one stable path.
+    """
+    from collections import deque
+
+    if start == target or max_candidates < 1:
+        return []
+    valid = [
+        edge for edge in relationships
+        if type(edge.get("id")) is int
+        and type(edge.get("from_entity_id")) is int
+        and type(edge.get("to_entity_id")) is int
+        and edge["from_entity_id"] != edge["to_entity_id"]
+    ]
+    ids = [edge["id"] for edge in valid]
+    if len(ids) != len(set(ids)):
+        return []
+    adjacency: dict[int, list[tuple[int, dict[str, Any]]]] = {}
+    for edge in valid:
+        left, right = edge["from_entity_id"], edge["to_entity_id"]
+        adjacency.setdefault(left, []).append((right, edge))
+        adjacency.setdefault(right, []).append((left, edge))
+    for neighbors in adjacency.values():
+        neighbors.sort(key=lambda item: item[1]["id"])
+    distances = {start: 0}
+    queue = deque([start])
+    while queue:
+        node = queue.popleft()
+        for neighbor, _ in adjacency.get(node, []):
+            if neighbor not in distances:
+                distances[neighbor] = distances[node] + 1
+                queue.append(neighbor)
+    if target not in distances:
+        return []
+    paths: list[tuple[dict[str, Any], ...]] = []
+    def visit(node: int, route: tuple[dict[str, Any], ...]) -> None:
+        if len(paths) >= max_candidates:
+            return
+        if node == target:
+            paths.append(route)
+            return
+        for neighbor, edge in adjacency.get(node, []):
+            if distances.get(neighbor) == distances[node] + 1:
+                visit(neighbor, (*route, edge))
+    visit(start, ())
+    return paths
+
+
 def classify_relationship_path(
     start: int,
     target: int,
@@ -443,6 +500,18 @@ class SemanticContextAssembler:
                             "metric_entity_id": metric_owner,
                             "dimension_entity_id": dimension_owner,
                             "status": status,
+                            "candidates": [
+                                {
+                                    "relationship_ids": [edge["id"] for edge in route],
+                                    "relationship_names": [
+                                        str(edge.get("name") or edge["id"])
+                                        for edge in route
+                                    ],
+                                }
+                                for route in shortest_relationship_path_candidates(
+                                    metric_owner, dimension_owner, relationships
+                                )
+                            ] if status == "ambiguous" else [],
                         })
                     for relationship in path:
                         entity_ids.update((
