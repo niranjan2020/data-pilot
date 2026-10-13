@@ -48,7 +48,7 @@ async def authorize_published_joins(
                    if isinstance(grant, dict) and
                    tuple(grant.get(k) for k in IDENTITY) == identity]
         if len(matches) != 1:
-            return PublishedJoinAuthorization(False, ("Required relationship is not currently published.",))
+            return PublishedJoinAuthorization(False, ("Required relationship is not currently published for the exact physical join identity (datasource-scoped).",))
         authorized.append(matches[0])
     decision = validate_governed_join_graph(sql, authorized)
     return PublishedJoinAuthorization(bool(decision.allowed), tuple(decision.reasons),
