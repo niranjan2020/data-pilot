@@ -2777,6 +2777,24 @@ class QueryOrchestrator:
                                     return {str(node.this).casefold()}
                                 return set()
 
+                            # An IN predicate over a proven UNNEST output is
+                            # scalar membership on the expanded element, not
+                            # an invalid scalar IN on the original array.
+                            if isinstance(predicate, exp.In) and isinstance(predicate.this, exp.Column):
+                                element = predicate.this
+                                if element.table and (
+                                    element.table.casefold(), element.name.casefold()
+                                ) in expanded_columns:
+                                    observed = {
+                                        str(value.this).casefold()
+                                        for value in predicate.expressions
+                                        if isinstance(value, exp.Literal) and value.is_string
+                                    }
+                                    if len(observed) == len(predicate.expressions) and {
+                                        value.casefold() for value in matched
+                                    }.issubset(observed):
+                                        constrained.update(observed)
+                                    continue
                             kind = predicate.key.casefold()
                             lhs = predicate.this
                             rhs = predicate.expression
