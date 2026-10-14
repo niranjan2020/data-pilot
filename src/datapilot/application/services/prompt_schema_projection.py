@@ -60,7 +60,7 @@ def project_metric_prompt_schema(
         len({(str(e.get("schema_name") or "").casefold(),
               str(e.get("table_name") or "").casefold())
              for e in entities}) == 1
-        and not governed_context.get("relationships")
+
     )
     metric_owner_keys = {
         (str(entity_by_id[metric["entity_id"]].get("schema_name") or "").casefold(),
