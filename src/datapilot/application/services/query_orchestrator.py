@@ -1228,6 +1228,17 @@ class QueryOrchestrator:
                     else:
                         validation = repaired_validation
                         validation.sanitized_sql = repaired_sql
+                        # The dataset boundary must describe the rewritten SQL,
+                        # not the pre-repair AST. Recompute from the validated
+                        # statement before checking onboarding authorization.
+                        repaired_statement = sqlglot.parse_one(
+                            repaired_sql, read=sqlglot_dialect(self._database.dialect),
+                        )
+                        actual_tables = {
+                            f"{table.db}.{table.name}".casefold()
+                            for table in repaired_statement.find_all(exp.Table)
+                            if table.db and table.name
+                        }
             if invalid_columns and repaired_sql is None:
                 raise SQLValidationError(
                     "Generated SQL contains an invalid column qualifier",
