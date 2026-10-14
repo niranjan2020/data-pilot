@@ -544,9 +544,7 @@ class SemanticContextAssembler:
                     )
                     for entity in entities
                 )
-                if (grouping_phrase and not published_owners and not local_grouping and not any(
-                    "_" in token for token in grouping_phrase.split()
-                )):
+                if grouping_phrase and not published_owners and not local_grouping:
                     return {
                         "datasets": [], "entities": [], "relationships": [],
                         "metrics": [], "business_rules": [],
