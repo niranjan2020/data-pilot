@@ -59,6 +59,7 @@ def test_empty_contract_has_predictable_json_safe_shape():
         "metrics": [], "dimensions": [], "filters": [],
         "relationships": [], "time_plan": None, "categorical_attribute": None,
         "comparison_cohorts": [], "aggregation_grain": [],
+        "selected_relationship_route": [], "query_scope": "unknown",
     }
 
 
@@ -102,3 +103,25 @@ def test_non_comparison_does_not_invent_cohorts():
     assert resolve_published_comparison_cohorts(
         "Show owned and chartered combined total", entities,
     ) == []
+
+
+def test_contract_scope_matches_selected_entity_boundary():
+    base = {
+        "entities": [{"id": 1, "schema_name": "sales", "table_name": "orders"}],
+        "relationships": [{"from_entity_id": 1, "to_entity_id": 2}],
+    }
+    kwargs = dict(grouping_columns=[], required_filters=[],
+                  required_relationships=[], time_plan=None)
+    local = SemanticIntentContract.from_governed_context(base, **kwargs)
+    assert local.as_dict()["query_scope"] == "single_entity"
+
+    multi = {**base, "entities": [
+        *base["entities"],
+        {"id": 2, "schema_name": "sales", "table_name": "customers"},
+    ]}
+    cross = SemanticIntentContract.from_governed_context(multi, **kwargs)
+    assert cross.as_dict()["query_scope"] == "cross_entity"
+    assert local.as_dict()["query_scope"] == "single_entity"
+    assert SemanticIntentContract.from_governed_context(
+        {"entities": [{"id": 1, "table_name": "orders"}]}, **kwargs
+    ).as_dict()["query_scope"] == "unknown"
