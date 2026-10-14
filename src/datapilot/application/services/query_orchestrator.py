@@ -2844,6 +2844,30 @@ class QueryOrchestrator:
                     ]
                     if len(same_column_predicates) != 1:
                         constrained.clear()
+                # An array column cannot be compared to scalar literals with
+                # IN. Reject this even when independent FILTER aggregates
+                # otherwise prove every cohort: the invalid WHERE still changes
+                # execution semantics and must be removed by the narrow repair.
+                if (data_type.endswith("[]") or "array" in data_type) and where:
+                    for part in conjuncts(where.this):
+                        predicate = part.this if isinstance(part, exp.Paren) else part
+                        if isinstance(predicate, exp.In) and isinstance(predicate.this, exp.Column):
+                            lhs = predicate.this
+                            if lhs.name.casefold() == column_name.casefold() and (
+                                not lhs.table or lhs.table.casefold() in valid_qualifiers
+                            ) and predicate.expressions and all(
+                                isinstance(value, exp.Literal) and value.is_string
+                                for value in predicate.expressions
+                            ):
+                                raise SQLValidationError(
+                                    "Array column cannot use scalar IN for categorical comparison",
+                                    details={"checks": [{
+                                        "code": "categorical_comparison_filter_violation",
+                                        "status": "failed", "severity": "error",
+                                        "column_name": column_name,
+                                        "canonical_values": matched,
+                                    }]},
+                                )
                 # Separate CASE/FILTER aggregates may preserve comparison cohorts
                 # without a WHERE restriction. Require governed column binding
                 # and independently provable canonical values.
