@@ -131,3 +131,35 @@ async def test_ranked_metric_by_count_is_not_mistaken_for_grouping_dimension():
         "astra", [], "Show the top 10 fixtures by fixture count"
     )
     assert "unpublished_grouping_intent" not in context
+
+
+@pytest.mark.asyncio
+async def test_local_grouping_with_following_qualifier_is_not_rejected():
+    class LocalMetricCatalog(AstraFixtureCatalog):
+        async def list_semantic_entities(self, source_id):
+            return [{
+                "id": 1, "name": "Fixture", "schema_name": "astra",
+                "table_name": "fixtures", "synonyms": ["fixtures"],
+                "attributes": [{"name": "Charterer", "column_name": "charterer"}],
+            }]
+
+    context = await SemanticContextAssembler(
+        LocalMetricCatalog(operator_published=False)
+    ).assemble("astra", [], "Show fixture count by charterer for the top 10 fixtures")
+    assert "unpublished_grouping_intent" not in context
+
+
+@pytest.mark.asyncio
+async def test_unpublished_related_grouping_with_following_qualifier_still_rejected():
+    context = await SemanticContextAssembler(
+        AstraFixtureCatalog(operator_published=False)
+    ).assemble("astra", [], "Show fixture count by operator for the top 10 fixtures")
+    assert context["unpublished_grouping_intent"] == "operator"
+
+
+@pytest.mark.asyncio
+async def test_ranked_metric_with_qualifier_not_treated_as_grouping():
+    context = await SemanticContextAssembler(
+        AstraFixtureCatalog(operator_published=False)
+    ).assemble("astra", [], "Show top 10 fixtures by fixture count for last month")
+    assert "unpublished_grouping_intent" not in context
