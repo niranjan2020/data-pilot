@@ -155,3 +155,21 @@ def test_cross_entity_projection_does_not_expose_unpublished_related_columns():
     )
     vessel = next(table for table in projected.tables if table.name == "vessels")
     assert [column.name for column in vessel.columns] == ["id", "operator"]
+
+
+def test_single_entity_projection_with_incidental_relationship_metadata():
+    context = {
+        "metrics": [{"entity_id": 12, "attribute_name": "Id"}],
+        "entities": [{"id": 12, "schema_name": "astra", "table_name": "vessels",
+                      "key_column": "id", "attributes": []}],
+        "published_dimensions": [],
+        "relationships": [{"from_entity_id": 12, "to_entity_id": 25,
+                           "from_column": "id", "to_column": "vessel_id"}],
+    }
+    projected = project_metric_prompt_schema(
+        _schema(), context, authoritative_dimensions=True,
+    )
+    assert [(table.name, [col.name for col in table.columns])
+            for table in projected.tables] == [
+        ("vessels", ["id", "operator", "ownership_status"])
+    ]
