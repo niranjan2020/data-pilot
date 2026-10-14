@@ -7,6 +7,7 @@ published dimension catalog are present; it never confers publication rights.
 from __future__ import annotations
 
 from datapilot.domain.models import SchemaMetadata
+from datapilot.application.services.semantic_intent_contract import resolve_query_scope
 
 
 def project_metric_prompt_schema(
@@ -56,12 +57,7 @@ def project_metric_prompt_schema(
     # discovered columns for ordinary same-table calculations, filtering and
     # grouping. This does not authorize a different entity or any JOIN:
     # related tables still receive only approved dimensions and join keys.
-    single_entity_scope = (
-        len({(str(e.get("schema_name") or "").casefold(),
-              str(e.get("table_name") or "").casefold())
-             for e in entities}) == 1
-
-    )
+    single_entity_scope = resolve_query_scope(governed_context) == "single_entity"
     metric_owner_keys = {
         (str(entity_by_id[metric["entity_id"]].get("schema_name") or "").casefold(),
          str(entity_by_id[metric["entity_id"]].get("table_name") or "").casefold())
