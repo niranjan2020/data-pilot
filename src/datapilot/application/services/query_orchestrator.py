@@ -1347,6 +1347,16 @@ class QueryOrchestrator:
                     }]},
                 ) from exc
 
+            if has_join and not required_relationships:
+                raise SQLValidationError(
+                    "Generated SQL uses a join without a selected relationship contract",
+                    details={"checks": [{
+                        "code": "relationship_publication_violation",
+                        "status": "failed", "severity": "error",
+                        "message": "A physical JOIN requires an explicitly selected governed relationship.",
+                    }]},
+                )
+
             if has_join or required_relationships:
                 source_id = (await publication_metadata.get_data_source_id(data_source_name)
                              if data_source_name else None)
@@ -1355,6 +1365,9 @@ class QueryOrchestrator:
                     required_relationships or [],
                 )
                 if not authorization.allowed:
+                    # The authorizer already checked the publication snapshot.
+                    # Avoid a second metadata lookup while reporting rejection.
+                    active_grants = list(getattr(authorization, "verified_grants", ()) or ())
                     raise SQLValidationError(
                         "Generated SQL uses an unpublished or invalid relationship",
                         details={"checks": [{
@@ -1375,10 +1388,7 @@ class QueryOrchestrator:
                                             "join_policy", "cardinality",
                                         )
                                     }
-                                    for grant in (
-                                        await publication_metadata.list_current_relationship_publications(source_id)
-                                        if isinstance(source_id, int) and source_id > 0 else []
-                                    )
+                                    for grant in active_grants
                                 ],
                             },
                         }]},
