@@ -88,6 +88,7 @@ class SemanticIntentContract:
     comparison_cohorts: tuple[dict[str, Any], ...] = ()
     aggregation_grain: tuple[str, ...] = ()
     selected_relationship_route: tuple[dict[str, Any], ...] = ()
+    query_scope: str = "unknown"
 
     @classmethod
     def from_governed_context(
@@ -112,6 +113,7 @@ class SemanticIntentContract:
             comparison_cohorts=tuple(deepcopy(comparison_cohorts)),
             aggregation_grain=tuple(str(v) for v in (aggregation_grain if aggregation_grain is not None else grouping_columns)),
             selected_relationship_route=tuple(deepcopy(selected_relationship_route)),
+            query_scope=resolve_query_scope(context),
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -126,4 +128,5 @@ class SemanticIntentContract:
             "comparison_cohorts": list(self.comparison_cohorts),
             "aggregation_grain": list(self.aggregation_grain),
             "selected_relationship_route": list(self.selected_relationship_route),
+            "query_scope": self.query_scope,
         })
