@@ -163,3 +163,24 @@ async def test_ranked_metric_with_qualifier_not_treated_as_grouping():
         AstraFixtureCatalog(operator_published=False)
     ).assemble("astra", [], "Show top 10 fixtures by fixture count for last month")
     assert "unpublished_grouping_intent" not in context
+
+
+@pytest.mark.asyncio
+async def test_same_entity_column_name_is_valid_grouping_alias():
+    class LocalMetricCatalog(AstraFixtureCatalog):
+        async def list_semantic_entities(self, source_id):
+            return [{
+                "id": 1, "name": "Fixture", "schema_name": "astra",
+                "table_name": "fixtures", "synonyms": ["fixtures"],
+                "attributes": [{
+                    "name": "Charterer Company",
+                    "column_name": "charterer",
+                    "synonyms": [],
+                }],
+            }]
+
+    context = await SemanticContextAssembler(
+        LocalMetricCatalog(operator_published=False)
+    ).assemble("astra", [], "Show fixture count by charterer")
+    assert "unpublished_grouping_intent" not in context
+    assert [metric["name"] for metric in context["metrics"]] == ["Fixture Count"]
