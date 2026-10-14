@@ -523,6 +523,7 @@ class SemanticContextAssembler:
                 def _matches_grouping_attribute(attribute):
                     terms = [
                         attribute.get("name") or "",
+                        attribute.get("column_name") or "",
                         *(attribute.get("synonyms") or []),
                     ]
                     for term in terms:
