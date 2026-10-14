@@ -195,6 +195,33 @@ def classify_relationship_path(
     return "disconnected"
 
 
+def _explicit_grouping_phrase(question: str, metrics: list[dict[str, Any]], metric_ids: set[int]) -> str:
+    """Extract a grouping candidate without confusing ranking-by-measure with a dimension.
+
+    This is intent evidence only; it never grants cross-entity publication.
+    """
+    match = re.search(r"\\b(?:grouped by|group by|by|per)\\s+([a-z][a-z0-9_ ]*)", question.casefold())
+    if not match:
+        return ""
+    phrase = match.group(1).strip()
+    phrase = re.split(r"\\s+(?:for|where|with|having|ordered|sorted|limit|among|in the|on the)\\b", phrase, maxsplit=1)[0].strip()
+    metric_terms = {
+        re.sub(r"[^a-z0-9]+", " ", str(term).casefold()).strip()
+        for metric in metrics if metric.get("id") in metric_ids
+        for term in [metric.get("name") or "", *(metric.get("synonyms") or [])]
+    }
+    measure_prefixes = (
+        "distinct ", "vessel count", "fleet size", "number of ",
+        "count ", "average ", "total ", "percentage ", "sum ",
+    )
+    if phrase.startswith(measure_prefixes) or any(
+        phrase == term or phrase.startswith(term + " ")
+        for term in metric_terms if term
+    ):
+        return ""
+    return phrase
+
+
 class SemanticContextAssembler:
     """Expand vector-search seeds through the authoritative semantic graph."""
 
@@ -481,29 +508,8 @@ class SemanticContextAssembler:
         # only when an authoritative attribute-publication loader exists; old
         # deployments without that contract retain their existing behavior.
         if load_dimensions is not None and explicit_metric_ids:
-            grouping_match = re.search(
-                r"\b(?:grouped by|group by|by|per)\s+([a-z][a-z0-9_ ]*)",
-                question.casefold(),
-            )
-            if grouping_match:
-                grouping_phrase = grouping_match.group(1).strip()
-                # In ranking questions, "operators by distinct vessel count"
-                # describes the measure used for ordering, not a requested
-                # grouping dimension named "distinct vessel count". Do not
-                # reject such queries as unpublished dimensions.
-                measure_prefixes = (
-                    "distinct ", "vessel count", "fleet size", "number of ",
-                    "count ", "average ", "total ", "percentage ", "sum ",
-                )
-                metric_measure_terms = {
-                    re.sub(r"[^a-z0-9]+", " ", str(term).casefold()).strip()
-                    for metric in metrics if metric["id"] in explicit_metric_ids
-                    for term in [metric.get("name") or "", *(metric.get("synonyms") or [])]
-                }
-                if (grouping_phrase.startswith(measure_prefixes)
-                        or any(grouping_phrase == term or grouping_phrase.startswith(term + " ")
-                               for term in metric_measure_terms if term)):
-                    grouping_phrase = ""
+            grouping_phrase = _explicit_grouping_phrase(question, metrics, explicit_metric_ids)
+            if grouping_phrase:
                 published_owners = resolve_published_dimension_owners(
                     "by " + grouping_phrase, published_dimensions,
                 )
