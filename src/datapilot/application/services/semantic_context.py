@@ -200,11 +200,11 @@ def _explicit_grouping_phrase(question: str, metrics: list[dict[str, Any]], metr
 
     This is intent evidence only; it never grants cross-entity publication.
     """
-    match = re.search(r"\\b(?:grouped by|group by|by|per)\\s+([a-z][a-z0-9_ ]*)", question.casefold())
+    match = re.search(r"\b(?:grouped by|group by|by|per)\s+([a-z][a-z0-9_ ]*)", question.casefold())
     if not match:
         return ""
     phrase = match.group(1).strip()
-    phrase = re.split(r"\\s+(?:for|where|with|having|ordered|sorted|limit|among|in the|on the)\\b", phrase, maxsplit=1)[0].strip()
+    phrase = re.split(r"\s+(?:for|where|with|having|ordered|sorted|limit|among|in the|on the)\b", phrase, maxsplit=1)[0].strip()
     metric_terms = {
         re.sub(r"[^a-z0-9]+", " ", str(term).casefold()).strip()
         for metric in metrics if metric.get("id") in metric_ids
