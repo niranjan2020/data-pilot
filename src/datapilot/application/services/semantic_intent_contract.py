@@ -57,6 +57,26 @@ def resolve_published_comparison_cohorts(
     return [{"column_name": column, "values": sorted(values)}]
 
 
+def resolve_query_scope(context: Mapping[str, Any]) -> str:
+    """Classify the selected semantic boundary, not discovered graph edges.
+
+    Relationship metadata alone does not make a single-table question a join.
+    Missing or incomplete entity identity is unknown, never implicitly local.
+    This describes scope; it does not grant SQL join authorization.
+    """
+    entities = context.get("entities") or []
+    if not entities:
+        return "unknown"
+    identities = []
+    for entity in entities:
+        schema = entity.get("schema_name")
+        table = entity.get("table_name")
+        if not isinstance(schema, str) or not schema.strip() or not isinstance(table, str) or not table.strip():
+            return "unknown"
+        identities.append((schema.casefold(), table.casefold()))
+    return "single_entity" if len(set(identities)) == 1 else "cross_entity"
+
+
 @dataclass(frozen=True)
 class SemanticIntentContract:
     metrics: tuple[dict[str, Any], ...]
