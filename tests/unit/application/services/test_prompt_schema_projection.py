@@ -173,3 +173,19 @@ def test_single_entity_projection_with_incidental_relationship_metadata():
             for table in projected.tables] == [
         ("vessels", ["id", "operator", "ownership_status"])
     ]
+
+
+def test_query_scope_is_based_on_selected_entities_not_relationships():
+    from datapilot.application.services.semantic_intent_contract import resolve_query_scope
+
+    local = {
+        "entities": [{"id": 12, "schema_name": "astra", "table_name": "vessels"}],
+        "relationships": [{"from_entity_id": 12, "to_entity_id": 25}],
+    }
+    assert resolve_query_scope(local) == "single_entity"
+    assert resolve_query_scope({"entities": [
+        *local["entities"],
+        {"id": 25, "schema_name": "astra", "table_name": "fixtures"},
+    ]}) == "cross_entity"
+    assert resolve_query_scope({"entities": []}) == "unknown"
+    assert resolve_query_scope({"entities": [{"id": 12, "table_name": "vessels"}]}) == "unknown"
